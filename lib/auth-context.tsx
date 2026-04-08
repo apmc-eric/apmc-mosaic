@@ -3,17 +3,36 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
-import type { Profile, Team, Settings } from '@/lib/types'
+import type { Profile, Team, Settings, WorkspaceSettings } from '@/lib/types'
+import { isDesignerLikeRole, isGuestRole } from '@/lib/mosaic-roles'
+
+function mapWorkspaceRow(row: Record<string, unknown>): WorkspaceSettings {
+  const tc = row.team_categories
+  const pl = row.phase_label_sets
+  return {
+    id: row.id as string,
+    team_categories: Array.isArray(tc) ? (tc as string[]) : [],
+    phase_label_sets:
+      typeof pl === 'object' && pl !== null && !Array.isArray(pl) ? (pl as Record<string, string[]>) : {},
+    whitelisted_domains: Array.isArray(row.whitelisted_domains) ? (row.whitelisted_domains as string[]) : [],
+    created_at: row.created_at as string,
+    updated_at: (row.updated_at as string) ?? (row.created_at as string),
+  }
+}
 
 interface AuthContextType {
   user: User | null
   profile: Profile | null
   settings: Settings | null
+  workspaceSettings: WorkspaceSettings | null
   teams: Team[]
   isLoading: boolean
   isAdmin: boolean
+  isGuest: boolean
+  isDesignerLike: boolean
   refreshProfile: () => Promise<void>
   refreshSettings: () => Promise<void>
+  refreshWorkspaceSettings: () => Promise<void>
   refreshTeams: () => Promise<void>
   signOut: () => Promise<void>
 }
@@ -27,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -78,6 +98,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const refreshWorkspaceSettings = async () => {
+    const { data, error } = await supabase.from('workspace_settings').select('*').limit(1).maybeSingle()
+    if (!error && data) {
+      setWorkspaceSettings(mapWorkspaceRow(data as Record<string, unknown>))
+    } else {
+      setWorkspaceSettings(null)
+    }
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
@@ -103,8 +132,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .select('team_id, team:teams(*)')
             .eq('user_id', session.user.id),
           supabase.from('teams').select('*').order('name'),
-          supabase.from('settings').select('*')
-        ]).then(([profileRes, userTeamsRes, teamsRes, settingsRes]) => {
+          supabase.from('settings').select('*'),
+          supabase.from('workspace_settings').select('*').limit(1).maybeSingle(),
+        ]).then(([profileRes, userTeamsRes, teamsRes, settingsRes, wsRes]) => {
           if (profileRes.data) {
             const userTeams = userTeamsRes.data?.map(ut => ut.team).filter(Boolean) as Team[] ?? []
             setProfile({
@@ -121,6 +151,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               return acc
             }, {} as Record<string, unknown>)
             setSettings(settingsObj as Settings)
+          }
+          if (wsRes.data) {
+            setWorkspaceSettings(mapWorkspaceRow(wsRes.data as Record<string, unknown>))
           }
           setIsLoading(false)
         }).catch(() => {
@@ -168,17 +201,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const isAdmin = profile?.role === 'admin'
+  const isGuest = isGuestRole(profile?.role)
+  const isDesignerLike = isDesignerLikeRole(profile?.role)
 
   return (
     <AuthContext.Provider value={{
       user,
       profile,
       settings,
+      workspaceSettings,
       teams,
       isLoading,
       isAdmin,
+      isGuest,
+      isDesignerLike,
       refreshProfile,
       refreshSettings,
+      refreshWorkspaceSettings,
       refreshTeams,
       signOut
     }}>

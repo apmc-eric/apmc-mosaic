@@ -1,35 +1,31 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { MasonryGrid } from '@/components/masonry-grid'
 import { PostDetailPanel } from '@/components/post-detail-panel'
 import { Heart } from 'lucide-react'
-import type { Post, Tag } from '@/lib/types'
-import { cn } from '@/lib/utils'
+import { inspirationItemToPost, type Post, type InspirationItem } from '@/lib/types'
 
 export default function FavoritesPage() {
   const { profile } = useAuth()
   const [posts, setPosts] = useState<Post[]>([])
   const [selectedPost, setSelectedPost] = useState<Post | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [columns, setColumns] = useState(4)
-
   const supabase = createClient()
 
-  const fetchFavorites = async () => {
+  const fetchFavorites = useCallback(async () => {
     if (!profile) return
 
-    // Simplified query - no complex joins
     const { data, error } = await supabase
-      .from('favorites')
-      .select('post_id')
+      .from('saved_items')
+      .select('inspiration_item_id')
       .eq('user_id', profile.id)
-      .order('created_at', { ascending: false })
+      .order('saved_at', { ascending: false })
 
     if (error) {
-      console.error('Error fetching favorites:', error)
+      console.error('Error fetching saved:', error)
       setIsLoading(false)
       return
     }
@@ -40,47 +36,47 @@ export default function FavoritesPage() {
       return
     }
 
-    // Fetch posts separately
-    const postIds = data.map(f => f.post_id)
-    const { data: postsData, error: postsError } = await supabase
-      .from('posts')
-      .select('*')
-      .in('id', postIds)
+    const ids = data.map((f) => f.inspiration_item_id)
+    const { data: items, error: itemsError } = await supabase
+      .from('inspiration_items')
+      .select('*, profile:profiles!submitted_by(first_name, last_name, id, name, avatar_url, email)')
+      .in('id', ids)
 
-    if (postsError) {
-      console.error('Error fetching posts:', postsError)
+    if (itemsError) {
+      console.error('Error fetching inspiration items:', itemsError)
       setIsLoading(false)
       return
     }
 
-    // Maintain the order from favorites
-    const postsMap = new Map(postsData?.map(p => [p.id, p]) || [])
-    const orderedPosts = postIds
-      .map(id => postsMap.get(id))
+    const map = new Map((items ?? []).map((i) => [i.id, i]))
+    const ordered = ids
+      .map((id) => map.get(id))
       .filter(Boolean)
-      .map(p => ({ ...p, is_favorited: true }))
+      .map((row) =>
+        inspirationItemToPost({ ...(row as InspirationItem), is_saved: true })
+      )
 
-    setPosts(orderedPosts as Post[])
+    setPosts(ordered)
     setIsLoading(false)
-  }
+  }, [profile])
 
   useEffect(() => {
-    fetchFavorites()
-  }, [profile])
+    void fetchFavorites()
+  }, [fetchFavorites])
 
   const handleFavoriteToggle = (postId: string, isFavorited: boolean) => {
     if (!isFavorited) {
-      setPosts(prev => prev.filter(p => p.id !== postId))
+      setPosts((prev) => prev.filter((p) => p.id !== postId))
       setSelectedPost(null)
     }
   }
 
   const handleDeletePost = (postId: string) => {
-    setPosts(prev => prev.filter(p => p.id !== postId))
+    setPosts((prev) => prev.filter((p) => p.id !== postId))
     setSelectedPost(null)
   }
 
-  const responsiveColumns = typeof window !== 'undefined' && window.innerWidth < 768 ? 2 : columns
+  const responsiveColumns = typeof window !== 'undefined' && window.innerWidth < 768 ? 2 : 4
 
   return (
     <>
@@ -89,9 +85,9 @@ export default function FavoritesPage() {
           <div className="flex-1 overflow-auto min-w-0">
             <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
               <div className="mb-6">
-                <h1 className="text-3xl font-serif">Your Favorites</h1>
+                <h1 className="text-3xl font-serif">Saved</h1>
                 <p className="text-muted-foreground mt-1">
-                  {posts.length} saved {posts.length === 1 ? 'inspiration' : 'inspirations'}
+                  {posts.length} saved {posts.length === 1 ? 'item' : 'items'}
                 </p>
               </div>
               <MasonryGrid
@@ -105,6 +101,7 @@ export default function FavoritesPage() {
           <div className="hidden md:block w-1/3 min-w-[380px] max-w-[500px] shrink-0">
             <PostDetailPanel
               post={selectedPost}
+              inspirationMode
               onClose={() => setSelectedPost(null)}
               onFavoriteToggle={handleFavoriteToggle}
               onDelete={handleDeletePost}
@@ -115,9 +112,9 @@ export default function FavoritesPage() {
         <div className="pb-24">
           <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
             <div className="mb-6">
-              <h1 className="text-3xl font-serif">Your Favorites</h1>
+              <h1 className="text-3xl font-serif">Saved</h1>
               <p className="text-muted-foreground mt-1">
-                {posts.length} saved {posts.length === 1 ? 'inspiration' : 'inspirations'}
+                {posts.length} saved {posts.length === 1 ? 'item' : 'items'}
               </p>
             </div>
 
@@ -128,10 +125,8 @@ export default function FavoritesPage() {
             ) : posts.length === 0 ? (
               <div className="text-center py-20">
                 <Heart className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-                <p className="text-muted-foreground">No favorites yet</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Click the heart icon on any inspiration to save it here
-                </p>
+                <p className="text-muted-foreground">Nothing saved yet</p>
+                <p className="text-sm text-muted-foreground mt-1">Use the heart on Inspire cards to save here</p>
               </div>
             ) : (
               <MasonryGrid

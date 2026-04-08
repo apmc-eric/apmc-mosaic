@@ -4,14 +4,18 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { useEffect } from 'react'
-import { Settings, Users, Tag, Layers, Palette } from 'lucide-react'
+import { Settings, Users, Tag, Layers, FolderKanban, ListOrdered, Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const settingsNav = [
   { href: '/settings', label: 'General', icon: Settings },
-  { href: '/settings/users', label: 'Users', icon: Users },
   { href: '/settings/teams', label: 'Teams', icon: Layers },
-  { href: '/settings/tags', label: 'Tags', icon: Tag },
+  { href: '/settings/mosaic/projects', label: 'Projects', icon: FolderKanban },
+  { href: '/settings/mosaic/categories', label: 'Categories', icon: Tag },
+  { href: '/settings/mosaic/phases', label: 'Phase labels', icon: ListOrdered },
+  { href: '/settings/users', label: 'Users', icon: Users },
+  { href: '/settings/mosaic/domains', label: 'Domains', icon: Globe },
+  { href: '/settings/tags', label: 'Tags (legacy)', icon: Tag },
 ]
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -21,7 +25,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (!isLoading && !isAdmin) {
-      router.push('/')
+      router.push('/works')
     }
   }, [isAdmin, isLoading, router])
 

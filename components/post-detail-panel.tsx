@@ -16,12 +16,20 @@ import Link from 'next/link'
 
 interface PostDetailPanelProps {
   post: Post
+  /** Use inspiration_items + saved_items + inspiration_comments */
+  inspirationMode?: boolean
   onClose: () => void
   onFavoriteToggle: (postId: string, isFavorited: boolean) => void
   onDelete?: (postId: string) => void
 }
 
-export function PostDetailPanel({ post, onClose, onFavoriteToggle, onDelete }: PostDetailPanelProps) {
+export function PostDetailPanel({
+  post,
+  inspirationMode = false,
+  onClose,
+  onFavoriteToggle,
+  onDelete,
+}: PostDetailPanelProps) {
   const { profile, isAdmin } = useAuth()
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -31,10 +39,33 @@ export function PostDetailPanel({ post, onClose, onFavoriteToggle, onDelete }: P
 
   useEffect(() => {
     fetchComments()
-    incrementViewCount()
-  }, [post.id])
+    if (!inspirationMode) {
+      void incrementViewCount()
+    }
+  }, [post.id, inspirationMode])
 
   const fetchComments = async () => {
+    if (inspirationMode) {
+      const { data } = await supabase
+        .from('inspiration_comments')
+        .select('*, profile:profiles(id, first_name, last_name, avatar_url)')
+        .eq('inspiration_item_id', post.id)
+        .order('created_at', { ascending: true })
+      if (data) {
+        setComments(
+          data.map((row) => ({
+            id: row.id,
+            post_id: post.id,
+            user_id: row.author_id,
+            content: row.body,
+            created_at: row.created_at,
+            updated_at: row.created_at,
+            profile: row.profile,
+          })) as Comment[]
+        )
+      }
+      return
+    }
     const { data } = await supabase
       .from('comments')
       .select('*, profile:profiles(id, first_name, last_name, avatar_url)')
@@ -51,7 +82,20 @@ export function PostDetailPanel({ post, onClose, onFavoriteToggle, onDelete }: P
     const newState = !isFavorited
     setIsFavorited(newState)
 
-    if (newState) {
+    if (inspirationMode) {
+      if (newState) {
+        await supabase.from('saved_items').insert({
+          inspiration_item_id: post.id,
+          user_id: profile?.id!,
+        })
+      } else {
+        await supabase
+          .from('saved_items')
+          .delete()
+          .eq('inspiration_item_id', post.id)
+          .eq('user_id', profile?.id!)
+      }
+    } else if (newState) {
       await supabase.from('favorites').insert({ post_id: post.id, user_id: profile?.id })
     } else {
       await supabase.from('favorites').delete().eq('post_id', post.id).eq('user_id', profile?.id)
@@ -65,11 +109,17 @@ export function PostDetailPanel({ post, onClose, onFavoriteToggle, onDelete }: P
     if (!newComment.trim()) return
 
     setIsSubmitting(true)
-    const { error } = await supabase.from('comments').insert({
-      post_id: post.id,
-      user_id: profile?.id,
-      content: newComment.trim()
-    })
+    const { error } = inspirationMode
+      ? await supabase.from('inspiration_comments').insert({
+          inspiration_item_id: post.id,
+          author_id: profile?.id!,
+          body: newComment.trim(),
+        })
+      : await supabase.from('comments').insert({
+          post_id: post.id,
+          user_id: profile?.id,
+          content: newComment.trim(),
+        })
     setIsSubmitting(false)
 
     if (error) {
@@ -82,7 +132,10 @@ export function PostDetailPanel({ post, onClose, onFavoriteToggle, onDelete }: P
   }
 
   const handleDeleteComment = async (commentId: string) => {
-    await supabase.from('comments').delete().eq('id', commentId)
+    await supabase
+      .from(inspirationMode ? 'inspiration_comments' : 'comments')
+      .delete()
+      .eq('id', commentId)
     fetchComments()
     toast.success('Comment deleted')
   }
@@ -90,7 +143,10 @@ export function PostDetailPanel({ post, onClose, onFavoriteToggle, onDelete }: P
   const handleDeletePost = async () => {
     if (!confirm('Are you sure you want to delete this post?')) return
 
-    const { error } = await supabase.from('posts').delete().eq('id', post.id)
+    const { error } = await supabase
+      .from(inspirationMode ? 'inspiration_items' : 'posts')
+      .delete()
+      .eq('id', post.id)
     if (error) {
       toast.error('Failed to delete post')
       return

@@ -37,10 +37,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // If user is logged in and trying to access login page
+  // If user is logged in and trying to access login page → app home (role routing on client)
   if (user && request.nextUrl.pathname === '/login') {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    url.pathname = '/works'
     return NextResponse.redirect(url)
   }
 

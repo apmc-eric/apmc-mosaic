@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { AppHeader } from '@/components/app-header'
 import { OnboardingModal } from '@/components/onboarding-modal'
+import { RoleGate } from '@/components/role-gate'
 import { Spinner } from '@/components/ui/spinner'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -51,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col bg-background">
       <AppHeader />
       <main className="flex-1">
-        {children}
+        <RoleGate>{children}</RoleGate>
       </main>
       {showOnboarding && (
         <OnboardingModal

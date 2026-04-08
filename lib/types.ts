@@ -1,3 +1,15 @@
+/** Legacy `user` / `member` may exist until DB migration 009 is applied. */
+export type MosaicRole = 'admin' | 'designer' | 'guest' | 'collaborator' | 'user' | 'member'
+
+export interface WorkspaceSettings {
+  id: string
+  team_categories: string[]
+  phase_label_sets: Record<string, string[]>
+  whitelisted_domains: string[]
+  created_at: string
+  updated_at: string
+}
+
 export interface Settings {
   id: string
   logo_url: string | null
@@ -9,6 +21,7 @@ export interface Settings {
 export interface Team {
   id: string
   name: string
+  description?: string | null
   created_at: string
 }
 
@@ -23,8 +36,9 @@ export interface Profile {
   email: string
   first_name: string | null
   last_name: string | null
+  name: string | null
   avatar_url: string | null
-  role: 'admin' | 'member'
+  role: MosaicRole
   is_active: boolean
   onboarding_complete: boolean
   created_at: string
@@ -96,3 +110,94 @@ export interface SavedView {
 
 export type ContentType = 'url' | 'image' | 'video'
 export type SortOrder = 'newest' | 'oldest' | 'most_views'
+
+/** Mosaic inspiration row (maps to feed UI as Post-like shape) */
+export interface InspirationItem {
+  id: string
+  type: ContentType
+  url: string | null
+  file_ref: string | null
+  title: string
+  note: string | null
+  thumbnail_url: string | null
+  full_screenshot_url: string | null
+  media_url: string | null
+  submitted_by: string
+  created_at: string
+  profile?: Profile
+  comment_count?: number
+  is_saved?: boolean
+}
+
+export interface Project {
+  id: string
+  name: string
+  abbreviation: string
+  team_access: string[]
+  ticket_counter: number
+  created_at: string
+}
+
+export interface Ticket {
+  id: string
+  ticket_id: string
+  title: string
+  description: string | null
+  urls: string[] | null
+  team_category: string | null
+  project_id: string
+  phase: string
+  checkpoint_date: string | null
+  flag: string
+  created_by: string
+  created_at: string
+  updated_at: string
+  project?: Project
+  assignees?: TicketAssigneeRow[]
+}
+
+export interface TicketAssigneeRow {
+  id: string
+  ticket_id: string
+  user_id: string
+  role: 'lead' | 'support'
+  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'email'>
+}
+
+export interface TicketComment {
+  id: string
+  ticket_id: string
+  author_id: string
+  body: string
+  created_at: string
+  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url'>
+}
+
+export interface AuditLogEntry {
+  id: string
+  ticket_id: string
+  field_changed: string
+  previous_value: string | null
+  new_value: string | null
+  changed_by: string
+  changed_at: string
+}
+
+export function inspirationItemToPost(item: InspirationItem): Post {
+  return {
+    id: item.id,
+    user_id: item.submitted_by,
+    type: item.type,
+    title: item.title,
+    description: item.note,
+    url: item.url,
+    thumbnail_url: item.thumbnail_url,
+    full_screenshot_url: item.full_screenshot_url,
+    media_url: item.media_url ?? item.file_ref,
+    view_count: 0,
+    created_at: item.created_at,
+    updated_at: item.created_at,
+    profile: item.profile,
+    is_favorited: item.is_saved,
+  }
+}
