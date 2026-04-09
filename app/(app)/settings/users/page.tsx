@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileImage } from '@/components/profile-image'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
@@ -117,14 +117,17 @@ export default function UsersSettingsPage() {
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <Avatar className="w-8 h-8">
-                          <AvatarImage 
-                            src={user.avatar_url ? `/api/file?pathname=${encodeURIComponent(user.avatar_url)}` : undefined} 
-                          />
-                          <AvatarFallback className="text-xs">
-                            {user.first_name?.[0]}{user.last_name?.[0]}
-                          </AvatarFallback>
-                        </Avatar>
+                        <ProfileImage
+                          pathname={user.avatar_url}
+                          alt={user.name ?? user.email}
+                          size="md"
+                          fallback={
+                            <>
+                              {user.first_name?.[0]}
+                              {user.last_name?.[0]}
+                            </>
+                          }
+                        />
                         <div>
                           <p className="font-medium text-sm">
                             {user.first_name} {user.last_name}
@@ -163,7 +166,7 @@ export default function UsersSettingsPage() {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <Button variant="ghost" size="icon">
                             <MoreHorizontal className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>

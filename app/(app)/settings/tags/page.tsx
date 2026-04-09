@@ -126,7 +126,7 @@ export default function TagsSettingsPage() {
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => handleOpenDialog()}>
-                <Plus className="w-4 h-4 mr-2" />
+                <Plus />
                 Add Tag
               </Button>
             </DialogTrigger>
@@ -227,10 +227,9 @@ export default function TagsSettingsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8"
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => handleOpenDialog(tag)}
                         >
                           <Pencil className="w-4 h-4" />
@@ -238,7 +237,7 @@ export default function TagsSettingsPage() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-destructive"
+                          className="text-destructive"
                           onClick={() => handleDeleteTag(tag.id)}
                         >
                           <Trash2 className="w-4 h-4" />

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { MasonryGrid } from '@/components/masonry-grid'
 import { PostDetailPanel } from '@/components/post-detail-panel'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileImage } from '@/components/profile-image'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { ImageIcon, Heart } from 'lucide-react'
@@ -110,14 +110,18 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
       <div className="shrink-0 border-b border-border bg-background">
         <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
           <div className="flex items-center gap-6 mb-6">
-            <Avatar className="w-20 h-20 border-2 border-border">
-              <AvatarImage
-                src={profileData.avatar_url ? `/api/file?pathname=${encodeURIComponent(profileData.avatar_url)}` : undefined}
-              />
-              <AvatarFallback className="text-2xl">
-                {profileData.first_name?.[0]}{profileData.last_name?.[0]}
-              </AvatarFallback>
-            </Avatar>
+            <ProfileImage
+              pathname={profileData.avatar_url}
+              alt={`${profileData.first_name ?? ''} ${profileData.last_name ?? ''}`.trim() || 'Profile'}
+              size="2xl"
+              className="border-2 border-border"
+              fallback={
+                <>
+                  {profileData.first_name?.[0]}
+                  {profileData.last_name?.[0]}
+                </>
+              }
+            />
             <div>
               <h1 className="text-3xl font-serif">
                 {profileData.first_name} {profileData.last_name}

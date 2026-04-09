@@ -51,7 +51,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <AppHeader />
-      <main className="flex-1">
+      <main className="flex-1 pt-[40px]">
         <RoleGate>{children}</RoleGate>
       </main>
       {showOnboarding && (

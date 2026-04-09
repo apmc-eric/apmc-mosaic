@@ -19,7 +19,7 @@ export default function AuthErrorPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button asChild className="w-full h-11">
+          <Button asChild className="w-full">
             <Link href="/login">Try Again</Link>
           </Button>
         </CardContent>

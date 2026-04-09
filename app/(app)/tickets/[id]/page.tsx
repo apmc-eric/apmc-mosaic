@@ -310,7 +310,7 @@ export default function TicketDetailPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 pb-36 sm:px-6">
       <div className="flex items-center justify-between gap-4 mb-8">
-        <Button variant="ghost" size="sm" asChild className="gap-2">
+        <Button variant="ghost" size="small" asChild>
           <Link href="/works">
             <ArrowLeft className="w-4 h-4" />
             Works
@@ -507,7 +507,7 @@ export default function TicketDetailPage() {
       {canEditAssignees && (
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
-            <Button size="lg" className="w-full sm:w-auto" onClick={() => setCheckpointModalOpen(true)}>
+            <Button className="w-full sm:w-auto" onClick={() => setCheckpointModalOpen(true)}>
               Complete checkpoint
             </Button>
           </div>

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileImage } from '@/components/profile-image'
 import { User, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Team } from '@/lib/types'
@@ -131,12 +131,14 @@ export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProp
 
         <form onSubmit={handleSubmit} className="space-y-6 pt-4">
           <div className="flex flex-col items-center gap-4">
-            <Avatar className="w-20 h-20 border-2 border-border">
-              <AvatarImage src={avatarUrl ? `/api/file?pathname=${encodeURIComponent(avatarUrl)}` : undefined} />
-              <AvatarFallback className="bg-muted">
-                <User className="w-8 h-8 text-muted-foreground" />
-              </AvatarFallback>
-            </Avatar>
+            <ProfileImage
+              pathname={avatarUrl}
+              alt="Your profile photo"
+              size="2xl"
+              className="border-2 border-border"
+              fallbackClassName="bg-muted"
+              fallback={<User className="size-8 text-muted-foreground" aria-hidden />}
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -147,7 +149,7 @@ export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProp
             <Button 
               type="button" 
               variant="outline" 
-              size="sm"
+              size="small"
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
             >

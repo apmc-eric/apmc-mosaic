@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Video, Link2, Heart } from 'lucide-react'
+import { LinkCard } from '@/components/link-card'
+import { getInspireThumbnailUrl, inspirePosterSubtitle } from '@/lib/inspire-post-display'
 import type { Post } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -23,107 +24,55 @@ export function MasonryGrid({ posts, columns = 4, onPostClick, selectedPostId }:
     return cols
   }, [posts, columns])
 
-  const getThumbnailUrl = (post: Post) => {
-    if (post.thumbnail_url) {
-      // If it's an external URL (e.g., from screenshot service), use directly
-      if (post.thumbnail_url.startsWith('http')) {
-        return post.thumbnail_url
-      }
-      return `/api/file?pathname=${encodeURIComponent(post.thumbnail_url)}`
-    }
-    if (post.media_url) {
-      return `/api/file?pathname=${encodeURIComponent(post.media_url)}`
-    }
-    return null
-  }
-
   return (
-    <div 
+    <div
       className="grid gap-4"
       style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
     >
       {distributeColumns.map((column, colIndex) => (
         <div key={colIndex} className="flex flex-col gap-4">
           {column.map((post) => {
-            const thumbnailUrl = getThumbnailUrl(post)
+            const thumbnailUrl = getInspireThumbnailUrl(post)
             const isHovered = hoveredId === post.id
             const isSelected = selectedPostId === post.id
+
+            const videoMedia =
+              post.type === 'video' && post.media_url && isHovered ? (
+                <video
+                  src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
+                  className="size-full object-cover"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                />
+              ) : undefined
 
             return (
               <button
                 key={post.id}
+                type="button"
                 onClick={() => onPostClick(post)}
                 onMouseEnter={() => setHoveredId(post.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 className={cn(
-                  "relative group rounded-lg overflow-hidden bg-muted transition-all duration-200",
-                  "border focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
-                  isSelected ? "border-2 border-foreground ring-2 ring-foreground ring-offset-2 bg-muted/80" : "border-black/5"
+                  'group w-full min-w-0 cursor-pointer text-left transition-colors duration-200',
+                  'rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                  isSelected
+                    ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
+                    : '',
                 )}
               >
-                {thumbnailUrl ? (
-                  <div className="w-full aspect-video overflow-hidden">
-                    {post.type === 'video' && isHovered ? (
-                      <video
-                        src={`/api/file?pathname=${encodeURIComponent(post.media_url!)}`}
-                        className="w-full h-full object-cover"
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                      />
-                    ) : (
-                      <img
-                        src={thumbnailUrl}
-                        alt={post.title}
-                        className={cn(
-                          "w-full h-full object-cover transition-transform duration-300 group-hover:scale-105",
-                          post.type === 'url' && "object-top"
-                        )}
-                        loading="lazy"
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <div className="w-full aspect-video flex items-center justify-center bg-muted">
-                    <span className="text-muted-foreground text-sm">{post.title}</span>
-                  </div>
-                )}
-
-                {post.is_favorited && (
-                  <div className="absolute top-2 left-2 w-6 h-6 rounded-md bg-red-500 flex items-center justify-center">
-                    <Heart className="w-3.5 h-3.5 text-white fill-white" />
-                  </div>
-                )}
-
-                {post.type === 'video' && (
-                  <div className="absolute top-2 right-2 w-6 h-6 rounded-md bg-background/80 backdrop-blur-sm flex items-center justify-center">
-                    <Video className="w-3.5 h-3.5 text-foreground" />
-                  </div>
-                )}
-
-                {post.type === 'url' && (
-                  <div className="absolute top-2 right-2 w-6 h-6 rounded-md bg-background/80 backdrop-blur-sm flex items-center justify-center">
-                    <Link2 className="w-3.5 h-3.5 text-foreground" />
-                  </div>
-                )}
-
-                <div 
-                  className={cn(
-                    "absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent",
-                    "opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                  )}
+                <LinkCard
+                  title={post.title}
+                  subtitle={inspirePosterSubtitle(post)}
+                  imageUrl={thumbnailUrl}
+                  imageAlt={post.title}
+                  media={videoMedia}
+                  emptyPlaceholder={post.title}
+                  favorited={post.is_favorited}
+                  contentType={post.type}
                 />
-                <div 
-                  className={cn(
-                    "absolute bottom-0 left-0 right-0 p-3",
-                    "opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                  )}
-                >
-                  <p className="text-white text-sm font-medium truncate text-balance">
-                    {post.title}
-                  </p>
-                </div>
               </button>
             )
           })}

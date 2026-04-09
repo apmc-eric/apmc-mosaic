@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileImage } from '@/components/profile-image'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { Profile, Team } from '@/lib/types'
@@ -90,14 +90,17 @@ export default function TeamDirectoryPage() {
             <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage 
-                      src={member.avatar_url ? `/api/file?pathname=${encodeURIComponent(member.avatar_url)}` : undefined} 
-                    />
-                    <AvatarFallback>
-                      {member.first_name?.[0]}{member.last_name?.[0]}
-                    </AvatarFallback>
-                  </Avatar>
+                  <ProfileImage
+                    pathname={member.avatar_url}
+                    alt={member.name ?? member.email}
+                    size="xl"
+                    fallback={
+                      <>
+                        {member.first_name?.[0]}
+                        {member.last_name?.[0]}
+                      </>
+                    }
+                  />
                   
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">

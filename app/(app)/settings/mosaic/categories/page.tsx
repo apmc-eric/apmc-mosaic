@@ -71,7 +71,7 @@ export default function MosaicCategoriesPage() {
         {rows.map((r) => (
           <li key={r} className="flex items-center justify-between border border-border rounded-md px-3 py-2 text-sm">
             {r}
-            <Button type="button" variant="ghost" size="sm" onClick={() => remove(r)}>
+            <Button type="button" variant="ghost" size="small" onClick={() => remove(r)}>
               Remove
             </Button>
           </li>

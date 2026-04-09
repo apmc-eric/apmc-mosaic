@@ -131,7 +131,7 @@ export default function TeamsSettingsPage() {
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => handleOpenDialog()}>
-                <Plus className="w-4 h-4 mr-2" />
+                <Plus />
                 Add Team
               </Button>
             </DialogTrigger>
@@ -195,7 +195,6 @@ export default function TeamsSettingsPage() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8"
                           onClick={() => handleOpenDialog(team)}
                         >
                           <Pencil className="w-4 h-4" />
@@ -203,7 +202,7 @@ export default function TeamsSettingsPage() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-destructive"
+                          className="text-destructive"
                           onClick={() => handleDeleteTeam(team.id)}
                         >
                           <Trash2 className="w-4 h-4" />

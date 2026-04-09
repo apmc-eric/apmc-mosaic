@@ -1,0 +1,54 @@
+---
+description: Map Figma variables to Tailwind when implementing UI from Figma
+globs: "**/*.{tsx,css}"
+alwaysApply: true
+---
+
+# Figma variables → Tailwind (this project)
+
+When translating Figma Dev Mode / variables into code, prefer these mappings so spacing and type match the design system.
+
+## Spacing
+
+| Figma variable | Tailwind |
+|----------------|----------|
+| `--spacing-2-5` (10px) | `p-2.5`, `px-2.5`, `py-2.5`, `gap-2.5` as context requires |
+| `--spacing-1-5` (6px) | `p-1.5`, `gap-1.5`, etc. |
+
+Use **`gap-1.5`** for flex gap between icon and label when Figma shows `gap: var(--spacing-1-5)`. Use **`p-2.5`** for button padding when layout shows `padding: var(--spacing-2-5)`.
+
+## Page layout grid (Figma → code)
+
+Figma frames use a fixed width (often **1600px**); Figma cannot express `%` widths, but in the product layouts are **edge-to-edge** and **scale with the viewport** while keeping **column proportions** (type and fine UI use fixed/rem scales as usual).
+
+- **12 columns**, **24px gutters** → `grid-cols-12` + **`gap-x-6`** (and `gap-y-6` when the grid has multiple rows).
+- **24px side margins** → **`px-6`** on the grid container (or the full-width shell that wraps page content).
+- Prefer **proportional columns** (`1fr` × 12) so the grid grows on wide browsers; avoid hard-coding pixel column widths from the 1600px canvas unless matching a non-scaling asset.
+- **GlobalNav**: logo block **`md:col-span-2`**, nav + profile region **`md:col-span-10`**, with links and avatar **`justify-between`** inside that region. Below `md`, stack logo and control row (`flex flex-col`) with the same **`px-6`** margin.
+
+## Typography
+
+| Figma variable | Tailwind / tokens |
+|----------------|-------------------|
+| `--font-font-sans` | `font-sans` |
+| `--text-xs-font-size` | `text-xs` |
+| `font-weight/medium` | `font-medium` |
+| `line-height: 100%` / tight body | `leading-none` |
+| **mono-micro** (Geist Mono 12px / 16px, tracking 2.5) | **`font-mono text-mono-micro`** or class **`.type-mono-micro`**; CSS vars **`--type-mono-micro-size`**, **`--type-mono-micro-leading`**, **`--type-mono-micro-tracking`** in `app/globals.css` |
+
+Add new Figma text styles that don’t match a default Tailwind step as **`--type-*`** in `:root`, then wire **`--text-*`** (+ `--line-height` / `--letter-spacing` subkeys) under `@theme inline` when you need a matching **`text-*`** utility.
+
+## Layout notes from Figma Button
+
+- `display: inline-flex` → `inline-flex`
+- `align-items: flex-start` → `items-start` (when the inspected component uses it)
+
+## Components
+
+- Reuse `@/components/ui/button` and its variants; avoid ad-hoc `h-11`, `h-12`, `px-6`, `rounded-full` on primary actions unless a specific screen spec diverges.
+- Prefer design tokens in `app/globals.css` for colors when they align; use literal Figma colors (e.g. black / `#e5e5e5`) only when the file uses those explicitly.
+
+## Icons
+
+- This app uses **`lucide-react`** as the icon library. When implementing UI from Figma (or adding icons anywhere in this repo), use the **closest Lucide equivalent** to the Figma icon (same metaphor: e.g. user → `User`, settings → `Settings`, external link → `ExternalLink`, heart → `Heart`, grid/kanban → `LayoutGrid` or `Kanban` as context fits).
+- Import from `lucide-react`; do not add other icon packs for standard UI glyphs unless the user explicitly asks.

@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileImage } from '@/components/profile-image'
 import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
 import type { Project, Ticket, TicketAssigneeRow } from '@/lib/types'
@@ -270,14 +270,14 @@ export default function WorksPage() {
         )}
         <div className="flex -space-x-2">
           {assignees.map((a) => (
-            <Avatar key={a.id} className="w-7 h-7 border-2 border-background">
-              <AvatarImage
-                src={a.profile?.avatar_url ? `/api/file?pathname=${encodeURIComponent(a.profile.avatar_url)}` : undefined}
-              />
-              <AvatarFallback className="text-[0.6rem]">
-                {(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <ProfileImage
+              key={a.id}
+              pathname={a.profile?.avatar_url}
+              alt={formatProfileLabel(a.profile) ?? 'Assignee'}
+              size="small"
+              className="border-2 border-background"
+              fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+            />
           ))}
           {overflow > 0 && (
             <div className="w-7 h-7 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[0.6rem]">
@@ -317,8 +317,7 @@ export default function WorksPage() {
             <Button
               type="button"
               variant={projectFilter === 'all' ? 'default' : 'outline'}
-              size="sm"
-              className="rounded-full font-mono text-xs uppercase"
+              size="small"
               onClick={() => setProjectFilter('all')}
             >
               All
@@ -334,8 +333,7 @@ export default function WorksPage() {
                   key={p.id}
                   type="button"
                   variant={projectFilter === p.id ? 'default' : 'outline'}
-                  size="sm"
-                  className="rounded-full font-mono text-xs uppercase"
+                  size="small"
                   onClick={() => setProjectFilter(p.id)}
                 >
                   {p.name}
@@ -380,11 +378,10 @@ export default function WorksPage() {
 
       <Button
         type="button"
-        size="lg"
-        className="fixed bottom-6 right-6 h-12 px-5 rounded-full shadow-lg z-40"
+        className="fixed bottom-6 right-6 z-40 shadow-lg"
         onClick={() => setSubmitOpen(true)}
       >
-        <Plus className="w-5 h-5 mr-2" />
+        <Plus />
         New ticket
       </Button>
 
@@ -403,7 +400,7 @@ export default function WorksPage() {
           className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden border-l bg-background/95 p-0 backdrop-blur sm:max-w-lg"
           headerActions={
             panelTicket ? (
-              <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" asChild>
+              <Button variant="ghost" size="icon" className="shrink-0" asChild>
                 <Link
                   href={`/tickets/${panelTicket.id}`}
                   aria-label="Open full page"
@@ -508,18 +505,13 @@ export default function WorksPage() {
                       <ul className="mt-3 space-y-3">
                         {(panelTicket.assignees ?? []).map((a: TicketAssigneeRow) => (
                           <li key={a.id} className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8 border border-border">
-                              <AvatarImage
-                                src={
-                                  a.profile?.avatar_url
-                                    ? `/api/file?pathname=${encodeURIComponent(a.profile.avatar_url)}`
-                                    : undefined
-                                }
-                              />
-                              <AvatarFallback className="text-[0.65rem]">
-                                {(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
+                            <ProfileImage
+                              pathname={a.profile?.avatar_url}
+                              alt={formatProfileLabel(a.profile) ?? 'Assignee'}
+                              size="md"
+                              className="border border-border"
+                              fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                            />
                             <div>
                               <p className="font-medium leading-none">{formatProfileLabel(a.profile)}</p>
                               <p className="text-muted-foreground mt-1 text-xs capitalize">{a.role}</p>
@@ -556,7 +548,6 @@ export default function WorksPage() {
                 <div className="shrink-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
                   <Button
                     type="button"
-                    size="lg"
                     className="w-full"
                     onClick={() => setCheckpointModalOpen(true)}
                   >

@@ -107,8 +107,12 @@ export function FilterBar({
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className={cn("h-9", hasActiveFilters && "border-foreground")}>
-            <Filter className="w-4 h-4 mr-2" />
+          <Button
+            variant="outline"
+            size="small"
+            className={cn(hasActiveFilters && "border-foreground")}
+          >
+            <Filter />
             Filters
             {hasActiveFilters && (
               <span className="ml-1 text-xs bg-foreground text-background rounded-full w-5 h-5 flex items-center justify-center">
@@ -163,8 +167,8 @@ export function FilterBar({
       {savedViews.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-9">
-              <Bookmark className="w-4 h-4 mr-2" />
+            <Button variant="outline" size="small">
+              <Bookmark />
               Views
             </Button>
           </DropdownMenuTrigger>
@@ -183,8 +187,8 @@ export function FilterBar({
 
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-9">
-            <Plus className="w-4 h-4 mr-2" />
+          <Button variant="ghost" size="small">
+            <Plus />
             Save View
           </Button>
         </DialogTrigger>
@@ -211,33 +215,36 @@ export function FilterBar({
       </Dialog>
 
       <div className="ml-auto flex items-center gap-1 border rounded-md p-0.5">
-        <button
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => onColumnsChange(2)}
-          className={cn(
-            "p-1.5 rounded transition-colors",
-            columns === 2 ? "bg-secondary" : "hover:bg-secondary/50"
-          )}
+          className={cn(columns === 2 && 'bg-secondary', columns !== 2 && 'hover:bg-secondary/50')}
+          aria-label="2 columns"
         >
-          <Grid2X2 className="w-4 h-4" />
-        </button>
-        <button
+          <Grid2X2 className="!size-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => onColumnsChange(3)}
-          className={cn(
-            "p-1.5 rounded transition-colors",
-            columns === 3 ? "bg-secondary" : "hover:bg-secondary/50"
-          )}
+          className={cn(columns === 3 && 'bg-secondary', columns !== 3 && 'hover:bg-secondary/50')}
+          aria-label="3 columns"
         >
-          <Grid3X3 className="w-4 h-4" />
-        </button>
-        <button
+          <Grid3X3 className="!size-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => onColumnsChange(4)}
-          className={cn(
-            "p-1.5 rounded transition-colors",
-            columns === 4 ? "bg-secondary" : "hover:bg-secondary/50"
-          )}
+          className={cn(columns === 4 && 'bg-secondary', columns !== 4 && 'hover:bg-secondary/50')}
+          aria-label="4 columns"
         >
-          <LayoutGrid className="w-4 h-4" />
-        </button>
+          <LayoutGrid className="!size-4" />
+        </Button>
       </div>
     </div>
   )

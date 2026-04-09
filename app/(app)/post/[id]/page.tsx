@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ProfileImage } from '@/components/profile-image'
 import { ArrowLeft, Heart, ExternalLink, Calendar, Eye, MessageCircle, Send, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
@@ -143,13 +143,16 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
-      <button 
+      <Button
+        type="button"
+        variant="ghost"
+        size="small"
         onClick={() => router.back()}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6"
+        className="mb-6 text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="w-4 h-4" />
+        <ArrowLeft />
         Back
-      </button>
+      </Button>
 
       <div className="space-y-6">
         {thumbnailUrl && (
@@ -201,24 +204,24 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
         <div className="flex items-center gap-2">
           <Button
             variant={isFavorited ? "default" : "outline"}
-            size="sm"
+            size="small"
             onClick={handleFavoriteToggle}
             className={cn(isFavorited && "bg-red-500 hover:bg-red-600 border-red-500")}
           >
-            <Heart className={cn("w-4 h-4 mr-1", isFavorited && "fill-current")} />
+            <Heart className={cn(isFavorited && 'fill-current')} />
             {isFavorited ? 'Saved' : 'Save'}
           </Button>
           {post.url && (
-            <Button variant="outline" size="sm" asChild>
+            <Button variant="outline" size="small" asChild>
               <a href={post.url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="w-4 h-4 mr-1" />
+                <ExternalLink />
                 Visit
               </a>
             </Button>
           )}
           {(isAdmin || post.user_id === profile?.id) && (
-            <Button variant="ghost" size="sm" onClick={handleDeletePost} className="ml-auto text-destructive">
-              <Trash2 className="w-4 h-4 mr-1" />
+            <Button variant="ghost" size="small" onClick={handleDeletePost} className="ml-auto text-destructive">
+              <Trash2 />
               Delete
             </Button>
           )}
@@ -257,14 +260,17 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
             href={`/profile/${post.profile.id}`}
             className="flex items-center gap-3 p-3 rounded-lg bg-muted/50"
           >
-            <Avatar className="w-10 h-10">
-              <AvatarImage 
-                src={post.profile.avatar_url ? `/api/file?pathname=${encodeURIComponent(post.profile.avatar_url)}` : undefined} 
-              />
-              <AvatarFallback>
-                {post.profile.first_name?.[0]}{post.profile.last_name?.[0]}
-              </AvatarFallback>
-            </Avatar>
+            <ProfileImage
+              pathname={post.profile.avatar_url}
+              alt={`${post.profile.first_name ?? ''} ${post.profile.last_name ?? ''}`.trim() || 'Author'}
+              size="default"
+              fallback={
+                <>
+                  {post.profile.first_name?.[0]}
+                  {post.profile.last_name?.[0]}
+                </>
+              }
+            />
             <div>
               <p className="font-medium">
                 {post.profile.first_name} {post.profile.last_name}
@@ -296,14 +302,18 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
           <div className="space-y-4">
             {comments.map((comment) => (
               <div key={comment.id} className="flex gap-3">
-                <Avatar className="w-8 h-8 shrink-0">
-                  <AvatarImage 
-                    src={comment.profile?.avatar_url ? `/api/file?pathname=${encodeURIComponent(comment.profile.avatar_url)}` : undefined} 
-                  />
-                  <AvatarFallback className="text-xs">
-                    {comment.profile?.first_name?.[0]}{comment.profile?.last_name?.[0]}
-                  </AvatarFallback>
-                </Avatar>
+                <ProfileImage
+                  pathname={comment.profile?.avatar_url}
+                  alt={`${comment.profile?.first_name ?? ''} ${comment.profile?.last_name ?? ''}`.trim() || 'Commenter'}
+                  size="md"
+                  className="shrink-0"
+                  fallback={
+                    <>
+                      {comment.profile?.first_name?.[0]}
+                      {comment.profile?.last_name?.[0]}
+                    </>
+                  }
+                />
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">

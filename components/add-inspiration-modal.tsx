@@ -416,24 +416,30 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
             )}
 
             <div className="flex justify-end pt-2">
-              <Button onClick={handleNext} disabled={isFetchingMeta} className="min-w-36">
-                {isFetchingMeta
-                  ? <><Loader2 className="w-4 h-4 animate-spin" />Preparing your Inspo...</>
-                  : 'Next'
-                }
+              <Button onClick={handleNext} disabled={isFetchingMeta}>
+                {isFetchingMeta ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Preparing your Inspo...
+                  </>
+                ) : (
+                  'Next'
+                )}
               </Button>
             </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="small"
               onClick={() => setStep('input')}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground hover:text-foreground"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft />
               Back
-            </button>
+            </Button>
 
             {/* Preview — for link mode show section when we have image or when URL (so Grab Screenshot is available) */}
             {((autoThumbnailUrl || file || thumbnail) || (detectedType === 'url' && url)) && (
@@ -476,13 +482,16 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
                     </div>
                   )}
                   {thumbnail && (
-                    <button
+                    <Button
                       type="button"
+                      variant="secondary"
+                      size="icon-sm"
                       onClick={() => setThumbnail(null)}
-                      className="absolute top-2 right-2 w-6 h-6 rounded-md bg-background/80 backdrop-blur-sm flex items-center justify-center hover:bg-background transition-colors"
+                      className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm hover:bg-background"
+                      aria-label="Remove thumbnail"
                     >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                      <X className="!size-3.5" />
+                    </Button>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -490,18 +499,20 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
                     <Button
                       type="button"
                       variant="outline"
-                      size="sm"
+                      size="small"
                       onClick={handleGrabScreenshot}
                       disabled={isGrabbingScreenshot}
                     >
                       {isGrabbingScreenshot ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="!size-3.5 animate-spin" />
                       ) : (
-                        <Camera className="w-3.5 h-3.5" />
+                        <Camera className="!size-3.5" />
                       )}
-                      <span className="ml-1.5">
-                        {isGrabbingScreenshot ? 'Grabbing…' : usedScreenshot ? 'Replace with new screenshot' : 'Grab Screenshot'}
-                      </span>
+                      {isGrabbingScreenshot
+                        ? 'Grabbing…'
+                        : usedScreenshot
+                          ? 'Replace with new screenshot'
+                          : 'Grab Screenshot'}
                     </Button>
                   )}
                   <input
@@ -511,14 +522,16 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
                     onChange={handleThumbnailChange}
                     className="hidden"
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="small"
                     onClick={() => thumbnailInputRef.current?.click()}
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    className="h-auto text-muted-foreground hover:text-foreground"
                   >
-                    <Upload className="w-3 h-3" />
+                    <Upload className="!size-3" />
                     {thumbnail ? 'Replace thumbnail' : 'Upload your own thumbnail'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -562,23 +575,22 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
                 <Label>Tags</Label>
                 <div className="flex flex-wrap gap-2">
                   {tags.map((tag) => (
-                    <button
+                    <Button
                       key={tag.id}
                       type="button"
+                      variant={selectedTags.includes(tag.id) ? 'default' : 'outline'}
+                      size="small"
                       onClick={() => handleTagToggle(tag.id)}
-                      className={cn(
-                        "px-3 py-1 rounded-full text-sm border transition-colors",
-                        selectedTags.includes(tag.id)
-                          ? "border-foreground bg-foreground text-background"
-                          : "border-border hover:border-foreground/50"
-                      )}
+                      className="rounded-full text-sm"
                     >
-                      <span 
-                        className="w-2 h-2 rounded-full inline-block mr-1.5" 
-                        style={{ backgroundColor: selectedTags.includes(tag.id) ? 'currentColor' : tag.color }} 
+                      <span
+                        className="mr-1.5 inline-block size-2 rounded-full"
+                        style={{
+                          backgroundColor: selectedTags.includes(tag.id) ? 'currentColor' : tag.color,
+                        }}
                       />
                       {tag.name}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -588,7 +600,7 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
               <Button type="button" variant="outline" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button id="submit-inspo" type="submit" disabled={isLoading} className="min-w-24">
+              <Button id="submit-inspo" type="submit" disabled={isLoading}>
                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Add Inspiration'}
               </Button>
             </div>

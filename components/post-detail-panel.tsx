@@ -5,14 +5,105 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Input } from '@/components/ui/input'
+import { ProfileImage } from '@/components/profile-image'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { X, Heart, ExternalLink, Calendar, Eye, MessageCircle, Send, Trash2, Link2 } from 'lucide-react'
+import { UserComment } from '@/components/user-comment'
+import {
+  X,
+  Heart,
+  Bookmark,
+  ExternalLink,
+  Calendar,
+  Eye,
+  MessageCircle,
+  Send,
+  Trash2,
+  Link2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
-import type { Post, Comment } from '@/lib/types'
+import type { Comment, MosaicRole, Post } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
+
+function roleSubtitle(role: MosaicRole | null | undefined): string | null {
+  if (!role) return null
+  const labels: Record<MosaicRole, string> = {
+    admin: 'Admin',
+    designer: 'Designer',
+    guest: 'Guest',
+    collaborator: 'Collaborator',
+    user: 'User',
+    member: 'Member',
+  }
+  return labels[role] ?? null
+}
+
+function commentDisplayName(profile?: Comment['profile']) {
+  return (
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'Someone'
+  )
+}
+
+function OverlayMediaPane({
+  post,
+  thumbnailUrl,
+  fullScreenshotUrl,
+}: {
+  post: Post
+  thumbnailUrl: string | null
+  fullScreenshotUrl: string | null
+}) {
+  const inner = (() => {
+    if (post.type === 'video' && post.media_url) {
+      return (
+        <video
+          src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
+          controls
+          className="max-h-full max-w-full object-contain"
+        />
+      )
+    }
+
+    if (post.type === 'url') {
+      const src = fullScreenshotUrl || thumbnailUrl
+      if (!src) return null
+      return (
+        <div className="flex max-h-full w-full max-w-[540px] items-center justify-center">
+          <div className="relative max-h-full w-full overflow-hidden rounded-md border border-black/10">
+            <img
+              src={src}
+              alt={post.title}
+              className="h-auto w-full max-w-[540px] object-contain object-top"
+            />
+            <div className="pointer-events-none absolute right-2 top-2 flex size-6 items-center justify-center rounded-md bg-background/80 backdrop-blur-sm">
+              <Link2 className="size-3.5 text-foreground" aria-hidden />
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    const src =
+      thumbnailUrl ||
+      (post.media_url ? `/api/file?pathname=${encodeURIComponent(post.media_url)}` : null)
+    if (!src) return null
+    return (
+      <img src={src} alt={post.title} className="max-h-full max-w-full object-contain" />
+    )
+  })()
+
+  return (
+    <div
+      className="relative aspect-[696/618] w-full min-w-0 overflow-hidden rounded-[10px] bg-zinc-100"
+      data-name="ContentWindow (80%)"
+      data-node-id="149:2599"
+    >
+      <div className="absolute inset-0 flex items-center justify-center p-10">{inner}</div>
+    </div>
+  )
+}
 
 interface PostDetailPanelProps {
   post: Post
@@ -21,6 +112,10 @@ interface PostDetailPanelProps {
   onClose: () => void
   onFavoriteToggle: (postId: string, isFavorited: boolean) => void
   onDelete?: (postId: string) => void
+  /** e.g. modal: `border-l-0` / height constraints */
+  className?: string
+  /** Figma **OverlayViewer** two-column layout (Inspire modal). */
+  layout?: 'split' | 'overlay'
 }
 
 export function PostDetailPanel({
@@ -29,6 +124,8 @@ export function PostDetailPanel({
   onClose,
   onFavoriteToggle,
   onDelete,
+  className,
+  layout = 'split',
 }: PostDetailPanelProps) {
   const { profile, isAdmin } = useAuth()
   const [comments, setComments] = useState<Comment[]>([])
@@ -45,10 +142,13 @@ export function PostDetailPanel({
   }, [post.id, inspirationMode])
 
   const fetchComments = async () => {
+    const profileSelect =
+      'id, first_name, last_name, avatar_url, role'
+
     if (inspirationMode) {
       const { data } = await supabase
         .from('inspiration_comments')
-        .select('*, profile:profiles(id, first_name, last_name, avatar_url)')
+        .select(`*, profile:profiles(${profileSelect})`)
         .eq('inspiration_item_id', post.id)
         .order('created_at', { ascending: true })
       if (data) {
@@ -61,14 +161,14 @@ export function PostDetailPanel({
             created_at: row.created_at,
             updated_at: row.created_at,
             profile: row.profile,
-          })) as Comment[]
+          })) as Comment[],
         )
       }
       return
     }
     const { data } = await supabase
       .from('comments')
-      .select('*, profile:profiles(id, first_name, last_name, avatar_url)')
+      .select(`*, profile:profiles(${profileSelect})`)
       .eq('post_id', post.id)
       .order('created_at', { ascending: true })
     if (data) setComments(data as Comment[])
@@ -180,53 +280,225 @@ export function PostDetailPanel({
     ? [post.profile.first_name, post.profile.last_name].filter(Boolean).join(' ') || 'Someone'
     : 'Someone'
 
+  const commentNodes = (
+    <>
+      {comments.map((comment) => (
+        <UserComment
+          key={comment.id}
+          name={commentDisplayName(comment.profile)}
+          subtitle={roleSubtitle(comment.profile?.role)}
+          timeAgo={formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+          body={comment.content}
+          avatarPathname={comment.profile?.avatar_url}
+          avatarFallback={
+            <>
+              {comment.profile?.first_name?.[0]}
+              {comment.profile?.last_name?.[0]}
+            </>
+          }
+          showDelete={isAdmin || comment.user_id === profile?.id}
+          onDelete={() => handleDeleteComment(comment.id)}
+        />
+      ))}
+      {comments.length === 0 ? (
+        <p className="py-4 text-center text-sm text-muted-foreground">No comments yet</p>
+      ) : null}
+    </>
+  )
+
+  if (layout === 'overlay') {
+    return (
+      <div
+        className={cn(
+          'relative grid min-h-0 w-full grid-cols-1 gap-4 overflow-hidden sm:max-h-[min(85dvh,calc(100dvh-4rem))] sm:grid-cols-[minmax(0,1fr)_minmax(0,380px)] sm:items-stretch sm:gap-6 sm:p-5',
+          className,
+        )}
+        data-name="OverlayView"
+      >
+        <div
+          className="absolute right-4 top-4 z-10 flex justify-end sm:right-4 sm:top-4"
+          data-name="WindowControls"
+          data-node-id="183:12113"
+        >
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+            <X />
+          </Button>
+        </div>
+
+        <OverlayMediaPane
+          post={post}
+          thumbnailUrl={thumbnailUrl}
+          fullScreenshotUrl={fullScreenshotUrl}
+        />
+
+        <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col sm:max-w-[380px]">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pb-2 pt-3 sm:min-h-0 sm:px-0 sm:pb-0 sm:pt-1.5">
+            <header
+              className="flex shrink-0 flex-col border-b border-black/10 pb-6 pt-1.5"
+              data-name="Header"
+              data-node-id="149:2600"
+            >
+              <div className="min-w-0 space-y-1.5 pr-9">
+                <h2 className="truncate text-base font-bold leading-none text-foreground" title={post.title}>
+                  {post.title}
+                </h2>
+                <p className="text-xs font-medium leading-4 text-foreground/50">
+                  Posted by{' '}
+                  {post.profile ? (
+                    <Link href={`/profile/${post.profile.id}`} className="hover:underline">
+                      {posterName}
+                    </Link>
+                  ) : (
+                    posterName
+                  )}
+                  {' · '}
+                  {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                </p>
+              </div>
+              {post.description ? (
+                <p className="mt-3 mb-4 text-sm leading-5 text-foreground/80">{post.description}</p>
+              ) : null}
+              <div
+                className={cn(
+                  'flex w-full items-center justify-between gap-3',
+                  !post.description && 'mt-3',
+                )}
+                data-name="ControlsWrapper"
+                data-node-id="187:12225"
+              >
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" data-name="Left">
+                  {post.url ? (
+                    <Button variant="secondary" size="small" className="shrink-0 shadow-none" asChild>
+                      <a href={post.url} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink aria-hidden />
+                        Open Link
+                      </a>
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="shadow-none"
+                    onClick={handleFavoriteToggle}
+                    aria-label={isFavorited ? 'Remove from saved' : 'Save'}
+                  >
+                    <Bookmark className={cn(isFavorited && 'fill-current text-foreground')} />
+                  </Button>
+                </div>
+                {(isAdmin || post.user_id === profile?.id) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="text-destructive shadow-none hover:text-destructive"
+                    onClick={handleDeletePost}
+                    aria-label="Delete inspiration"
+                  >
+                    <Trash2 />
+                  </Button>
+                ) : null}
+              </div>
+            </header>
+
+            <ScrollArea className="min-h-[120px] flex-1 pr-2" data-name="CommentsWrapper">
+              <div className="flex flex-col gap-6 pb-10 pt-1" data-name="CommentStack">
+                {commentNodes}
+              </div>
+            </ScrollArea>
+          </div>
+
+          <form
+            onSubmit={handleSubmitComment}
+            className="mt-auto shrink-0 px-4 pb-4 sm:px-0 sm:pb-0"
+            data-name="CommentBox(Absolute Positioned)"
+          >
+            <div
+              className="flex flex-1 items-center gap-2 rounded-xl border border-black/5 bg-neutral-100 py-1.5 pl-3 pr-1.5"
+              data-name="CommentInput"
+            >
+              <Input
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Your message here..."
+                className="h-8 border-0 bg-transparent font-sans text-sm shadow-none focus-visible:ring-0"
+              />
+              <Button
+                type="submit"
+                variant="default"
+                size="default"
+                className="shrink-0 px-3 shadow-none"
+                disabled={isSubmitting || !newComment.trim()}
+              >
+                Comment
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="h-full flex flex-col bg-background border-l border-border">
+    <div
+      className={cn(
+        'flex h-full min-h-0 flex-col border-l border-border bg-background',
+        className,
+      )}
+    >
       {/* Header: title + posted by (left), Save / Visit / Delete / Close (right) */}
-      <div className="flex items-center justify-between gap-4 p-4 border-b border-border shrink-0">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border p-4">
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-serif font-medium truncate">{post.title}</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            posted by {post.profile ? (
+          <h2 className="truncate font-serif text-lg font-medium">{post.title}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            posted by{' '}
+            {post.profile ? (
               <Link href={`/profile/${post.profile.id}`} className="hover:underline">
                 {posterName}
               </Link>
-            ) : posterName}
+            ) : (
+              posterName
+            )}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
-            variant={isFavorited ? "default" : "outline"}
-            size="sm"
+            variant={isFavorited ? 'default' : 'outline'}
+            size="small"
             onClick={handleFavoriteToggle}
-            className={cn(isFavorited && "bg-red-500 hover:bg-red-600 border-red-500")}
+            className={cn(isFavorited && 'border-red-500 bg-red-500 hover:bg-red-600')}
           >
-            <Heart className={cn("w-4 h-4 mr-1", isFavorited && "fill-current")} />
+            <Heart className={cn(isFavorited && 'fill-current')} />
             {isFavorited ? 'Saved' : 'Save'}
           </Button>
           {post.url && (
-            <Button variant="outline" size="sm" asChild>
+            <Button variant="outline" size="small" asChild>
               <a href={post.url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="w-4 h-4 mr-1" />
+                <ExternalLink />
                 Visit
               </a>
             </Button>
           )}
           {(isAdmin || post.user_id === profile?.id) && (
-            <Button variant="ghost" size="icon" onClick={handleDeletePost} className="text-destructive">
-              <Trash2 className="w-4 h-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleDeletePost}
+              className="text-destructive"
+            >
+              <Trash2 />
             </Button>
           )}
           <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="w-5 h-5" />
+            <X />
           </Button>
         </div>
       </div>
 
       {/* Main: screenshot (left ~75%) | comments sidebar (right ~25%) */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex min-h-0 flex-1">
         {/* Left: full-page screenshot or media */}
-        <ScrollArea className="flex-[3] min-w-0 border-r border-border">
+        <ScrollArea className="min-w-0 flex-[3] border-r border-border">
           <div className="p-4">
             {post.type === 'video' ? (
               <video
@@ -235,33 +507,33 @@ export function PostDetailPanel({
                 className="w-full rounded-lg"
               />
             ) : post.type === 'url' && fullScreenshotUrl ? (
-              <div className="rounded-lg overflow-hidden bg-muted">
+              <div className="overflow-hidden rounded-lg bg-muted">
                 <img
                   src={fullScreenshotUrl}
                   alt={`Full page: ${post.title}`}
-                  className="w-full object-contain min-w-0"
+                  className="min-w-0 w-full object-contain"
                 />
               </div>
             ) : thumbnailUrl ? (
-              <div className="relative rounded-lg overflow-hidden bg-muted">
+              <div className="relative overflow-hidden rounded-lg bg-muted">
                 {post.type === 'url' ? (
                   <div className="aspect-video w-full overflow-hidden">
                     <img
                       src={thumbnailUrl}
                       alt={post.title}
-                      className="w-full h-full object-cover object-top"
+                      className="h-full w-full object-cover object-top"
                     />
                   </div>
                 ) : (
                   <img
                     src={thumbnailUrl}
                     alt={post.title}
-                    className="w-full object-contain max-h-[80vh]"
+                    className="max-h-[80vh] w-full object-contain"
                   />
                 )}
                 {post.type === 'url' && (
-                  <div className="absolute top-2 right-2 w-6 h-6 rounded-md bg-background/80 backdrop-blur-sm flex items-center justify-center">
-                    <Link2 className="w-3.5 h-3.5 text-foreground" />
+                  <div className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md bg-background/80 backdrop-blur-sm">
+                    <Link2 className="size-3.5 text-foreground" />
                   </div>
                 )}
               </div>
@@ -270,9 +542,9 @@ export function PostDetailPanel({
         </ScrollArea>
 
         {/* Right: description, metadata, comments */}
-        <aside className="flex flex-col w-[320px] shrink-0 bg-muted/30">
+        <aside className="flex w-[320px] shrink-0 flex-col bg-muted/30">
           <ScrollArea className="flex-1">
-            <div className="p-4 space-y-4">
+            <div className="space-y-4 p-4">
               {post.description && (
                 <p className="text-sm text-muted-foreground">{post.description}</p>
               )}
@@ -280,12 +552,9 @@ export function PostDetailPanel({
               {post.tags && post.tags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {post.tags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="px-2 py-0.5 rounded-full text-xs border border-border"
-                    >
+                    <span key={tag.id} className="rounded-full border border-border px-2 py-0.5 text-xs">
                       <span
-                        className="w-1.5 h-1.5 rounded-full inline-block mr-1"
+                        className="mr-1 inline-block size-1.5 rounded-full"
                         style={{ backgroundColor: tag.color }}
                       />
                       {tag.name}
@@ -296,61 +565,26 @@ export function PostDetailPanel({
 
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" />
+                  <Calendar className="size-3.5" />
                   {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
                 </span>
                 <span className="flex items-center gap-1">
-                  <Eye className="w-3.5 h-3.5" />
+                  <Eye className="size-3.5" />
                   {post.view_count} views
                 </span>
                 <span className="flex items-center gap-1">
-                  <MessageCircle className="w-3.5 h-3.5" />
+                  <MessageCircle className="size-3.5" />
                   {comments.length} comments
                 </span>
               </div>
 
               <div className="space-y-4 pt-2">
-                <h3 className="text-sm font-medium flex items-center gap-2">
-                  <MessageCircle className="w-4 h-4" />
+                <h3 className="flex items-center gap-2 text-sm font-medium">
+                  <MessageCircle className="size-4" />
                   Comments
                 </h3>
 
-                <div className="space-y-3">
-                  {comments.map((comment) => (
-                    <div key={comment.id} className="flex gap-3">
-                      <Avatar className="w-7 h-7 shrink-0">
-                        <AvatarImage
-                          src={comment.profile?.avatar_url ? `/api/file?pathname=${encodeURIComponent(comment.profile.avatar_url)}` : undefined}
-                        />
-                        <AvatarFallback className="text-xs">
-                          {comment.profile?.first_name?.[0]}{comment.profile?.last_name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium">
-                            {comment.profile?.first_name} {comment.profile?.last_name}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
-                          </span>
-                          {(isAdmin || comment.user_id === profile?.id) && (
-                            <button
-                              onClick={() => handleDeleteComment(comment.id)}
-                              className="text-muted-foreground hover:text-destructive ml-auto"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{comment.content}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {comments.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">No comments yet</p>
-                  )}
-                </div>
+                <div className="flex flex-col gap-6">{commentNodes}</div>
 
                 <form onSubmit={handleSubmitComment} className="flex gap-2">
                   <Textarea
@@ -364,10 +598,15 @@ export function PostDetailPanel({
                     }}
                     placeholder="Add a comment..."
                     rows={2}
-                    className="resize-none flex-1 min-w-0"
+                    className="min-w-0 flex-1 resize-none"
                   />
-                  <Button type="submit" size="icon" disabled={isSubmitting || !newComment.trim()} className="shrink-0">
-                    <Send className="w-4 h-4" />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={isSubmitting || !newComment.trim()}
+                    className="shrink-0"
+                  >
+                    <Send className="size-4" />
                   </Button>
                 </form>
               </div>

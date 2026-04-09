@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { AppLogo } from '@/components/app-logo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sparkles, Mail, CheckCircle } from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
+import { Mail, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 const supabase = createClient()
@@ -21,20 +22,20 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [devLoginLoading, setDevLoginLoading] = useState(false)
   const [allowedDomains, setAllowedDomains] = useState<string[]>(DEFAULT_DOMAINS)
-  const [logoUrl, setLogoUrl] = useState<string | null>(null)
 
-  // Load settings
+  // Load settings (logo_url kept in DB for future use; login always uses AppLogo)
   useEffect(() => {
     const loadSettings = async () => {
       const { data } = await supabase.from('settings').select('*')
-      
+
       if (data) {
-        data.forEach(row => {
-          if (row.key === 'allowed_domains' && Array.isArray(row.value) && row.value.length > 0) {
+        data.forEach((row) => {
+          if (
+            row.key === 'allowed_domains' &&
+            Array.isArray(row.value) &&
+            row.value.length > 0
+          ) {
             setAllowedDomains(row.value)
-          }
-          if (row.key === 'logo_url' && row.value) {
-            setLogoUrl(typeof row.value === 'string' ? row.value : null)
           }
         })
       }
@@ -114,21 +115,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md border-border/50 shadow-sm">
-        <CardHeader className="text-center space-y-2">
-          <div className="flex justify-center mb-2">
-            {logoUrl ? (
-              <img 
-                src={`/api/file?pathname=${encodeURIComponent(logoUrl)}`} 
-                alt="Logo" 
-                className="w-8 h-8 object-contain"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-xl bg-foreground flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-background" />
-              </div>
-            )}
+        <CardHeader className="space-y-2 text-center">
+          <div className="mb-2 flex justify-center">
+            <AppLogo scale="lg" />
           </div>
-          <CardTitle className="text-2xl font-serif">Mosaic</CardTitle>
           <CardDescription>
             {step === 'email' 
               ? 'Sign in with your work email' 
@@ -148,7 +138,7 @@ export default function LoginPage() {
                   required
                   className="h-11"
                 />
-                <Button type="submit" className="w-full h-11" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Sending...' : 'Continue with Email'}
                 </Button>
               </form>
@@ -169,7 +159,7 @@ export default function LoginPage() {
                     <Button
                       type="button"
                       variant="secondary"
-                      className="w-full h-11"
+                      className="w-full"
                       disabled={devLoginLoading}
                       onClick={handleDevLogin}
                     >
