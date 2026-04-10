@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { DEFAULT_NEW_TICKET_PHASE } from '@/lib/mosaic-project-phases'
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
       p_urls: body.p_urls ?? null,
       p_team_category: body.p_team_category ?? null,
       p_project_id: body.p_project_id,
-      p_phase: body.p_phase ?? 'Backlog',
+      p_phase: body.p_phase ?? DEFAULT_NEW_TICKET_PHASE,
       p_checkpoint_date: body.p_checkpoint_date ?? null,
       p_flag: body.p_flag ?? 'standard',
       p_lead_id: body.p_lead_id,

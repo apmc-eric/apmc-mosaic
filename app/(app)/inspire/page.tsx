@@ -310,11 +310,7 @@ export default function InspirePage() {
                 data-node-id="132:645"
               >
                 <div className="col-span-12 md:col-span-2">
-                  <TimelineIndicator
-                    heading={bucket.heading}
-                    dateRange={bucket.rangeLabel}
-                    selected={bucket.kind === 'recent'}
-                  />
+                  <TimelineIndicator heading={bucket.heading} dateRange={bucket.rangeLabel} />
                 </div>
                 <div
                   className="col-span-12 min-w-0 md:col-span-10"

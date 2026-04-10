@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { FilterBadge } from '@/components/filter-badge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
@@ -14,23 +15,21 @@ import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
 import type { Project, Ticket, TicketAssigneeRow } from '@/lib/types'
 import { formatProfileLabel } from '@/lib/format-profile'
-import { phaseOptionsForProject } from '@/lib/mosaic-project-phases'
-import { cn } from '@/lib/utils'
+import { phaseOptionsForProject, phaseSelectOptions } from '@/lib/mosaic-project-phases'
 import {
-  addWeeks,
-  endOfWeek,
-  isWithinInterval,
-  parseISO,
-  startOfWeek,
-} from 'date-fns'
-import { Expand, Flag, Plus } from 'lucide-react'
-import { Switch } from '@/components/ui/switch'
+  endOfWeekSunday,
+  formatWeekRange,
+  startOfWeekMonday,
+} from '@/lib/week-buckets'
+import { TicketCard } from '@/components/ticket-card'
+import { TimelineIndicator } from '@/components/timeline-indicator'
+import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
+import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
+import { Expand, Plus } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 
 const supabase = createClient()
-
-const WORKS_WORKSPACE_WIDE_KEY = 'mosaic-works-workspace-wide'
 
 type Bucket = 'this_week' | 'next_week' | 'later' | 'backlog'
 
@@ -53,27 +52,6 @@ function checkpointBucket(checkpoint: string | null): Bucket {
   return 'later'
 }
 
-const SECTIONS: { key: Bucket; label: string }[] = [
-  { key: 'this_week', label: 'This week' },
-  { key: 'next_week', label: 'Next week' },
-  { key: 'later', label: 'Later' },
-  { key: 'backlog', label: 'Backlog' },
-]
-
-const PROJECT_BADGE_CLASSES = [
-  'bg-primary/15 text-primary border-primary/30',
-  'bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/30',
-  'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-  'bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/30',
-  'bg-sky-500/15 text-sky-700 dark:text-sky-200 border-sky-500/30',
-]
-
-function projectBadgeClass(projectId: string): string {
-  let h = 0
-  for (let i = 0; i < projectId.length; i++) h = (h + projectId.charCodeAt(i)) % 360
-  return PROJECT_BADGE_CLASSES[h % PROJECT_BADGE_CLASSES.length]
-}
-
 export default function WorksPage() {
   const { profile, isAdmin, workspaceSettings } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -83,29 +61,6 @@ export default function WorksPage() {
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
-  /** Admins: when false, only tickets you created or are assigned to */
-  const [workspaceWide, setWorkspaceWide] = useState(true)
-
-  useEffect(() => {
-    if (!isAdmin) return
-    try {
-      const v = localStorage.getItem(WORKS_WORKSPACE_WIDE_KEY)
-      if (v !== null) setWorkspaceWide(v === '1')
-    } catch {
-      /* ignore */
-    }
-  }, [isAdmin])
-
-  const setWorkspaceWidePersist = (wide: boolean) => {
-    setWorkspaceWide(wide)
-    if (isAdmin) {
-      try {
-        localStorage.setItem(WORKS_WORKSPACE_WIDE_KEY, wide ? '1' : '0')
-      } catch {
-        /* ignore */
-      }
-    }
-  }
 
   const load = useCallback(async () => {
     if (!profile?.id) {
@@ -184,6 +139,11 @@ export default function WorksPage() {
     [panelTicket?.project, workspaceSettings?.phase_label_sets]
   )
 
+  const panelPhaseSelectOptions = useMemo(
+    () => phaseSelectOptions(panelTicket?.phase),
+    [panelTicket?.phase]
+  )
+
   const panelLogChange = useCallback(
     async (field: string, previous: string | null, next: string | null) => {
       if (!profile?.id || !panelTicket?.id) return
@@ -198,28 +158,18 @@ export default function WorksPage() {
     [profile?.id, panelTicket?.id]
   )
 
-  const visibleTickets = useMemo(() => {
-    if (!isAdmin || workspaceWide) return tickets
-    const uid = profile?.id
-    if (!uid) return tickets
-    return tickets.filter(
-      (t) =>
-        t.created_by === uid || (t.assignees ?? []).some((a) => a.user_id === uid)
-    )
-  }, [tickets, isAdmin, workspaceWide, profile?.id])
-
   const projectCounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const t of visibleTickets) {
+    for (const t of tickets) {
       if (t.project_id) m.set(t.project_id, (m.get(t.project_id) ?? 0) + 1)
     }
     return m
-  }, [visibleTickets])
+  }, [tickets])
 
   const filtered = useMemo(() => {
-    if (projectFilter === 'all') return visibleTickets
-    return visibleTickets.filter((t) => t.project_id === projectFilter)
-  }, [visibleTickets, projectFilter])
+    if (projectFilter === 'all') return tickets
+    return tickets.filter((t) => t.project_id === projectFilter)
+  }, [tickets, projectFilter])
 
   const byBucket = useMemo(() => {
     const b: Record<Bucket, Ticket[]> = {
@@ -234,156 +184,224 @@ export default function WorksPage() {
     return b
   }, [filtered])
 
+  const scheduleLabels = useMemo(() => {
+    const now = new Date()
+    const thisMon = startOfWeekMonday(now)
+    const thisSun = endOfWeekSunday(thisMon)
+    const nextMon = addWeeks(thisMon, 1)
+    const upcomingEndSun = endOfWeekSunday(addWeeks(nextMon, 1))
+    return {
+      thisWeek: formatWeekRange(thisMon, thisSun),
+      upcoming: formatWeekRange(nextMon, upcomingEndSun),
+    }
+  }, [])
+
+  const upcomingTickets = useMemo(() => {
+    const merged = [...byBucket.next_week, ...byBucket.later]
+    merged.sort((a, b) => {
+      const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      if (ta !== tb) return ta - tb
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    })
+    return merged
+  }, [byBucket])
+
+  const thisWeekSorted = useMemo(() => {
+    const list = [...byBucket.this_week]
+    list.sort((a, b) => {
+      const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      if (ta !== tb) return ta - tb
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    })
+    return list
+  }, [byBucket])
+
+  const backlogSorted = useMemo(() => {
+    const list = [...byBucket.backlog]
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [byBucket])
+
+  const workSections = useMemo(
+    () =>
+      [
+        {
+          key: 'this_week' as const,
+          title: 'This Week',
+          rangeLabel: scheduleLabels.thisWeek,
+          tickets: thisWeekSorted,
+          gridVariant: 'three' as const,
+          nodeId: '199:491',
+          contentAreaId: '199:493',
+          cardGridId: '199:494',
+        },
+        {
+          key: 'upcoming' as const,
+          title: 'Upcoming',
+          rangeLabel: scheduleLabels.upcoming,
+          tickets: upcomingTickets,
+          gridVariant: 'four' as const,
+          nodeId: '199:500',
+          contentAreaId: '199:502',
+          cardGridId: '199:1273',
+        },
+        {
+          key: 'backlog' as const,
+          title: 'Backlog',
+          rangeLabel: 'ALL TICKETS',
+          tickets: backlogSorted,
+          gridVariant: 'four' as const,
+          nodeId: '199:1350',
+          contentAreaId: '199:1352',
+          cardGridId: '199:1354',
+        },
+      ] as const,
+    [scheduleLabels, thisWeekSorted, upcomingTickets, backlogSorted],
+  )
+
   const renderCard = (t: Ticket) => {
     const assignees = (t.assignees ?? []).slice(0, 3)
-    const overflow = (t.assignees?.length ?? 0) - 3
-    const proj = t.project as Project | undefined
+    const overflow = Math.max(0, (t.assignees?.length ?? 0) - 3)
+    const categoryPills =
+      t.team_category
+        ?.split(/[,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean) ?? []
     return (
-      <button
+      <TicketCard
         key={t.id}
-        type="button"
+        ticketId={t.ticket_id}
+        title={t.title}
+        checkpointDate={t.checkpoint_date}
+        createdAt={t.created_at}
+        phase={t.phase}
+        tagPills={categoryPills}
+        assignees={assignees}
+        assigneeOverflow={overflow}
+        flagLabel={t.flag}
         onClick={() => setPanelTicket(t)}
-        className="w-full cursor-pointer text-left rounded-lg border border-border bg-card p-3 transition-colors hover:bg-accent/40"
-      >
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <span className="font-mono text-xs text-muted-foreground">{t.ticket_id}</span>
-          {t.flag && t.flag !== 'standard' && (
-            <Badge variant="destructive" className="text-[0.65rem] uppercase shrink-0">
-              <Flag className="w-3 h-3 mr-0.5" />
-              {t.flag}
-            </Badge>
-          )}
-        </div>
-        <p className="text-sm font-medium line-clamp-2 mb-2">{t.title}</p>
-        <div className="flex flex-wrap items-center gap-2 mb-2">
-          <Badge variant="outline" className="text-[0.65rem]">
-            {t.phase}
-          </Badge>
-          {proj && (
-            <Badge variant="outline" className={cn('text-[0.65rem] border', projectBadgeClass(proj.id))}>
-              {proj.abbreviation}
-            </Badge>
-          )}
-        </div>
-        {t.checkpoint_date && (
-          <p className="text-xs text-muted-foreground mb-2">{t.checkpoint_date}</p>
-        )}
-        <div className="flex -space-x-2">
-          {assignees.map((a) => (
-            <ProfileImage
-              key={a.id}
-              pathname={a.profile?.avatar_url}
-              alt={formatProfileLabel(a.profile) ?? 'Assignee'}
-              size="small"
-              className="border-2 border-background"
-              fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-            />
-          ))}
-          {overflow > 0 && (
-            <div className="w-7 h-7 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[0.6rem]">
-              +{overflow}
-            </div>
-          )}
-        </div>
-      </button>
+      />
     )
   }
 
   return (
     <div className="pb-28">
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
-        <div className="flex flex-col gap-4 mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <h1 className="text-3xl font-serif tracking-tight">Works</h1>
-            {isAdmin && (
-              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 sm:max-w-md">
-                <Switch
-                  id="works-admin-wide"
-                  checked={workspaceWide}
-                  onCheckedChange={setWorkspaceWidePersist}
-                />
-                <div className="space-y-0.5">
-                  <Label htmlFor="works-admin-wide" className="text-sm font-medium cursor-pointer">
-                    Admin: all workspace tickets
-                  </Label>
-                  <p className="text-xs text-muted-foreground leading-snug">
-                    Turn off to focus on tickets you created or are assigned to.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="199:481">
+        <h1 className="sr-only">Work</h1>
+
+        <div
+          className="grid w-full grid-cols-12 gap-x-6 gap-y-4 pb-6"
+          data-name="Navigation"
+          data-node-id="199:483"
+        >
+          <div className="hidden md:col-span-2 md:block" aria-hidden data-name="Spacer" data-node-id="199:484" />
+          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-center md:justify-between">
+            <div
+              className="flex flex-wrap items-baseline gap-3"
+              data-name="FilterControls"
+              data-node-id="199:486"
+              role="tablist"
+              aria-label="Project filter"
+            >
+              <FilterBadge
+                role="tab"
+                aria-selected={projectFilter === 'all'}
+                label="ALL"
+                counter={`(${tickets.length})`}
+                showCounter
+                active={projectFilter === 'all'}
+                className="uppercase"
+                onClick={() => setProjectFilter('all')}
+              />
+              {projects.map((p) => {
+                const c = projectCounts.get(p.id) ?? 0
+                if (c === 0) return null
+                return (
+                  <FilterBadge
+                    key={p.id}
+                    role="tab"
+                    aria-selected={projectFilter === p.id}
+                    label={p.name}
+                    counter={`(${c})`}
+                    showCounter
+                    active={projectFilter === p.id}
+                    className="uppercase"
+                    onClick={() => setProjectFilter(p.id)}
+                  />
+                )
+              })}
+            </div>
             <Button
               type="button"
-              variant={projectFilter === 'all' ? 'default' : 'outline'}
-              size="small"
-              onClick={() => setProjectFilter('all')}
+              className="shrink-0 items-center gap-2 self-end md:self-auto"
+              onClick={() => setSubmitOpen(true)}
             >
-              All
-              <Badge variant="secondary" className="ml-2">
-                {visibleTickets.length}
-              </Badge>
+              <Plus className="size-4 shrink-0" aria-hidden />
+              New Ticket
             </Button>
-            {projects.map((p) => {
-              const c = projectCounts.get(p.id) ?? 0
-              if (c === 0) return null
-              return (
-                <Button
-                  key={p.id}
-                  type="button"
-                  variant={projectFilter === p.id ? 'default' : 'outline'}
-                  size="small"
-                  onClick={() => setProjectFilter(p.id)}
-                >
-                  {p.name}
-                  <Badge variant="secondary" className="ml-2">
-                    {c}
-                  </Badge>
-                </Button>
-              )
-            })}
           </div>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-20 text-muted-foreground text-sm">Loading tickets…</div>
-        ) : (
-          <div className="space-y-10">
-            {SECTIONS.map(({ key, label }) => {
-              const list = byBucket[key]
-              if (list.length === 0) return null
-              return (
-                <section key={key}>
-                  <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-4">{label}</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="hidden md:block text-sm text-muted-foreground pt-2">{label}</div>
-                    <div className="md:col-span-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{list.map(renderCard)}</div>
-                  </div>
-                </section>
-              )
-            })}
-            {!loading && filtered.length === 0 && (
-              <p className="text-muted-foreground text-center py-16">
-                {visibleTickets.length === 0
-                  ? isAdmin && !workspaceWide
-                    ? 'No tickets match “your work”. Turn on “Admin: all workspace tickets” to see everything, or create a ticket.'
-                    : 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
-                  : 'No tickets in this filter. Try “All” or another project.'}
-              </p>
-            )}
-          </div>
-        )}
+        <div className="w-full space-y-10">
+          {loading ? (
+            <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading tickets…</div>
+          ) : (
+            <>
+              {workSections.map(
+                ({
+                  key,
+                  title,
+                  rangeLabel,
+                  tickets,
+                  gridVariant,
+                  nodeId,
+                  contentAreaId,
+                  cardGridId,
+                }) => {
+                  if (tickets.length === 0) return null
+                  return (
+                    <section
+                      key={key}
+                      className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
+                      data-name="ContentWrapper"
+                      data-node-id={nodeId}
+                    >
+                      <div className="col-span-12 md:col-span-2">
+                        <TimelineIndicator heading={title} dateRange={rangeLabel} />
+                      </div>
+                      <div
+                        className="col-span-12 min-w-0 md:col-span-10"
+                        data-name="ContentArea"
+                        data-node-id={contentAreaId}
+                      >
+                        <div
+                          className={
+                            gridVariant === 'three'
+                              ? 'grid w-full grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3'
+                              : 'grid w-full grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:grid-cols-4'
+                          }
+                          data-name="CardGrid"
+                          data-node-id={cardGridId}
+                        >
+                          {tickets.map(renderCard)}
+                        </div>
+                      </div>
+                    </section>
+                  )
+                })}
+              {filtered.length === 0 && (
+                <p className="py-16 text-center text-muted-foreground">
+                  {tickets.length === 0
+                    ? 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
+                    : 'No tickets in this filter. Try “All” or another project.'}
+                </p>
+              )}
+            </>
+          )}
+        </div>
       </div>
-
-      <Button
-        type="button"
-        className="fixed bottom-6 right-6 z-40 shadow-lg"
-        onClick={() => setSubmitOpen(true)}
-      >
-        <Plus />
-        New ticket
-      </Button>
 
       <TicketSubmitModal open={submitOpen} onOpenChange={setSubmitOpen} onCreated={() => void load()} />
 
@@ -456,7 +474,9 @@ export default function WorksPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wide">Phase</Label>
-                      <p className="mt-1.5">{panelTicket.phase}</p>
+                      <div className="mt-1.5">
+                        <WorkflowPhaseTag phase={panelTicket.phase} />
+                      </div>
                     </div>
                     <div>
                       <Label className="text-muted-foreground text-xs uppercase tracking-wide">Flag</Label>
@@ -561,6 +581,7 @@ export default function WorksPage() {
                 ticketId={panelTicket.id}
                 ticket={panelTicket}
                 orderedPhases={panelOrderedPhases}
+                phaseSelectOptionsList={panelPhaseSelectOptions}
                 onSuccess={() => void load()}
                 logChange={panelLogChange}
               />

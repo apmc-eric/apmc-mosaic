@@ -41,7 +41,10 @@ function LogoWordmark({ className }: { className?: string }) {
       viewBox="0 0 105.584 17.088"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn('block shrink-0', className)}
+      className={cn(
+        'box-content block shrink-0 overflow-visible',
+        className,
+      )}
       aria-hidden
       data-name="Vector"
       data-node-id="118:37"
@@ -85,7 +88,7 @@ export function AppLogo({ className, scale = 'md' }: AppLogoProps) {
       data-name="AppLogo"
       data-node-id="183:8794"
       className={cn(
-        'inline-flex items-center gap-3.5 text-foreground',
+        'box-content inline-flex items-center gap-3.5 text-foreground',
         scaleClass[scale],
         className,
       )}

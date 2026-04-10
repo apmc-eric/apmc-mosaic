@@ -23,7 +23,8 @@ import {
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { Profile, Project } from '@/lib/types'
-import { phaseOptionsForProject } from '@/lib/mosaic-project-phases'
+import { DEFAULT_NEW_TICKET_PHASE, phaseOptionsForProject } from '@/lib/mosaic-project-phases'
+import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { formatProfileLabel } from '@/lib/format-profile'
 import { toast } from 'sonner'
 
@@ -164,7 +165,8 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       toast.error('Invalid project')
       return
     }
-    const pPhase = phase && phaseOptions.includes(phase) ? phase : phaseOptions[0] ?? 'Backlog'
+    const pPhase =
+      phase && phaseOptions.includes(phase) ? phase : phaseOptions[0] ?? DEFAULT_NEW_TICKET_PHASE
     const support = [...supportIds].filter((id) => id !== leadId)
 
     setSubmitting(true)
@@ -215,7 +217,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-mono text-sm uppercase tracking-wide">New ticket</DialogTitle>
+          <DialogTitle className="font-mono text-sm uppercase tracking-wide">New Ticket</DialogTitle>
           <p className="text-sm text-muted-foreground">Assign a lead and optional support designers.</p>
         </DialogHeader>
 
@@ -254,14 +256,15 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                 <SelectContent>
                   {phaseOptions.map((ph) => (
                     <SelectItem key={ph} value={ph}>
-                      {ph}
+                      <WorkflowPhaseTag phase={ph} />
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             )}
             <p className="text-xs text-muted-foreground mt-1">
-              Phases come from workspace labels for teams on this project.
+              Phases: Triage → Backlog → Concept → Design → Build. Triage is for early planning; fuller
+              detail matters more in later phases.
             </p>
           </div>
 

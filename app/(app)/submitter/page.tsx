@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import Link from 'next/link'
+import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { Plus } from 'lucide-react'
 
 const supabase = createClient()
@@ -68,8 +69,12 @@ export default function SubmitterPortalPage() {
                   </span>
                 </div>
                 <p className="font-medium">{r.title}</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {(r.project as { name?: string } | undefined)?.name ?? 'Project'} · {r.phase}
+                <p className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>{(r.project as { name?: string } | undefined)?.name ?? 'Project'}</span>
+                  <span aria-hidden className="select-none">
+                    ·
+                  </span>
+                  <WorkflowPhaseTag phase={r.phase} />
                 </p>
               </Link>
             </li>
@@ -83,7 +88,7 @@ export default function SubmitterPortalPage() {
         onClick={() => setSubmitOpen(true)}
       >
         <Plus />
-        New ticket
+        New Ticket
       </Button>
 
       <TicketSubmitModal open={submitOpen} onOpenChange={setSubmitOpen} onCreated={() => void load()} />

@@ -32,8 +32,13 @@ import {
 } from '@/components/ui/select'
 import type { AuditLogEntry, Profile, Project, Ticket, TicketAssigneeRow, TicketComment } from '@/lib/types'
 import { formatProfileLabel } from '@/lib/format-profile'
-import { phaseOptionsForProject } from '@/lib/mosaic-project-phases'
+import {
+  DEFAULT_NEW_TICKET_PHASE,
+  phaseOptionsForProject,
+  phaseSelectOptions,
+} from '@/lib/mosaic-project-phases'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
+import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { ArrowLeft, MoreHorizontal, History } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -192,6 +197,8 @@ export default function TicketDetailPage() {
     [ticket?.project, workspaceSettings?.phase_label_sets]
   )
 
+  const ticketPhaseSelectOptions = useMemo(() => phaseSelectOptions(ticket?.phase), [ticket?.phase])
+
   const saveAssignees = async () => {
     if (!ticket || !leadEdit) {
       toast.error('Choose a lead designer')
@@ -307,6 +314,11 @@ export default function TicketDetailPage() {
 
   const urlsText = (ticket.urls ?? []).join('\n')
 
+  const phaseSelectValue =
+    ticket.phase?.trim() && ticketPhaseSelectOptions.includes(ticket.phase)
+      ? ticket.phase
+      : (ticketPhaseSelectOptions[0] ?? DEFAULT_NEW_TICKET_PHASE)
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 pb-36 sm:px-6">
       <div className="flex items-center justify-between gap-4 mb-8">
@@ -370,12 +382,21 @@ export default function TicketDetailPage() {
 
         <div>
           <Label htmlFor="phase">Phase</Label>
-          <Input
-            id="phase"
-            value={ticket.phase}
-            onChange={(e) => scheduleSave('phase', e.target.value, { phase: e.target.value })}
-            className="mt-1"
-          />
+          <Select
+            value={phaseSelectValue}
+            onValueChange={(v) => scheduleSave('phase', v, { phase: v })}
+          >
+            <SelectTrigger id="phase" className="mt-1 w-full max-w-md">
+              <SelectValue placeholder="Phase" />
+            </SelectTrigger>
+            <SelectContent>
+              {ticketPhaseSelectOptions.map((ph) => (
+                <SelectItem key={ph} value={ph}>
+                  <WorkflowPhaseTag phase={ph} />
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
@@ -520,6 +541,7 @@ export default function TicketDetailPage() {
         ticketId={id}
         ticket={ticket}
         orderedPhases={orderedPhases}
+        phaseSelectOptionsList={ticketPhaseSelectOptions}
         onSuccess={() => void load()}
         logChange={logChange}
       />
