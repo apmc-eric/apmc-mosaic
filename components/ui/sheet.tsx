@@ -44,6 +44,7 @@ function SheetOverlay({
   )
 }
 
+/** Avoid `relative` in `className` — `tailwind-merge` drops `fixed`, breaking positioning. Nest `relative` inside for local layout. */
 function SheetContent({
   className,
   children,

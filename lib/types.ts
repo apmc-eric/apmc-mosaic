@@ -170,7 +170,7 @@ export interface TicketComment {
   author_id: string
   body: string
   created_at: string
-  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url'>
+  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'>
 }
 
 export interface AuditLogEntry {

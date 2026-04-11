@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatProfileLabel } from '@/lib/format-profile'
 import { cn } from '@/lib/utils'
 import type { TicketAssigneeRow } from '@/lib/types'
+import { TicketCategoryTag } from '@/components/ticket-category-tag'
 
 /** Top meta line — checkpoint when set, otherwise created date (Figma **TicketCard** `199:1222`). */
 export function formatTicketCardScheduleLine(checkpointDate: string | null, createdAt: string): string {
@@ -77,7 +78,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         data-name="TicketCard"
         data-node-id="199:1222"
         className={cn(
-          'group relative flex h-[280px] w-full flex-col overflow-hidden rounded-[10px] border border-transparent bg-neutral-100 px-7 pt-5 pb-5 text-left transition-[padding,background-color,border-color] duration-200 ease-out motion-reduce:transition-none',
+          'group relative flex h-[280px] w-full cursor-pointer flex-col overflow-clip rounded-[10px] border border-transparent bg-neutral-100 px-5 pt-4 pb-5 text-left transition-[padding,background-color,border-color] duration-200 ease-out motion-reduce:transition-none',
           'hover:border-neutral-200 hover:bg-neutral-50 hover:pb-14',
           'dark:bg-zinc-900/55 dark:hover:border-neutral-200 dark:hover:bg-zinc-800/60',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
@@ -94,7 +95,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         {showFlag ? (
           <Badge
             variant="destructive"
-            className="absolute right-5 top-5 z-20 max-w-[calc(100%-2.5rem)] shrink-0 text-[0.65rem] uppercase"
+            className="absolute right-5 top-4 z-20 max-w-[calc(100%-2.5rem)] shrink-0 text-[0.65rem] uppercase"
           >
             <Flag className="size-3 shrink-0" />
             {flagLabel}
@@ -106,10 +107,10 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
             className={cn('flex min-w-0 flex-col gap-3', showFlag && 'pr-16')}
             data-name="Top"
           >
-            <p className="font-sans text-base font-medium leading-6 text-zinc-500 dark:text-zinc-400">
+            <p className="font-sans text-base font-normal leading-6 text-zinc-500 dark:text-zinc-400">
               {schedule}
             </p>
-            <p className="line-clamp-3 min-w-0 text-2xl font-semibold leading-8 tracking-[-0.36px] text-neutral-900 dark:text-zinc-50">
+            <p className="line-clamp-2 min-w-0 text-xl font-semibold leading-6 tracking-[-0.3px] text-neutral-900 dark:text-zinc-50">
               {title}
             </p>
             {categoryPills.length > 0 ? (
@@ -119,13 +120,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
                 data-node-id="199:1434"
               >
                 {categoryPills.map((label, i) => (
-                  <div
-                    key={`${i}-${label}`}
-                    className="inline-flex max-w-full items-center justify-center rounded-[6px] border border-neutral-300 px-2 py-1.5 dark:border-neutral-600"
-                    data-name="CategoryTag"
-                  >
-                    <span className="truncate text-xs font-medium leading-none text-foreground">{label}</span>
-                  </div>
+                  <TicketCategoryTag key={`${i}-${label}`} label={label} />
                 ))}
               </div>
             ) : null}
@@ -162,7 +157,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         {/* Visual only — whole card is the control (Figma hover **HoverCTA** `199:1903`). */}
         <div
           className={cn(
-            'pointer-events-none absolute inset-x-0 bottom-0 z-[5] flex translate-y-full items-center justify-between bg-black px-6 py-3 text-xs font-medium leading-none text-white transition-transform duration-200 ease-out',
+            'pointer-events-none absolute inset-x-[-1px] bottom-[-1px] z-[5] flex translate-y-full items-center justify-between bg-black px-6 py-3 text-xs font-medium leading-none text-white transition-transform duration-200 ease-out',
             'group-hover:translate-y-0 group-focus-visible:translate-y-0',
             'motion-reduce:transition-none',
             'dark:bg-foreground dark:text-background',

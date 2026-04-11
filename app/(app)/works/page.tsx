@@ -1,19 +1,33 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { FilterBadge } from '@/components/filter-badge'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { ProfileImage } from '@/components/profile-image'
+import { ContextLink } from '@/components/context-link'
+import { HorizontalScrollFade } from '@/components/horizontal-scroll-fade'
+import { CommentsSectionHeader } from '@/components/comments-section-header'
+import { UserComment } from '@/components/user-comment'
+import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
+import { TicketTitleEditor } from '@/components/ticket-title-editor'
+import { WorksTicketPanelMetadata } from '@/components/works-ticket-panel-metadata'
 import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
-import type { Project, Ticket, TicketAssigneeRow } from '@/lib/types'
+import type { Project, Ticket, TicketAssigneeRow, TicketComment } from '@/lib/types'
+import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
+import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
 import { formatProfileLabel } from '@/lib/format-profile'
 import { phaseOptionsForProject, phaseSelectOptions } from '@/lib/mosaic-project-phases'
 import {
@@ -23,11 +37,10 @@ import {
 } from '@/lib/week-buckets'
 import { TicketCard } from '@/components/ticket-card'
 import { TimelineIndicator } from '@/components/timeline-indicator'
-import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
-import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
-import { Expand, Plus } from 'lucide-react'
-import { Label } from '@/components/ui/label'
+import { addWeeks, endOfWeek, formatDistanceToNow, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
+import { Check, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 const supabase = createClient()
 
@@ -59,8 +72,15 @@ export default function WorksPage() {
   const [projectFilter, setProjectFilter] = useState<string | 'all'>('all')
   const [loading, setLoading] = useState(true)
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
+  const [panelComments, setPanelComments] = useState<TicketComment[]>([])
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    ticket_id: string
+    title: string
+  } | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (!profile?.id) {
@@ -121,6 +141,25 @@ export default function WorksPage() {
     if (fresh) setPanelTicket(fresh)
   }, [tickets, panelTicket?.id])
 
+  useEffect(() => {
+    if (!panelTicket?.id) {
+      setPanelComments([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const { data } = await supabase
+        .from('ticket_comments')
+        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
+        .eq('ticket_id', panelTicket.id)
+        .order('created_at', { ascending: true })
+      if (!cancelled && data) setPanelComments(data as TicketComment[])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [panelTicket?.id])
+
   const panelCanCompleteCheckpoint = useMemo(() => {
     if (!panelTicket || !profile?.id) return false
     return (
@@ -128,6 +167,11 @@ export default function WorksPage() {
       panelTicket.created_by === profile.id ||
       (panelTicket.assignees ?? []).some((a) => a.user_id === profile.id)
     )
+  }, [panelTicket, profile?.id, isAdmin])
+
+  const panelCanDelete = useMemo(() => {
+    if (!panelTicket || !profile?.id) return false
+    return isAdmin || panelTicket.created_by === profile.id
   }, [panelTicket, profile?.id, isAdmin])
 
   const panelOrderedPhases = useMemo(
@@ -144,6 +188,18 @@ export default function WorksPage() {
     [panelTicket?.phase]
   )
 
+  const deletePanelComment = useCallback(
+    async (commentId: string) => {
+      const { error } = await supabase.from('ticket_comments').delete().eq('id', commentId)
+      if (error) {
+        toast.error('Could not delete comment')
+        return
+      }
+      setPanelComments((c) => c.filter((x) => x.id !== commentId))
+    },
+    [],
+  )
+
   const panelLogChange = useCallback(
     async (field: string, previous: string | null, next: string | null) => {
       if (!profile?.id || !panelTicket?.id) return
@@ -157,6 +213,126 @@ export default function WorksPage() {
     },
     [profile?.id, panelTicket?.id]
   )
+
+  const patchPanelTicket = useCallback((id: string, patch: Partial<Ticket>) => {
+    const updatedAt = new Date().toISOString()
+    setTickets((list) => list.map((t) => (t.id === id ? { ...t, ...patch, updated_at: updatedAt } : t)))
+    setPanelTicket((p) => (p?.id === id ? { ...p, ...patch, updated_at: updatedAt } : p))
+  }, [])
+
+  const savePanelTitle = useCallback(
+    async (nextTitle: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.title
+      if (prev === nextTitle) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ title: nextTitle, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not save title')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { title: nextTitle })
+      await panelLogChange('title', prev, nextTitle)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.title, panelLogChange, patchPanelTicket]
+  )
+
+  const savePanelDescription = useCallback(
+    async (html: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.description ?? null
+      const next = html.trim() === '' ? null : html
+      if ((prev ?? '') === (next ?? '')) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ description: next, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not save description')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { description: next })
+      await panelLogChange('description', prev, next)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.description, panelLogChange, patchPanelTicket]
+  )
+
+  const commitPanelCheckpoint = useCallback(
+    async (iso: string | null) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.checkpoint_date ?? null
+      if (prev === iso) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ checkpoint_date: iso, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not update checkpoint')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { checkpoint_date: iso })
+      await panelLogChange('checkpoint_date', prev, iso)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.checkpoint_date, panelLogChange, patchPanelTicket]
+  )
+
+  const commitPanelPhase = useCallback(
+    async (phase: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.phase
+      if (prev === phase) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ phase, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not update phase')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { phase })
+      await panelLogChange('phase', prev, phase)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.phase, panelLogChange, patchPanelTicket]
+  )
+
+  const commitPanelCategories = useCallback(
+    async (commaSeparated: string | null) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.team_category ?? null
+      const next = commaSeparated?.trim() ? commaSeparated.trim() : null
+      if ((prev ?? '') === (next ?? '')) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ team_category: next, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not update categories')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { team_category: next })
+      await panelLogChange('team_category', prev, next)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.team_category, panelLogChange, patchPanelTicket]
+  )
+
+  const performDeletePanelTicket = useCallback(async (id: string) => {
+    setDeleteBusy(true)
+    try {
+      const { error } = await supabase.from('tickets').delete().eq('id', id)
+      if (error) {
+        toast.error('Could not delete ticket')
+        return
+      }
+      setTickets((list) => list.filter((t) => t.id !== id))
+      setPanelTicket(null)
+      setDeleteTarget(null)
+      toast.success('Ticket deleted')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }, [])
 
   const projectCounts = useMemo(() => {
     const m = new Map<string, number>()
@@ -224,6 +400,11 @@ export default function WorksPage() {
     return list
   }, [byBucket])
 
+  const panelUrls = useMemo(
+    () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
+    [panelTicket?.urls],
+  )
+
   const workSections = useMemo(
     () =>
       [
@@ -232,7 +413,6 @@ export default function WorksPage() {
           title: 'This Week',
           rangeLabel: scheduleLabels.thisWeek,
           tickets: thisWeekSorted,
-          gridVariant: 'three' as const,
           nodeId: '199:491',
           contentAreaId: '199:493',
           cardGridId: '199:494',
@@ -242,7 +422,6 @@ export default function WorksPage() {
           title: 'Upcoming',
           rangeLabel: scheduleLabels.upcoming,
           tickets: upcomingTickets,
-          gridVariant: 'four' as const,
           nodeId: '199:500',
           contentAreaId: '199:502',
           cardGridId: '199:1273',
@@ -252,7 +431,6 @@ export default function WorksPage() {
           title: 'Backlog',
           rangeLabel: 'ALL TICKETS',
           tickets: backlogSorted,
-          gridVariant: 'four' as const,
           nodeId: '199:1350',
           contentAreaId: '199:1352',
           cardGridId: '199:1354',
@@ -355,7 +533,6 @@ export default function WorksPage() {
                   title,
                   rangeLabel,
                   tickets,
-                  gridVariant,
                   nodeId,
                   contentAreaId,
                   cardGridId,
@@ -377,11 +554,7 @@ export default function WorksPage() {
                         data-node-id={contentAreaId}
                       >
                         <div
-                          className={
-                            gridVariant === 'three'
-                              ? 'grid w-full grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3'
-                              : 'grid w-full grid-cols-1 gap-x-5 gap-y-6 sm:grid-cols-2 lg:grid-cols-3 min-[1440px]:grid-cols-4'
-                          }
+                          className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4"
                           data-name="CardGrid"
                           data-node-id={cardGridId}
                         >
@@ -415,166 +588,167 @@ export default function WorksPage() {
         }}
       >
         <SheetContent
-          className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden border-l bg-background/95 p-0 backdrop-blur sm:max-w-lg"
+          className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden border-l bg-background p-0 sm:max-w-[540px]"
           headerActions={
-            panelTicket ? (
-              <Button variant="ghost" size="icon" className="shrink-0" asChild>
-                <Link
-                  href={`/tickets/${panelTicket.id}`}
-                  aria-label="Open full page"
-                  onClick={() => setPanelTicket(null)}
-                >
-                  <Expand className="size-4" />
-                </Link>
+            panelTicket && panelCanDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label="Delete ticket"
+                onClick={() =>
+                  panelTicket &&
+                  setDeleteTarget({
+                    id: panelTicket.id,
+                    ticket_id: panelTicket.ticket_id,
+                    title: panelTicket.title,
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
               </Button>
             ) : null
           }
         >
           {panelTicket && (
             <>
-              <SheetHeader className="shrink-0 space-y-2 border-b border-border px-5 pb-4 pt-14 text-left">
-                <SheetTitle className="font-mono text-sm">{panelTicket.ticket_id}</SheetTitle>
-                <p className="pr-2 font-serif text-lg font-medium leading-snug tracking-tight">
-                  {panelTicket.title}
-                </p>
-              </SheetHeader>
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-6 px-5 py-6 text-sm">
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Description</Label>
-                    <p className="mt-2 whitespace-pre-wrap text-foreground">
-                      {panelTicket.description?.trim() ? panelTicket.description : '—'}
+              <SheetTitle className="sr-only">
+                Ticket {panelTicket.ticket_id}: {panelTicket.title}
+              </SheetTitle>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6 pb-6"
+                  data-name="Sidepanel"
+                  data-node-id="227:3294"
+                >
+                  <div className="flex flex-col gap-7">
+                  <header
+                    className="flex flex-col gap-2 pr-14"
+                    data-name="Header"
+                    data-node-id="227:3295"
+                  >
+                    <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
+                      {panelTicket.ticket_id}
                     </p>
-                  </div>
-
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Links</Label>
-                    {(panelTicket.urls ?? []).filter(Boolean).length === 0 ? (
-                      <p className="mt-2">—</p>
-                    ) : (
-                      <ul className="mt-2 list-inside list-disc space-y-1 font-mono text-xs">
-                        {(panelTicket.urls ?? []).filter(Boolean).map((u) => (
-                          <li key={u}>
-                            <a
-                              href={u}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="break-all text-primary underline underline-offset-2 hover:no-underline"
-                            >
-                              {u}
-                            </a>
-                          </li>
+                    <TicketTitleEditor
+                      key={panelTicket.id}
+                      ticketId={panelTicket.id}
+                      title={panelTicket.title}
+                      canEdit={panelCanCompleteCheckpoint}
+                      onSave={(t) => void savePanelTitle(t)}
+                    />
+                    {(panelTicket.assignees ?? []).length > 0 ? (
+                      <div
+                        className="flex items-center mix-blend-multiply pr-1 dark:mix-blend-normal"
+                        data-name="Assignees"
+                        data-node-id="227:3298"
+                      >
+                        {(panelTicket.assignees ?? []).map((a: TicketAssigneeRow, i: number) => (
+                          <ProfileImage
+                            key={a.id}
+                            pathname={a.profile?.avatar_url}
+                            alt={formatProfileLabel(a.profile) ?? 'Assignee'}
+                            size="xs"
+                            className={cn('border-2 border-white dark:border-zinc-950', i > 0 && '-ml-1')}
+                            fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                          />
                         ))}
-                      </ul>
-                    )}
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Phase</Label>
-                      <div className="mt-1.5">
-                        <WorkflowPhaseTag phase={panelTicket.phase} />
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Flag</Label>
-                      <p className="mt-1.5">
-                        {panelTicket.flag && panelTicket.flag !== 'standard' ? (
-                          <Badge variant="outline" className="text-[0.65rem] uppercase">
-                            {panelTicket.flag}
-                          </Badge>
-                        ) : (
-                          'Standard'
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Checkpoint</Label>
-                      <p className="mt-1.5">{panelTicket.checkpoint_date ?? '—'}</p>
-                    </div>
-                    {panelTicket.team_category ? (
-                      <div>
-                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">Category</Label>
-                        <p className="mt-1.5">{panelTicket.team_category}</p>
                       </div>
                     ) : null}
+                  </header>
+
+                  <div data-node-id="227:3466">
+                    <TicketDescriptionEditor
+                      key={panelTicket.id}
+                      ticketId={panelTicket.id}
+                      description={panelTicket.description}
+                      canEdit={panelCanCompleteCheckpoint}
+                      onSave={(html) => void savePanelDescription(html)}
+                      className="w-full [&_p]:mb-0"
+                    />
                   </div>
 
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Project</Label>
-                    <p className="mt-1.5">
-                      {(panelTicket.project as Project | undefined)?.name ?? '—'}
-                      {(panelTicket.project as Project | undefined)?.abbreviation ? (
-                        <span className="text-muted-foreground">
-                          {' '}
-                          ({(panelTicket.project as Project).abbreviation})
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
+                  {panelUrls.length > 0 ? (
+                    <HorizontalScrollFade data-name="Links" data-node-id="243:3677">
+                      {panelUrls.map((u) => (
+                        <ContextLink
+                          key={u}
+                          href={u}
+                          title={contextLinkTitleFromUrl(u)}
+                        />
+                      ))}
+                    </HorizontalScrollFade>
+                  ) : null}
 
-                  <Separator />
+                  <WorksTicketPanelMetadata
+                    checkpointDate={panelTicket.checkpoint_date}
+                    phase={panelTicket.phase}
+                    teamCategory={panelTicket.team_category}
+                    phaseOptions={panelOrderedPhases}
+                    categoryOptions={workspaceSettings?.team_categories ?? []}
+                    canEdit={panelCanCompleteCheckpoint}
+                    onCheckpointCommit={commitPanelCheckpoint}
+                    onPhaseCommit={commitPanelPhase}
+                    onCategoriesCommit={commitPanelCategories}
+                  />
 
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Assignees</Label>
-                    {(panelTicket.assignees ?? []).length === 0 ? (
-                      <p className="mt-2 text-muted-foreground">None yet.</p>
-                    ) : (
-                      <ul className="mt-3 space-y-3">
-                        {(panelTicket.assignees ?? []).map((a: TicketAssigneeRow) => (
-                          <li key={a.id} className="flex items-center gap-3">
-                            <ProfileImage
-                              pathname={a.profile?.avatar_url}
-                              alt={formatProfileLabel(a.profile) ?? 'Assignee'}
-                              size="md"
-                              className="border border-border"
-                              fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-                            />
-                            <div>
-                              <p className="font-medium leading-none">{formatProfileLabel(a.profile)}</p>
-                              <p className="text-muted-foreground mt-1 text-xs capitalize">{a.role}</p>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-1 gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-                    <div>
-                      <span className="uppercase tracking-wide">Created</span>
-                      <p className="mt-1 text-foreground">
-                        {panelTicket.created_at
-                          ? new Date(panelTicket.created_at).toLocaleString()
-                          : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="uppercase tracking-wide">Updated</span>
-                      <p className="mt-1 text-foreground">
-                        {panelTicket.updated_at
-                          ? new Date(panelTicket.updated_at).toLocaleString()
-                          : '—'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </ScrollArea>
-              {panelCanCompleteCheckpoint && (
-                <div className="shrink-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={() => setCheckpointModalOpen(true)}
+                  <div
+                    className="flex w-full flex-col gap-5 overflow-clip pb-10 pt-4"
+                    data-name="CommentsWrapper"
+                    data-node-id="227:3336"
                   >
-                    Complete checkpoint
-                  </Button>
+                    <CommentsSectionHeader count={panelComments.length} />
+                    <div className="flex flex-col gap-6" data-name="CommentStack">
+                      {panelComments.map((c) => {
+                        const name =
+                          [c.profile?.first_name, c.profile?.last_name].filter(Boolean).join(' ') ||
+                          c.profile?.name?.trim() ||
+                          'Someone'
+                        return (
+                          <UserComment
+                            key={c.id}
+                            name={name}
+                            subtitle={mosaicRoleLabel(c.profile?.role)}
+                            timeAgo={formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                            body={c.body}
+                            avatarPathname={c.profile?.avatar_url}
+                            avatarFallback={
+                              <>
+                                {c.profile?.first_name?.[0]}
+                                {c.profile?.last_name?.[0]}
+                              </>
+                            }
+                            showDelete={isAdmin || c.author_id === profile?.id}
+                            onDelete={() => void deletePanelComment(c.id)}
+                          />
+                        )
+                      })}
+                      {panelComments.length === 0 ? (
+                        <p className="py-2 text-center text-sm text-muted-foreground">No comments yet.</p>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-              )}
+                </div>
+
+                {panelCanCompleteCheckpoint ? (
+                  <div
+                    className="flex shrink-0 justify-start border-t border-border/60 bg-background px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                    data-name="Footer"
+                    data-node-id="245:3710"
+                  >
+                    <Button
+                      type="button"
+                      className="w-auto shrink-0 gap-1.5 self-start"
+                      onClick={() => setCheckpointModalOpen(true)}
+                    >
+                      <Check className="size-3.5 shrink-0" aria-hidden />
+                      Complete checkpoint
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
               <TicketCheckpointModal
                 open={checkpointModalOpen}
                 onOpenChange={setCheckpointModalOpen}
@@ -589,6 +763,41 @@ export default function WorksPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this ticket?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="text-foreground text-base font-medium">
+                  {deleteTarget
+                    ? `${deleteTarget.ticket_id}: ${deleteTarget.title}`
+                    : '\u00a0'}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button" disabled={deleteBusy}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteBusy || !deleteTarget}
+              onClick={() => deleteTarget && void performDeletePanelTicket(deleteTarget.id)}
+            >
+              Yes, I&apos;m sure
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

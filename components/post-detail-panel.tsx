@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { ProfileImage } from '@/components/profile-image'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { UserComment } from '@/components/user-comment'
+import { CommentsSectionHeader } from '@/components/comments-section-header'
+import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
 import {
   X,
   Heart,
@@ -23,22 +25,9 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
-import type { Comment, MosaicRole, Post } from '@/lib/types'
+import type { Comment, Post } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
-
-function roleSubtitle(role: MosaicRole | null | undefined): string | null {
-  if (!role) return null
-  const labels: Record<MosaicRole, string> = {
-    admin: 'Admin',
-    designer: 'Designer',
-    guest: 'Guest',
-    collaborator: 'Collaborator',
-    user: 'User',
-    member: 'Member',
-  }
-  return labels[role] ?? null
-}
 
 function commentDisplayName(profile?: Comment['profile']) {
   return (
@@ -286,7 +275,7 @@ export function PostDetailPanel({
         <UserComment
           key={comment.id}
           name={commentDisplayName(comment.profile)}
-          subtitle={roleSubtitle(comment.profile?.role)}
+          subtitle={mosaicRoleLabel(comment.profile?.role)}
           timeAgo={formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
           body={comment.content}
           avatarPathname={comment.profile?.avatar_url}
@@ -402,8 +391,14 @@ export function PostDetailPanel({
             </header>
 
             <ScrollArea className="min-h-[120px] flex-1 pr-2" data-name="CommentsWrapper">
-              <div className="flex flex-col gap-6 pb-10 pt-1" data-name="CommentStack">
-                {commentNodes}
+              <div
+                className="flex flex-col gap-5 overflow-clip pb-10 pt-4"
+                data-node-id="227:3336"
+              >
+                <CommentsSectionHeader count={comments.length} />
+                <div className="flex flex-col gap-6" data-name="CommentStack">
+                  {commentNodes}
+                </div>
               </div>
             </ScrollArea>
           </div>
