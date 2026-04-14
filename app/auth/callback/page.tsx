@@ -10,21 +10,68 @@ function AuthCallbackContent() {
   const [status, setStatus] = useState<'loading' | 'error'>('loading')
 
   useEffect(() => {
-    const next = searchParams.get('next') ?? '/'
+    const next = searchParams.get('next') ?? '/works'
 
     const run = async () => {
       const supabase = createClient()
 
-      // PKCE flow: ?code=... (normal magic link from signInWithOtp)
+      // PKCE flow: ?code=... (magic link or Google OAuth)
       const code = searchParams.get('code')
       if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (!error) {
-          router.replace(next)
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+        if (error) {
+          setStatus('error')
+          router.replace(`/auth/error?next=${encodeURIComponent(next)}`)
           return
         }
-        setStatus('error')
-        router.replace(`/auth/error?next=${encodeURIComponent(next)}`)
+
+        const session = data.session
+        const user = session?.user
+
+        // If this was a Google OAuth sign-in and a provider_token is present,
+        // check whether a different account exists with the same username but a
+        // different allowed domain. If so, redirect to the link-accounts page
+        // so the user can consolidate rather than accidentally using two accounts.
+        if (session?.provider_token && user?.email) {
+          const username = user.email.split('@')[0].toLowerCase()
+          const currentDomain = user.email.split('@')[1]?.toLowerCase()
+
+          // Fetch allowed domains from settings
+          const { data: settingsRows } = await supabase
+            .from('settings')
+            .select('value')
+            .eq('key', 'allowed_domains')
+            .maybeSingle()
+
+          const allowedDomains: string[] = Array.isArray(settingsRows?.value)
+            ? settingsRows.value
+            : ['aparentmedia.com', 'kidoodle.tv']
+
+          const alternateDomains = allowedDomains.filter((d) => d !== currentDomain)
+
+          // Look for a profile with the same username prefix on any alternate domain
+          for (const domain of alternateDomains) {
+            const alternateEmail = `${username}@${domain}`
+            const { data: existingProfile } = await supabase
+              .from('profiles')
+              .select('id, email')
+              .eq('email', alternateEmail)
+              .maybeSingle()
+
+            if (existingProfile) {
+              // Found a likely duplicate — redirect to link-accounts page
+              const params = new URLSearchParams({
+                keep: alternateEmail,
+                remove: user.email,
+                next,
+              })
+              router.replace(`/auth/link-accounts?${params.toString()}`)
+              return
+            }
+          }
+        }
+
+        router.replace(next)
         return
       }
 
@@ -45,7 +92,6 @@ function AuthCallbackContent() {
             ...(token_type && { token_type: token_type as 'bearer' }),
           })
           if (!error) {
-            // Clear hash from URL
             window.history.replaceState(null, '', window.location.pathname + window.location.search)
             router.replace(next)
             return
