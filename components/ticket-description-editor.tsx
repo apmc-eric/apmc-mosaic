@@ -16,7 +16,14 @@ export type TicketDescriptionEditorProps = {
   description: string | null
   canEdit: boolean
   className?: string
-  onSave: (html: string) => void
+  onSave?: (html: string) => void
+  /** Full-screen compose: always editable, optional live `onChange` (sanitized HTML). */
+  compose?: boolean
+  onChange?: (html: string) => void
+  /** Bump when compose form should reset inner HTML from `description`. */
+  resetKey?: number
+  /** Shown when empty (compose / panel). */
+  placeholder?: string
 }
 
 /**
@@ -28,14 +35,19 @@ export function TicketDescriptionEditor({
   description,
   canEdit,
   className,
-  onSave,
+  onSave = () => {},
+  compose = false,
+  onChange,
+  placeholder = 'Add a description…',
+  resetKey = 0,
 }: TicketDescriptionEditorProps) {
   const ref = React.useRef<HTMLDivElement>(null)
-  const [editing, setEditing] = React.useState(false)
+  const [editing, setEditing] = React.useState(compose)
   const pending = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSerialized = React.useRef('')
 
   React.useLayoutEffect(() => {
+    if (compose) return
     const el = ref.current
     if (!el) return
     const next = descriptionToEditableHtml(description)
@@ -46,16 +58,39 @@ export function TicketDescriptionEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId])
 
+  React.useLayoutEffect(() => {
+    if (!compose) return
+    const el = ref.current
+    if (!el) return
+    const next = descriptionToEditableHtml(description)
+    el.innerHTML = next
+    lastSerialized.current = sanitizeDescriptionHtml(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticketId, compose, resetKey])
+
   React.useEffect(() => {
+    if (compose) return
     if (!editing || !ref.current) return
     ref.current.focus()
-  }, [editing])
+  }, [editing, compose])
 
   const scheduleSave = React.useCallback(() => {
     const el = ref.current
     if (!el || !canEdit) return
     const raw = el.innerHTML
     const clean = sanitizeDescriptionHtml(raw)
+    if (compose) {
+      onChange?.(clean)
+      if (pending.current) clearTimeout(pending.current)
+      pending.current = setTimeout(() => {
+        pending.current = null
+        if (clean !== lastSerialized.current) {
+          lastSerialized.current = clean
+          onSave(clean)
+        }
+      }, DEBOUNCE_MS)
+      return
+    }
     if (clean === lastSerialized.current) return
     lastSerialized.current = clean
     if (pending.current) clearTimeout(pending.current)
@@ -63,15 +98,19 @@ export function TicketDescriptionEditor({
       pending.current = null
       onSave(clean)
     }, DEBOUNCE_MS)
-  }, [canEdit, onSave])
+  }, [canEdit, compose, onChange, onSave])
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!canEdit || editing) return
+    if (compose || !canEdit || editing) return
     e.preventDefault()
     setEditing(true)
   }
 
   const onBlurEditor = () => {
+    if (compose) {
+      scheduleSave()
+      return
+    }
     setEditing(false)
     scheduleSave()
   }
@@ -83,8 +122,49 @@ export function TicketDescriptionEditor({
     [],
   )
 
+  const tryBulletOnSpace = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== ' ' || !ref.current) return false
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false
+    const range = sel.getRangeAt(0)
+    const offset = range.startOffset
+    let block: HTMLElement | null = null
+    if (node.nodeType === Node.TEXT_NODE) {
+      const p = (node as Text).parentElement
+      if (p) block = p.closest('p, div, li') as HTMLElement | null
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      block = (node as HTMLElement).closest('p, div, li')
+    }
+    if (!block || !ref.current.contains(block)) return false
+    const r = document.createRange()
+    r.selectNodeContents(block)
+    r.setEnd(range.startContainer, offset)
+    const before = r.toString()
+    const lines = before.split('\n')
+    const lastLine = lines[lines.length - 1] ?? ''
+    if (lastLine !== '-') return false
+    e.preventDefault()
+    const del = document.createRange()
+    del.setStart(range.startContainer, offset - 1)
+    del.setEnd(range.startContainer, offset)
+    del.deleteContents()
+    const ul = document.createElement('ul')
+    const li = document.createElement('li')
+    li.appendChild(document.createElement('br'))
+    ul.appendChild(li)
+    del.insertNode(ul)
+    const nr = document.createRange()
+    nr.setStart(li, 0)
+    nr.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(nr)
+    scheduleSave()
+    return true
+  }
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!canEdit || !editing) return
+    if (!canEdit || (!compose && !editing)) return
+    if (tryBulletOnSpace(e)) return
     const mod = e.metaKey || e.ctrlKey
     if (mod && e.key.toLowerCase() === 'b') {
       e.preventDefault()
@@ -107,25 +187,43 @@ export function TicketDescriptionEditor({
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
-    if (!canEdit || !editing) return
+    if (!canEdit || (!compose && !editing)) return
     const text = e.clipboardData.getData('text/plain')?.trim() ?? ''
     if (!text || !looksLikeUrl(text)) return
     const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
+    if (!sel || sel.rangeCount === 0) return
     const selected = sel.toString().trim()
-    if (!selected) return
-    e.preventDefault()
-    try {
-      document.execCommand('createLink', false, text.startsWith('http') ? text : `https://${text}`)
-    } catch {
+    const href = text.startsWith('http') ? text : `https://${text}`
+    if (selected) {
+      e.preventDefault()
+      try {
+        document.execCommand('createLink', false, href)
+      } catch {
+        const range = sel.getRangeAt(0)
+        const a = document.createElement('a')
+        a.href = href
+        a.rel = 'noopener noreferrer'
+        a.target = '_blank'
+        range.surroundContents(a)
+      }
+      scheduleSave()
+      return
+    }
+    if (sel.isCollapsed) {
+      e.preventDefault()
       const range = sel.getRangeAt(0)
       const a = document.createElement('a')
-      a.href = text.startsWith('http') ? text : `https://${text}`
+      a.href = href
       a.rel = 'noopener noreferrer'
       a.target = '_blank'
-      range.surroundContents(a)
+      a.textContent = href
+      range.insertNode(a)
+      range.setStartAfter(a)
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+      scheduleSave()
     }
-    scheduleSave()
   }
 
   if (!canEdit) {
@@ -144,29 +242,65 @@ export function TicketDescriptionEditor({
     )
   }
 
-  return (
+  const isComposing = compose || editing
+  const [composeEmpty, setComposeEmpty] = React.useState(() => !(description ?? '').trim())
+
+  React.useEffect(() => {
+    if (!compose) return
+    const el = ref.current
+    const t = el?.textContent?.replace(/\u00a0/g, '').trim() ?? ''
+    setComposeEmpty(t.length === 0)
+  }, [compose, resetKey, ticketId])
+
+  const editor = (
     <div
       ref={ref}
       role="textbox"
-      tabIndex={-1}
+      tabIndex={compose ? 0 : -1}
       aria-multiline
-      contentEditable={editing}
+      contentEditable={isComposing}
       suppressContentEditableWarning
       onPointerDown={onPointerDown}
-      onInput={scheduleSave}
+      onInput={() => {
+        if (compose) {
+          const t = ref.current?.textContent?.replace(/\u00a0/g, '').trim() ?? ''
+          setComposeEmpty(t.length === 0)
+        }
+        scheduleSave()
+      }}
       onBlur={onBlurEditor}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       className={cn(
-        'min-h-[4rem] w-full text-sm leading-5 text-foreground outline-none ring-0',
-        editing ? 'cursor-text' : 'cursor-default hover:cursor-text',
-        'opacity-80 dark:opacity-90',
+        'w-full text-sm leading-5 outline-none ring-0',
+        compose ? 'relative z-[1] min-h-[15rem] cursor-text sm:min-h-[240px]' : 'min-h-[4rem]',
+        compose ? 'text-neutral-900 dark:text-zinc-50' : 'text-foreground opacity-80 dark:opacity-90',
+        !compose && (editing ? 'cursor-text' : 'cursor-default hover:cursor-text'),
         '[&_a]:cursor-pointer [&_a]:text-primary [&_a]:underline',
-        '[&_p]:mb-0',
-        'empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]',
+        '[&_p]:mb-0 [&_li]:mb-0',
+        '[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5',
+        !compose && 'empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]',
         className,
       )}
-      data-placeholder="Add a description…"
+      data-placeholder={placeholder}
     />
   )
+
+  if (compose) {
+    return (
+      <div className="relative w-full min-h-[15rem] sm:min-h-[240px]">
+        {composeEmpty ? (
+          <span
+            className="pointer-events-none absolute left-0 top-0 z-0 max-w-full text-sm leading-5 text-neutral-400 select-none dark:text-neutral-500"
+            aria-hidden
+          >
+            {placeholder}
+          </span>
+        ) : null}
+        {editor}
+      </div>
+    )
+  }
+
+  return editor
 }

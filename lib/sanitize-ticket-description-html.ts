@@ -1,6 +1,6 @@
 /**
  * Minimal allowlist sanitizer for ticket `description` HTML from `contenteditable`.
- * Strips tags/attrs outside **b, strong, i, em, u, a[href], br, p, div** and removes **script**-like content.
+ * Strips tags/attrs outside **b, strong, i, em, u, a[href], br, p, div, ul, ol, li** and removes **script**-like content.
  */
 const ALLOWED_TAGS = new Set([
   'b',
@@ -13,6 +13,9 @@ const ALLOWED_TAGS = new Set([
   'p',
   'div',
   'span',
+  'ul',
+  'ol',
+  'li',
 ])
 
 function escapeHtml(s: string): string {
@@ -80,6 +83,24 @@ function walkClean(root: ParentNode) {
       walkClean(el)
     }
   }
+}
+
+/** Collect unique http(s) URLs from `<a href>` in description HTML (for ticket `urls` preview / persistence). */
+export function extractUrlsFromDescriptionHtml(html: string): string[] {
+  const t = (html ?? '').trim()
+  if (!t) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  const re = /href\s*=\s*["'](https?:[^"']+)["']/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(t)) !== null) {
+    const raw = m[1].replace(/&amp;/g, '&')
+    if (!seen.has(raw)) {
+      seen.add(raw)
+      out.push(raw)
+    }
+  }
+  return out
 }
 
 export function looksLikeUrl(s: string): boolean {

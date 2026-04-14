@@ -8,6 +8,7 @@ import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import Link from 'next/link'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { Plus } from 'lucide-react'
+import { toast } from 'sonner'
 
 const supabase = createClient()
 
@@ -91,7 +92,14 @@ export default function SubmitterPortalPage() {
         New Ticket
       </Button>
 
-      <TicketSubmitModal open={submitOpen} onOpenChange={setSubmitOpen} onCreated={() => void load()} />
+      <TicketSubmitModal
+        open={submitOpen}
+        onOpenChange={setSubmitOpen}
+        onCreated={() => {
+          toast.success('Ticket Submitted!')
+          void load()
+        }}
+      />
     </div>
   )
 }

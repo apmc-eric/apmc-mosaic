@@ -11,7 +11,13 @@ export type TicketTitleEditorProps = {
   title: string
   canEdit: boolean
   className?: string
-  onSave: (title: string) => void
+  onSave?: (title: string) => void
+  /** Full-screen compose: always editable, single-line. */
+  compose?: boolean
+  placeholder?: string
+  autoFocus?: boolean
+  onChange?: (title: string) => void
+  resetKey?: number
 }
 
 /**
@@ -23,26 +29,49 @@ export function TicketTitleEditor({
   title,
   canEdit,
   className,
-  onSave,
+  onSave = () => {},
+  compose = false,
+  placeholder = '',
+  autoFocus = false,
+  onChange,
+  resetKey = 0,
 }: TicketTitleEditorProps) {
-  const ref = React.useRef<HTMLHeadingElement>(null)
-  const [editing, setEditing] = React.useState(false)
+  const ref = React.useRef<HTMLElement>(null)
+  const [editing, setEditing] = React.useState(compose)
+  const [titleEmpty, setTitleEmpty] = React.useState(!title.trim())
   const pending = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSaved = React.useRef(title)
 
   React.useLayoutEffect(() => {
+    if (compose) return
     const el = ref.current
     if (!el) return
     el.textContent = title
     lastSaved.current = title
-    // Same as description: only replace from props when `ticketId` changes (parent `key`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticketId])
+
+  React.useLayoutEffect(() => {
+    if (!compose) return
+    const el = ref.current
+    if (!el) return
+    el.textContent = title
+    lastSaved.current = title
+    setTitleEmpty(!title.trim())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compose, resetKey, ticketId])
+
+  React.useEffect(() => {
+    if (!compose) return
+    const t = ref.current?.textContent?.replace(/\u00a0/g, '').trim() ?? ''
+    setTitleEmpty(t.length === 0)
+  }, [compose, resetKey, ticketId, title])
 
   const flushSave = React.useCallback(() => {
     const el = ref.current
     if (!el || !canEdit) return
     const next = (el.textContent ?? '').replace(/\r?\n/g, ' ').trim()
+    onChange?.(next)
     if (next === lastSaved.current) return
     lastSaved.current = next
     if (pending.current) clearTimeout(pending.current)
@@ -50,7 +79,7 @@ export function TicketTitleEditor({
       pending.current = null
       onSave(next)
     }, DEBOUNCE_MS)
-  }, [canEdit, onSave])
+  }, [canEdit, onChange, onSave])
 
   const saveImmediate = React.useCallback(() => {
     const el = ref.current
@@ -61,13 +90,19 @@ export function TicketTitleEditor({
     }
     let next = (el.textContent ?? '').replace(/\r?\n/g, ' ').trim()
     if (!next) {
-      el.textContent = lastSaved.current
+      if (!compose) {
+        el.textContent = lastSaved.current
+        return
+      }
+      lastSaved.current = ''
+      onChange?.('')
+      onSave('')
       return
     }
     if (next === lastSaved.current) return
     lastSaved.current = next
     onSave(next)
-  }, [canEdit, onSave])
+  }, [canEdit, compose, onChange, onSave])
 
   React.useEffect(
     () => () => {
@@ -77,7 +112,7 @@ export function TicketTitleEditor({
   )
 
   React.useEffect(() => {
-    if (!editing || !ref.current) return
+    if ((!editing && !compose) || !ref.current) return
     const el = ref.current
     el.focus()
     const range = document.createRange()
@@ -86,30 +121,29 @@ export function TicketTitleEditor({
     const sel = window.getSelection()
     sel?.removeAllRanges()
     sel?.addRange(range)
-  }, [editing])
+  }, [editing, compose, autoFocus])
 
-  const onPointerDown = (e: React.PointerEvent<HTMLHeadingElement>) => {
-    if (!canEdit || editing) return
+  const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    if (compose || !canEdit || editing) return
     e.preventDefault()
     setEditing(true)
   }
 
   const onBlur = () => {
-    setEditing(false)
+    if (!compose) setEditing(false)
     saveImmediate()
   }
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLHeadingElement>) => {
-    if (!canEdit || !editing) return
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (!canEdit || (!compose && !editing)) return
     if (e.key === 'Enter') {
       e.preventDefault()
       ref.current?.blur()
-      return
     }
   }
 
-  const onPaste = (e: React.ClipboardEvent<HTMLHeadingElement>) => {
-    if (!canEdit || !editing) return
+  const onPaste = (e: React.ClipboardEvent<HTMLElement>) => {
+    if (!canEdit || (!compose && !editing)) return
     e.preventDefault()
     const text = (e.clipboardData.getData('text/plain') ?? '').replace(/\r?\n/g, ' ')
     try {
@@ -141,21 +175,54 @@ export function TicketTitleEditor({
     )
   }
 
-  return (
-    <h2
-      ref={ref}
-      contentEditable={editing}
-      suppressContentEditableWarning
-      onPointerDown={onPointerDown}
-      onInput={flushSave}
-      onBlur={onBlur}
-      onKeyDown={onKeyDown}
-      onPaste={onPaste}
-      className={cn(
-        'w-full text-xl font-semibold leading-7 text-neutral-900 outline-none dark:text-zinc-50',
-        editing ? 'cursor-text' : 'cursor-default hover:cursor-text',
-        className,
-      )}
-    />
+  const editable = compose || editing
+  const shared = {
+    ref,
+    contentEditable: editable,
+    suppressContentEditableWarning: true as const,
+    onPointerDown,
+    onInput: () => {
+      if (compose) {
+        const t = ref.current?.textContent?.replace(/\u00a0/g, '').trim() ?? ''
+        setTitleEmpty(t.length === 0)
+      }
+      flushSave()
+    },
+    onBlur,
+    onKeyDown,
+    onPaste,
+    className: cn(
+      'w-full text-xl font-semibold leading-7 text-neutral-900 outline-none dark:text-zinc-50',
+      compose ? 'cursor-text' : editing ? 'cursor-text' : 'cursor-default hover:cursor-text',
+      compose && 'relative z-[1]',
+      className,
+    ),
+    tabIndex: compose ? (0 as const) : undefined,
+    role: compose ? ('textbox' as const) : undefined,
+    'aria-label': compose ? 'Ticket title' : undefined,
+  }
+
+  const inner = compose ? (
+    <div {...shared} />
+  ) : (
+    <h2 {...shared} />
   )
+
+  if (compose && placeholder) {
+    return (
+      <div className="relative w-full">
+        {titleEmpty ? (
+          <span
+            className="pointer-events-none absolute left-0 top-0 z-0 max-w-full text-xl font-semibold leading-7 text-neutral-300 select-none dark:text-neutral-600"
+            aria-hidden
+          >
+            {placeholder}
+          </span>
+        ) : null}
+        {inner}
+      </div>
+    )
+  }
+
+  return inner
 }

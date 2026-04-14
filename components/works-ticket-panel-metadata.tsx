@@ -52,6 +52,13 @@ export type WorksTicketPanelMetadataProps = {
   onCheckpointCommit: (iso: string | null) => Promise<void>
   onPhaseCommit: (phase: string) => Promise<void>
   onCategoriesCommit: (commaSeparated: string | null) => Promise<void>
+  /**
+   * **`create`**: right-side triggers use **secondary small** buttons (“Select Time”, etc.) like Figma create ticket.
+   * **`panel`**: text-style triggers (sidepanel).
+   */
+  actionStyle?: 'panel' | 'create'
+  /** When **true**, the **Current Phase** row is omitted (e.g. create flow where phase is fixed server-side). */
+  hidePhaseRow?: boolean
 }
 
 export function WorksTicketPanelMetadata({
@@ -64,7 +71,10 @@ export function WorksTicketPanelMetadata({
   onCheckpointCommit,
   onPhaseCommit,
   onCategoriesCommit,
+  actionStyle = 'panel',
+  hidePhaseRow = false,
 }: WorksTicketPanelMetadataProps) {
+  const isCreate = actionStyle === 'create'
   const [cpOpen, setCpOpen] = React.useState(false)
   const [cpDraft, setCpDraft] = React.useState('')
   const [phOpen, setPhOpen] = React.useState(false)
@@ -120,12 +130,23 @@ export function WorksTicketPanelMetadata({
         {canEdit ? (
           <Popover open={cpOpen} onOpenChange={setCpOpen}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="max-w-[min(100%,12rem)] cursor-pointer truncate text-right text-xs font-semibold leading-none text-foreground underline-offset-2 hover:underline"
-              >
-                {formatTicketCheckpointLabel(checkpointDate)}
-              </button>
+              {isCreate ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="small"
+                  className="max-w-[min(100%,12rem)] shrink-0 truncate font-normal"
+                >
+                  {checkpointDate ? formatTicketCheckpointLabel(checkpointDate) : 'Select Time'}
+                </Button>
+              ) : (
+                <button
+                  type="button"
+                  className="max-w-[min(100%,12rem)] cursor-pointer truncate text-right text-xs font-semibold leading-none text-foreground underline-offset-2 hover:underline"
+                >
+                  {formatTicketCheckpointLabel(checkpointDate)}
+                </button>
+              )}
             </PopoverTrigger>
             <PopoverContent align="end" className="w-auto min-w-[16rem] space-y-3">
               <div className="space-y-1.5">
@@ -159,20 +180,27 @@ export function WorksTicketPanelMetadata({
         )}
       </div>
 
+      {!hidePhaseRow ? (
       <div className="flex w-full items-center justify-between border-t border-slate-200 py-1.5 dark:border-zinc-700">
         <div className="flex h-7 items-center gap-2">
           <Layers className="size-4 shrink-0 text-neutral-500" aria-hidden />
           <span className="text-xs font-medium leading-none text-neutral-500">Current Phase</span>
         </div>
-        {canEdit ? (
+        {canEdit && phaseOptions.length > 0 ? (
           <Popover open={phOpen} onOpenChange={setPhOpen}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 cursor-pointer underline-offset-2 hover:underline"
-              >
-                <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
-              </button>
+              {isCreate ? (
+                <Button type="button" variant="secondary" size="small" className="h-auto shrink-0 py-1 font-normal">
+                  <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
+                </Button>
+              ) : (
+                <button
+                  type="button"
+                  className="shrink-0 cursor-pointer underline-offset-2 hover:underline"
+                >
+                  <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
+                </button>
+              )}
             </PopoverTrigger>
             <PopoverContent align="end" className="w-56 p-2">
               <p className="text-muted-foreground mb-2 px-1 text-[0.65rem] font-medium uppercase tracking-wide">
@@ -200,10 +228,19 @@ export function WorksTicketPanelMetadata({
               </ul>
             </PopoverContent>
           </Popover>
+        ) : canEdit && phaseOptions.length === 0 ? (
+          isCreate ? (
+            <Button type="button" variant="secondary" size="small" disabled className="shrink-0 font-normal">
+              Select project first
+            </Button>
+          ) : (
+            <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
+          )
         ) : (
           <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
         )}
       </div>
+      ) : null}
 
       <div className="flex w-full items-center justify-between gap-3 border-t border-slate-200 py-1.5 dark:border-zinc-700">
         <div className="flex h-7 shrink-0 items-center gap-2">
@@ -213,23 +250,47 @@ export function WorksTicketPanelMetadata({
         {canEdit ? (
           <Popover open={catOpen} onOpenChange={setCatOpen}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex min-w-0 max-w-[14rem] cursor-pointer flex-wrap justify-end gap-1.5 underline-offset-2 hover:underline"
-              >
-                {displayCategories.length > 0 ? (
-                  displayCategories.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center justify-center rounded-md border border-neutral-300 px-1.5 py-1 text-xs font-medium leading-none text-foreground dark:border-zinc-600"
-                    >
-                      {tag}
+              {isCreate ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="small"
+                  className="h-auto max-w-[14rem] shrink-0 justify-end gap-1.5 font-normal"
+                >
+                  {displayCategories.length > 0 ? (
+                    <span className="flex max-w-full flex-wrap justify-end gap-1.5">
+                      {displayCategories.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex max-w-[6.5rem] items-center justify-center truncate rounded-md border border-neutral-300 px-1.5 py-0.5 text-xs font-medium leading-none text-foreground dark:border-zinc-600"
+                        >
+                          {tag}
+                        </span>
+                      ))}
                     </span>
-                  ))
-                ) : (
-                  <span className="text-xs font-semibold text-foreground">—</span>
-                )}
-              </button>
+                  ) : (
+                    'Select Categories'
+                  )}
+                </Button>
+              ) : (
+                <button
+                  type="button"
+                  className="flex min-w-0 max-w-[14rem] cursor-pointer flex-wrap justify-end gap-1.5 underline-offset-2 hover:underline"
+                >
+                  {displayCategories.length > 0 ? (
+                    displayCategories.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center justify-center rounded-md border border-neutral-300 px-1.5 py-1 text-xs font-medium leading-none text-foreground dark:border-zinc-600"
+                      >
+                        {tag}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs font-semibold text-foreground">—</span>
+                  )}
+                </button>
+              )}
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 space-y-3">
               <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wide">

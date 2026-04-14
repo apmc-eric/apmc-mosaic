@@ -20,6 +20,15 @@ function AuthCallbackContent() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (!error) {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession()
+          if (session?.access_token) {
+            await fetch('/api/auth/merge-company-email-alias', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            }).catch(() => {})
+          }
           router.replace(next)
           return
         }
@@ -45,6 +54,10 @@ function AuthCallbackContent() {
             ...(token_type && { token_type: token_type as 'bearer' }),
           })
           if (!error) {
+            await fetch('/api/auth/merge-company-email-alias', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${access_token}` },
+            }).catch(() => {})
             // Clear hash from URL
             window.history.replaceState(null, '', window.location.pathname + window.location.search)
             router.replace(next)

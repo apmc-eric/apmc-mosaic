@@ -65,6 +65,10 @@ function checkpointBucket(checkpoint: string | null): Bucket {
   return 'later'
 }
 
+function isTriagePhase(t: Pick<Ticket, 'phase'>): boolean {
+  return t.phase?.trim().toLowerCase() === 'triage'
+}
+
 export default function WorksPage() {
   const { profile, isAdmin, workspaceSettings } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -347,6 +351,19 @@ export default function WorksPage() {
     return tickets.filter((t) => t.project_id === projectFilter)
   }, [tickets, projectFilter])
 
+  /** Admins see **Triage** tickets only under **Needs Review**; they are omitted from week/backlog columns to avoid duplicates. */
+  const ticketsForTimeBuckets = useMemo(() => {
+    if (!isAdmin) return filtered
+    return filtered.filter((t) => !isTriagePhase(t))
+  }, [isAdmin, filtered])
+
+  const needsReviewSorted = useMemo(() => {
+    if (!isAdmin) return [] as Ticket[]
+    const list = filtered.filter(isTriagePhase)
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [isAdmin, filtered])
+
   const byBucket = useMemo(() => {
     const b: Record<Bucket, Ticket[]> = {
       this_week: [],
@@ -354,11 +371,11 @@ export default function WorksPage() {
       later: [],
       backlog: [],
     }
-    for (const t of filtered) {
+    for (const t of ticketsForTimeBuckets) {
       b[checkpointBucket(t.checkpoint_date)].push(t)
     }
     return b
-  }, [filtered])
+  }, [ticketsForTimeBuckets])
 
   const scheduleLabels = useMemo(() => {
     const now = new Date()
@@ -527,6 +544,22 @@ export default function WorksPage() {
             <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading tickets…</div>
           ) : (
             <>
+              {needsReviewSorted.length > 0 ? (
+                <section
+                  className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
+                  data-name="NeedsReview"
+                  aria-label="Needs review"
+                >
+                  <div className="col-span-12 md:col-span-2">
+                    <TimelineIndicator heading="Needs Review" dateRange="TRIAGE" />
+                  </div>
+                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="NeedsReviewContent">
+                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+                      {needsReviewSorted.map(renderCard)}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
               {workSections.map(
                 ({
                   key,
@@ -576,7 +609,14 @@ export default function WorksPage() {
         </div>
       </div>
 
-      <TicketSubmitModal open={submitOpen} onOpenChange={setSubmitOpen} onCreated={() => void load()} />
+      <TicketSubmitModal
+        open={submitOpen}
+        onOpenChange={setSubmitOpen}
+        onCreated={() => {
+          toast.success('Ticket Submitted!')
+          void load()
+        }}
+      />
 
       <Sheet
         open={!!panelTicket}
