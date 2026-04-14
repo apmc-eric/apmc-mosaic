@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { FilterBadge } from '@/components/filter-badge'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { ProfileImage } from '@/components/profile-image'
@@ -77,6 +78,8 @@ export default function WorksPage() {
   const [loading, setLoading] = useState(true)
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
   const [panelComments, setPanelComments] = useState<TicketComment[]>([])
+  const [panelCommentDraft, setPanelCommentDraft] = useState('')
+  const [commentPosting, setCommentPosting] = useState(false)
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -163,6 +166,50 @@ export default function WorksPage() {
       cancelled = true
     }
   }, [panelTicket?.id])
+
+  useEffect(() => {
+    setPanelCommentDraft('')
+  }, [panelTicket?.id])
+
+  const postPanelComment = useCallback(async () => {
+    if (!profile?.id || !panelTicket?.id) return
+    const body = panelCommentDraft.trim()
+    if (!body) return
+    setCommentPosting(true)
+    try {
+      const { data, error } = await supabase
+        .from('ticket_comments')
+        .insert({ ticket_id: panelTicket.id, author_id: profile.id, body })
+        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
+        .single()
+      if (error) {
+        console.error(error)
+        toast.error('Could not post comment')
+        return
+      }
+      if (data) {
+        const row = data as TicketComment
+        const withProfile: TicketComment =
+          row.profile != null
+            ? row
+            : {
+                ...row,
+                profile: {
+                  id: profile.id,
+                  first_name: profile.first_name,
+                  last_name: profile.last_name,
+                  name: profile.name ?? null,
+                  avatar_url: profile.avatar_url,
+                  role: profile.role,
+                },
+              }
+        setPanelComments((c) => [...c, withProfile])
+        setPanelCommentDraft('')
+      }
+    } finally {
+      setCommentPosting(false)
+    }
+  }, [profile?.id, panelTicket?.id, panelCommentDraft])
 
   const panelCanCompleteCheckpoint = useMemo(() => {
     if (!panelTicket || !profile?.id) return false
@@ -657,17 +704,12 @@ export default function WorksPage() {
                 Ticket {panelTicket.ticket_id}: {panelTicket.title}
               </SheetTitle>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div
-                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6 pb-6"
-                  data-name="Sidepanel"
-                  data-node-id="227:3294"
+                <header
+                  className="bg-background shrink-0 border-b border-border/50 px-6 pt-6 pb-6 pr-14"
+                  data-name="Header"
+                  data-node-id="227:3295"
                 >
-                  <div className="flex flex-col gap-7">
-                  <header
-                    className="flex flex-col gap-2 pr-14"
-                    data-name="Header"
-                    data-node-id="227:3295"
-                  >
+                  <div className="flex flex-col gap-2">
                     <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
                       {panelTicket.ticket_id}
                     </p>
@@ -696,9 +738,16 @@ export default function WorksPage() {
                         ))}
                       </div>
                     ) : null}
-                  </header>
+                  </div>
+                </header>
 
-                  <div data-node-id="227:3466">
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-6"
+                  data-name="Sidepanel"
+                  data-node-id="227:3294"
+                >
+                  <div className="flex flex-col gap-7">
+                  <div className="min-w-0" data-node-id="227:3466">
                     <TicketDescriptionEditor
                       key={panelTicket.id}
                       ticketId={panelTicket.id}
@@ -734,7 +783,7 @@ export default function WorksPage() {
                   />
 
                   <div
-                    className="flex w-full flex-col gap-5 overflow-clip pb-10 pt-4"
+                    className="flex w-full flex-col gap-5 overflow-clip pb-0 pt-4"
                     data-name="CommentsWrapper"
                     data-node-id="227:3336"
                   >
@@ -768,6 +817,35 @@ export default function WorksPage() {
                         <p className="py-2 text-center text-sm text-muted-foreground">No comments yet.</p>
                       ) : null}
                     </div>
+
+                    {profile?.id ? (
+                      <form
+                        className="border-border/60 flex flex-col gap-2 border-t pt-4"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void postPanelComment()
+                        }}
+                      >
+                        <Textarea
+                          value={panelCommentDraft}
+                          onChange={(e) => setPanelCommentDraft(e.target.value)}
+                          placeholder="Add a comment…"
+                          rows={3}
+                          disabled={commentPosting}
+                          className="min-h-[4.5rem] resize-y"
+                          aria-label="New comment"
+                        />
+                        <div className="flex justify-end">
+                          <Button
+                            type="submit"
+                            size="small"
+                            disabled={commentPosting || !panelCommentDraft.trim()}
+                          >
+                            {commentPosting ? 'Posting…' : 'Post comment'}
+                          </Button>
+                        </div>
+                      </form>
+                    ) : null}
                   </div>
                 </div>
                 </div>

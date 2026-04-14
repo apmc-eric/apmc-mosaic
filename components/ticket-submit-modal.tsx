@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { ProfileImage } from '@/components/profile-image'
 import { TicketTitleEditor } from '@/components/ticket-title-editor'
 import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
 import { WorksTicketPanelMetadata } from '@/components/works-ticket-panel-metadata'
@@ -37,7 +38,10 @@ const supabase = createClient()
 
 const CREATE_PHASE = DEFAULT_NEW_TICKET_PHASE
 
-type AssignableProfile = Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>
+type AssignableProfile = Pick<
+  Profile,
+  'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'
+>
 
 interface TicketSubmitModalProps {
   open: boolean
@@ -53,6 +57,20 @@ function checkpointDateForRpc(iso: string | null): string | null {
 
 function assigneeKey(ids: string[]) {
   return ids.join('\u0001')
+}
+
+function initialsForProfile(d: AssignableProfile): string {
+  const a = d.first_name?.trim()?.[0]
+  const b = d.last_name?.trim()?.[0]
+  if (a && b) return `${a}${b}`.toUpperCase()
+  if (a) return a.toUpperCase()
+  const n = d.name?.trim()
+  if (n) {
+    const parts = n.split(/\s+/).filter(Boolean)
+    if (parts.length >= 2) return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
+    return (parts[0]?.slice(0, 2) ?? '?').toUpperCase()
+  }
+  return (d.email?.[0] ?? '?').toUpperCase()
 }
 
 export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmitModalProps) {
@@ -156,7 +174,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
 
     void supabase
       .from('profiles')
-      .select('id, first_name, last_name, name, email, role')
+      .select('id, first_name, last_name, name, email, role, avatar_url')
       .eq('is_active', true)
       .in('role', ['admin', 'designer', 'collaborator', 'guest', 'user', 'member'])
       .order('first_name', { ascending: true })
@@ -201,7 +219,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       return
     }
     if (!leadId) {
-      toast.error('Add at least one assignee (the first is lead)')
+      toast.error('Add at least one assignee')
       return
     }
     setStep(2)
@@ -213,7 +231,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       return
     }
     if (!leadId) {
-      toast.error('Add at least one assignee (the first is lead)')
+      toast.error('Add at least one assignee')
       return
     }
     const proj = projects.find((p) => p.id === projectId)
@@ -273,7 +291,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     <>
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
         <DialogContent
-          showCloseButton
+          showCloseButton={false}
           className={cn(
             'fixed inset-0 top-0 left-0 z-50 flex h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:max-w-none',
             'data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100',
@@ -284,21 +302,49 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
           <DialogTitle className="sr-only">Create ticket</DialogTitle>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="mx-auto flex min-h-0 w-full max-w-[480px] flex-1 flex-col px-4 pt-14 pb-0 sm:px-6">
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6">
+            <header
+              className="flex shrink-0 items-center justify-between gap-3 overflow-hidden p-2 pt-2.5 pr-1 pl-4 sm:pl-6"
+              data-name="Top"
+              data-node-id="294:6449"
+            >
+              <nav
+                className="text-foreground flex min-w-0 flex-wrap items-center gap-2 text-sm leading-none"
+                aria-label="Progress"
+                data-name="Breadcrumb"
+              >
+                <span className="font-semibold">Create Ticket</span>
+                <span className="font-medium text-neutral-300" aria-hidden>
+                  /
+                </span>
+                <span className="font-semibold">
+                  Step {step} of 2
+                </span>
+              </nav>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0"
+                aria-label="Close"
+                onClick={requestClose}
+              >
+                <X className="size-4" strokeWidth={1.75} />
+              </Button>
+            </header>
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 sm:px-6">
+              <div className="mx-auto my-auto flex w-full max-w-[480px] shrink-0 flex-col pb-6">
                 {step === 1 ? (
                   <div
-                    className="flex flex-col gap-9"
-                    data-name="Ticket Creation Step 1"
+                    className="flex flex-col gap-5"
+                    data-name="Ticket Creation Flow"
                     data-node-id="290:3985"
                   >
-                    <header className="flex flex-col gap-2" data-node-id="290:3874">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
-                          Create ticket
-                        </p>
-                        <p className="font-mono text-mono-micro text-muted-foreground">1 / 2</p>
-                      </div>
+                    <div
+                      className="flex min-h-[5.25rem] flex-col gap-2"
+                      data-name="Header"
+                      data-node-id="290:3874"
+                    >
                       <TicketTitleEditor
                         key={`title-${draftSession}`}
                         ticketId="create-draft"
@@ -313,12 +359,38 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                         className="min-h-[1.75rem]"
                       />
 
-                      <div className="flex flex-col gap-2.5" data-name="Assignees" data-node-id="290:3877">
+                      <div
+                        className="flex flex-wrap items-center gap-2 mix-blend-multiply dark:mix-blend-normal"
+                        data-name="Assignees"
+                        data-node-id="290:3877"
+                      >
+                        {assigneeIds.length > 0 ? (
+                          <div className="flex items-center pr-1">
+                            {assigneeIds.map((id, i) => {
+                              const d = designerById.get(id)
+                              const label = d ? formatProfileLabel(d) : 'Assignee'
+                              return (
+                                <ProfileImage
+                                  key={id}
+                                  pathname={d?.avatar_url ?? null}
+                                  alt={label}
+                                  size="xs"
+                                  className={cn(
+                                    'border-2 border-white dark:border-zinc-950',
+                                    i > 0 && '-ml-1',
+                                  )}
+                                  fallback={d ? initialsForProfile(d) : '?'}
+                                />
+                              )
+                            })}
+                          </div>
+                        ) : null}
+
                         <Popover open={assigneePopoverOpen} onOpenChange={setAssigneePopoverOpen}>
                           <PopoverTrigger asChild>
                             <button
                               type="button"
-                              className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0 pr-2.5 transition-colors hover:bg-neutral-200/80 dark:border-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700/80"
+                              className="inline-flex h-6 shrink-0 items-center gap-2 rounded-full border border-white bg-neutral-200 pl-1.5 pr-2.5 transition-colors hover:bg-neutral-300/90 dark:border-zinc-950 dark:bg-zinc-700 dark:hover:bg-zinc-600"
                             >
                               <Plus className="size-4 shrink-0 text-neutral-500" aria-hidden />
                               <span className="text-xs font-normal leading-none text-neutral-500 opacity-80">
@@ -327,63 +399,69 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                             </button>
                           </PopoverTrigger>
                           <PopoverContent align="start" className="w-64 p-1">
-                            {assignableNotYetAdded.length === 0 ? (
-                              <p className="text-muted-foreground px-2 py-2 text-sm">Everyone is already assigned.</p>
-                            ) : (
-                              <ul className="max-h-64 overflow-y-auto py-1">
-                                {assignableNotYetAdded.map((d) => (
-                                  <li key={d.id}>
-                                    <button
-                                      type="button"
-                                      className="hover:bg-muted/80 w-full rounded-md px-2 py-1.5 text-left text-sm"
-                                      onClick={() => addAssignee(d.id)}
-                                    >
-                                      {formatProfileLabel(d)}
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
+                            {assigneeIds.length > 0 ? (
+                              <div className="border-border/80 border-b px-1 pb-2">
+                                <p className="text-muted-foreground px-2 pb-1 text-[0.65rem] font-medium uppercase tracking-wide">
+                                  Assigned
+                                </p>
+                                <ul className="max-h-32 space-y-0.5 overflow-y-auto">
+                                  {assigneeIds.map((id, index) => {
+                                    const d = designerById.get(id)
+                                    const label = d ? formatProfileLabel(d) : id
+                                    return (
+                                      <li
+                                        key={id}
+                                        className="flex items-center justify-between gap-2 rounded-md px-2 py-1"
+                                      >
+                                        <span className="min-w-0 flex-1 truncate text-sm">
+                                          <span className="text-muted-foreground mr-1.5 text-xs">
+                                            {index === 0 ? 'Lead' : 'Support'}
+                                          </span>
+                                          {label}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          className="text-muted-foreground hover:text-foreground shrink-0 rounded p-1"
+                                          aria-label={`Remove ${label}`}
+                                          onClick={() => removeAssignee(id)}
+                                        >
+                                          <X className="size-3.5" />
+                                        </button>
+                                      </li>
+                                    )
+                                  })}
+                                </ul>
+                              </div>
+                            ) : null}
+                            <div className="pt-1">
+                              {assignableNotYetAdded.length === 0 ? (
+                                <p className="text-muted-foreground px-2 py-2 text-sm">No one left to add.</p>
+                              ) : (
+                                <ul className="max-h-48 overflow-y-auto py-1">
+                                  {assignableNotYetAdded.map((d) => (
+                                    <li key={d.id}>
+                                      <button
+                                        type="button"
+                                        className="hover:bg-muted/80 w-full rounded-md px-2 py-1.5 text-left text-sm"
+                                        onClick={() => addAssignee(d.id)}
+                                      >
+                                        {formatProfileLabel(d)}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
                           </PopoverContent>
                         </Popover>
-
-                        {assigneeIds.length > 0 ? (
-                          <ul className="flex w-full flex-col gap-2">
-                            {assigneeIds.map((id, index) => {
-                              const d = designerById.get(id)
-                              const label = d ? formatProfileLabel(d) : id
-                              return (
-                                <li
-                                  key={id}
-                                  className="flex w-full items-stretch justify-between gap-3 rounded-md border border-neutral-200 bg-background px-3 py-2.5 dark:border-zinc-600"
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-mono text-mono-micro font-normal uppercase tabular-nums text-neutral-500 opacity-80">
-                                      {index === 0 ? 'Lead' : 'Support'}
-                                    </p>
-                                    <p className="mt-0.5 truncate text-sm font-normal leading-tight text-foreground">
-                                      {label}
-                                    </p>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    className="text-muted-foreground hover:text-foreground flex shrink-0 items-center justify-center rounded-md p-1 transition-colors"
-                                    aria-label={`Remove ${label}`}
-                                    onClick={() => removeAssignee(id)}
-                                  >
-                                    <X className="size-4" strokeWidth={1.75} />
-                                  </button>
-                                </li>
-                              )
-                            })}
-                          </ul>
-                        ) : (
-                          <p className="text-muted-foreground text-xs">Add at least one assignee.</p>
-                        )}
                       </div>
-                    </header>
+                    </div>
 
-                    <div className="flex min-h-[240px] shrink-0 flex-col gap-0" data-node-id="290:3881">
+                    <div
+                      className="flex min-h-[240px] flex-col gap-0"
+                      data-name="Description Area"
+                      data-node-id="290:3881"
+                    >
                       <TicketDescriptionEditor
                         key={`desc-${draftSession}`}
                         ticketId="create-draft"
@@ -407,34 +485,23 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                     ) : null}
                   </div>
                 ) : (
-                  <div
-                    className="flex flex-col gap-8"
-                    data-name="Ticket Creation Step 2"
-                    data-node-id="294:6249"
-                  >
-                    <header className="flex flex-col gap-2">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
-                          Create ticket
-                        </p>
-                        <p className="font-mono text-mono-micro text-muted-foreground">2 / 2</p>
-                      </div>
-                      <p className="text-sm text-muted-foreground">Project, checkpoint, and categories</p>
-                    </header>
-
-                    <div className="flex flex-col" data-name="Metadata block">
-                      <div className="flex w-full items-center justify-between border-t border-slate-200 py-1.5 dark:border-zinc-700">
+                  <div className="flex flex-col gap-9" data-name="Ticket Creation Step 2" data-node-id="294:6249">
+                    <div className="flex w-full flex-col" data-name="Metadata" data-node-id="294:6306">
+                      <div
+                        className="flex w-full items-center justify-between py-4"
+                        data-name="Row"
+                        data-node-id="294:6307"
+                      >
                         <div className="flex h-7 items-center gap-2">
                           <Folder className="size-4 shrink-0 text-neutral-500" aria-hidden />
-                          <span className="text-xs font-medium leading-none text-neutral-500">Project Type</span>
+                          <span className="text-sm font-medium leading-none text-neutral-500">Project Type</span>
                         </div>
                         <Popover open={projectPopoverOpen} onOpenChange={setProjectPopoverOpen}>
                           <PopoverTrigger asChild>
                             <Button
                               type="button"
                               variant="secondary"
-                              size="small"
-                              className="max-w-[14rem] shrink-0 truncate rounded-full font-normal"
+                              className="max-w-[14rem] shrink-0 truncate font-normal"
                             >
                               {selectedProject
                                 ? `${selectedProject.name} (${selectedProject.abbreviation})`
@@ -477,6 +544,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                         categoryOptions={workspaceSettings?.team_categories ?? []}
                         canEdit
                         actionStyle="create"
+                        metadataLayout="wizard"
                         hidePhaseRow
                         onCheckpointCommit={async (iso) => {
                           setCheckpointIso(iso)
@@ -492,39 +560,37 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
               </div>
             </div>
 
-            <div
-              className="mx-auto w-full max-w-[480px] shrink-0 border-t border-border/60 bg-background px-4 py-4 sm:px-6"
+            <footer
+              className="w-full shrink-0 border-t border-slate-100 px-4 py-4 dark:border-zinc-800 sm:px-6"
               data-name="CTA"
-              data-node-id="290:4044"
+              data-node-id="294:6376"
             >
-              {step === 1 ? (
-                <div className="flex flex-wrap items-start gap-1.5">
-                  <Button type="button" className="gap-1.5" disabled={submitting} onClick={goStep2}>
-                    Continue
-                  </Button>
-                  <Button type="button" variant="ghost" disabled={submitting} onClick={requestClose}>
-                    Cancel & Exit
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-start gap-1.5">
-                  <Button
-                    type="button"
-                    className="gap-1.5"
-                    disabled={submitting || !projectId || !leadId || !title.trim()}
-                    onClick={() => void handleSubmit()}
-                  >
-                    {submitting ? 'Creating…' : 'Submit Ticket'}
-                  </Button>
-                  <Button type="button" variant="outline" disabled={submitting} onClick={() => setStep(1)}>
-                    Back
-                  </Button>
-                  <Button type="button" variant="ghost" disabled={submitting} onClick={requestClose}>
-                    Cancel & Exit
-                  </Button>
-                </div>
-              )}
-            </div>
+              <div className="flex w-full items-center justify-between gap-3">
+                {step === 1 ? (
+                  <>
+                    <Button type="button" variant="ghost" disabled={submitting} onClick={requestClose}>
+                      Cancel & Exit
+                    </Button>
+                    <Button type="button" disabled={submitting} onClick={goStep2}>
+                      Next
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(1)}>
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={submitting || !projectId || !leadId || !title.trim()}
+                      onClick={() => void handleSubmit()}
+                    >
+                      {submitting ? 'Creating…' : 'Submit Ticket'}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </footer>
           </div>
         </DialogContent>
       </Dialog>

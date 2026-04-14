@@ -1,36 +1,16 @@
 'use client'
 
 import * as React from 'react'
-import { format, parseISO } from 'date-fns'
 import { CalendarCheck, Layers, Tags } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { cn } from '@/lib/utils'
-
-function toDatetimeLocalValue(iso: string | null): string {
-  if (!iso) return ''
-  try {
-    const d = parseISO(iso)
-    if (Number.isNaN(d.getTime())) return ''
-    return format(d, "yyyy-MM-dd'T'HH:mm")
-  } catch {
-    return ''
-  }
-}
-
-function fromDatetimeLocalValue(s: string): string | null {
-  const t = s.trim()
-  if (!t) return null
-  const d = new Date(t)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString()
-}
 
 function parseCategoryCsv(raw: string | null): Set<string> {
   const s = new Set<string>()
@@ -59,6 +39,11 @@ export type WorksTicketPanelMetadataProps = {
   actionStyle?: 'panel' | 'create'
   /** When **true**, the **Current Phase** row is omitted (e.g. create flow where phase is fixed server-side). */
   hidePhaseRow?: boolean
+  /**
+   * **`wizard`**: create-ticket step 2 (Figma `294:6249`) — rows use **`py-4`**, **`text-sm`** labels, **default** secondary triggers.
+   * **`panel`**: sidepanel density.
+   */
+  metadataLayout?: 'panel' | 'wizard'
 }
 
 export function WorksTicketPanelMetadata({
@@ -73,47 +58,35 @@ export function WorksTicketPanelMetadata({
   onCategoriesCommit,
   actionStyle = 'panel',
   hidePhaseRow = false,
+  metadataLayout = 'panel',
 }: WorksTicketPanelMetadataProps) {
   const isCreate = actionStyle === 'create'
+  const isWizard = metadataLayout === 'wizard'
+  const rowPad = isWizard ? 'py-4' : 'py-1.5'
+  const labelClass = isWizard ? 'text-sm' : 'text-xs'
+  const createTriggerSize = isWizard ? ('default' as const) : ('small' as const)
   const [cpOpen, setCpOpen] = React.useState(false)
-  const [cpDraft, setCpDraft] = React.useState('')
   const [phOpen, setPhOpen] = React.useState(false)
   const [catOpen, setCatOpen] = React.useState(false)
   const [catDraft, setCatDraft] = React.useState(() => parseCategoryCsv(teamCategory))
 
   React.useEffect(() => {
-    if (cpOpen) setCpDraft(toDatetimeLocalValue(checkpointDate))
-  }, [cpOpen, checkpointDate])
-
-  React.useEffect(() => {
     if (catOpen) setCatDraft(parseCategoryCsv(teamCategory))
   }, [catOpen, teamCategory])
 
-  const applyCheckpoint = async () => {
-    await onCheckpointCommit(fromDatetimeLocalValue(cpDraft))
-    setCpOpen(false)
-  }
-
-  const clearCheckpoint = async () => {
-    setCpDraft('')
-    await onCheckpointCommit(null)
-    setCpOpen(false)
-  }
-
-  const applyCategories = async () => {
-    const list = [...catDraft].sort()
-    await onCategoriesCommit(list.length ? list.join(', ') : null)
-    setCatOpen(false)
-  }
-
-  const toggleCat = (c: string) => {
-    setCatDraft((prev) => {
-      const next = new Set(prev)
-      if (next.has(c)) next.delete(c)
-      else next.add(c)
-      return next
-    })
-  }
+  const toggleCatAndSave = React.useCallback(
+    (c: string, checked: boolean) => {
+      setCatDraft((prev) => {
+        const next = new Set(prev)
+        if (checked) next.add(c)
+        else next.delete(c)
+        const list = [...next].sort()
+        void onCategoriesCommit(list.length ? list.join(', ') : null)
+        return next
+      })
+    },
+    [onCategoriesCommit],
+  )
 
   const displayCategories = React.useMemo(() => {
     const s = parseCategoryCsv(teamCategory)
@@ -122,10 +95,15 @@ export function WorksTicketPanelMetadata({
 
   return (
     <div className="flex w-full flex-col" data-name="Metadata" data-node-id="227:3402">
-      <div className="flex w-full items-center justify-between border-t border-slate-200 py-1.5 dark:border-zinc-700">
+      <div
+        className={cn(
+          'flex w-full items-center justify-between border-t border-slate-200 dark:border-zinc-700',
+          rowPad,
+        )}
+      >
         <div className="flex h-7 items-center gap-2">
           <CalendarCheck className="size-4 shrink-0 text-neutral-500" aria-hidden />
-          <span className="text-xs font-medium leading-none text-neutral-500">Next Checkpoint</span>
+          <span className={cn('font-medium leading-none text-neutral-500', labelClass)}>Next Checkpoint</span>
         </div>
         {canEdit ? (
           <Popover open={cpOpen} onOpenChange={setCpOpen}>
@@ -134,7 +112,7 @@ export function WorksTicketPanelMetadata({
                 <Button
                   type="button"
                   variant="secondary"
-                  size="small"
+                  size={createTriggerSize}
                   className="max-w-[min(100%,12rem)] shrink-0 truncate font-normal"
                 >
                   {checkpointDate ? formatTicketCheckpointLabel(checkpointDate) : 'Select Time'}
@@ -148,29 +126,13 @@ export function WorksTicketPanelMetadata({
                 </button>
               )}
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-auto min-w-[16rem] space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="panel-cp-dt" className="text-xs">
-                  Date & time
-                </Label>
-                <Input
-                  id="panel-cp-dt"
-                  type="datetime-local"
-                  value={cpDraft}
-                  onChange={(e) => setCpDraft(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button type="button" variant="ghost" size="small" onClick={() => void clearCheckpoint()}>
-                  Clear
-                </Button>
-                <Button type="button" variant="outline" size="small" onClick={() => setCpOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="button" size="small" onClick={() => void applyCheckpoint()}>
-                  Save
-                </Button>
-              </div>
+            <PopoverContent align="end" className="w-auto p-0" sideOffset={6}>
+              <CheckpointDatetimePickerBody
+                open={cpOpen}
+                checkpointDate={checkpointDate}
+                onCommit={onCheckpointCommit}
+                onRequestClose={() => setCpOpen(false)}
+              />
             </PopoverContent>
           </Popover>
         ) : (
@@ -181,71 +143,92 @@ export function WorksTicketPanelMetadata({
       </div>
 
       {!hidePhaseRow ? (
-      <div className="flex w-full items-center justify-between border-t border-slate-200 py-1.5 dark:border-zinc-700">
-        <div className="flex h-7 items-center gap-2">
-          <Layers className="size-4 shrink-0 text-neutral-500" aria-hidden />
-          <span className="text-xs font-medium leading-none text-neutral-500">Current Phase</span>
-        </div>
-        {canEdit && phaseOptions.length > 0 ? (
-          <Popover open={phOpen} onOpenChange={setPhOpen}>
-            <PopoverTrigger asChild>
-              {isCreate ? (
-                <Button type="button" variant="secondary" size="small" className="h-auto shrink-0 py-1 font-normal">
-                  <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
-                </Button>
-              ) : (
-                <button
-                  type="button"
-                  className="shrink-0 cursor-pointer underline-offset-2 hover:underline"
-                >
-                  <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
-                </button>
-              )}
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-2">
-              <p className="text-muted-foreground mb-2 px-1 text-[0.65rem] font-medium uppercase tracking-wide">
-                Phase
-              </p>
-              <ul className="max-h-64 space-y-0.5 overflow-y-auto">
-                {phaseOptions.map((ph) => (
-                  <li key={ph}>
-                    <button
-                      type="button"
-                      className={cn(
-                        'flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                        ph.toLowerCase() === phase.trim().toLowerCase()
-                          ? 'bg-muted'
-                          : 'hover:bg-muted/60',
-                      )}
-                      onClick={() => {
-                        void onPhaseCommit(ph).then(() => setPhOpen(false))
-                      }}
-                    >
-                      <WorkflowPhaseTag phase={ph} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </PopoverContent>
-          </Popover>
-        ) : canEdit && phaseOptions.length === 0 ? (
-          isCreate ? (
-            <Button type="button" variant="secondary" size="small" disabled className="shrink-0 font-normal">
-              Select project first
-            </Button>
+        <div
+          className={cn(
+            'flex w-full items-center justify-between border-t border-slate-200 dark:border-zinc-700',
+            rowPad,
+          )}
+        >
+          <div className="flex h-7 items-center gap-2">
+            <Layers className="size-4 shrink-0 text-neutral-500" aria-hidden />
+            <span className={cn('font-medium leading-none text-neutral-500', labelClass)}>Current Phase</span>
+          </div>
+          {canEdit && phaseOptions.length > 0 ? (
+            <Popover open={phOpen} onOpenChange={setPhOpen}>
+              <PopoverTrigger asChild>
+                {isCreate ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size={createTriggerSize}
+                    className="h-auto shrink-0 py-1 font-normal"
+                  >
+                    <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
+                  </Button>
+                ) : (
+                  <button
+                    type="button"
+                    className="shrink-0 cursor-pointer underline-offset-2 hover:underline"
+                  >
+                    <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
+                  </button>
+                )}
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-2">
+                <p className="text-muted-foreground mb-2 px-1 text-[0.65rem] font-medium uppercase tracking-wide">
+                  Phase
+                </p>
+                <ul className="max-h-64 space-y-0.5 overflow-y-auto">
+                  {phaseOptions.map((ph) => (
+                    <li key={ph}>
+                      <button
+                        type="button"
+                        className={cn(
+                          'flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                          ph.toLowerCase() === phase.trim().toLowerCase()
+                            ? 'bg-muted'
+                            : 'hover:bg-muted/60',
+                        )}
+                        onClick={() => {
+                          void onPhaseCommit(ph).then(() => setPhOpen(false))
+                        }}
+                      >
+                        <WorkflowPhaseTag phase={ph} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </PopoverContent>
+            </Popover>
+          ) : canEdit && phaseOptions.length === 0 ? (
+            isCreate ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size={createTriggerSize}
+                disabled
+                className="shrink-0 font-normal"
+              >
+                Select project first
+              </Button>
+            ) : (
+              <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
+            )
           ) : (
             <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
-          )
-        ) : (
-          <WorkflowPhaseTag phase={phase} data-node-id="199:1197" />
-        )}
-      </div>
+          )}
+        </div>
       ) : null}
 
-      <div className="flex w-full items-center justify-between gap-3 border-t border-slate-200 py-1.5 dark:border-zinc-700">
+      <div
+        className={cn(
+          'flex w-full items-center justify-between gap-3 border-t border-slate-200 dark:border-zinc-700',
+          rowPad,
+        )}
+      >
         <div className="flex h-7 shrink-0 items-center gap-2">
           <Tags className="size-4 shrink-0 text-neutral-500" aria-hidden />
-          <span className="text-xs font-medium leading-none text-neutral-500">Categories</span>
+          <span className={cn('font-medium leading-none text-neutral-500', labelClass)}>Categories</span>
         </div>
         {canEdit ? (
           <Popover open={catOpen} onOpenChange={setCatOpen}>
@@ -254,7 +237,7 @@ export function WorksTicketPanelMetadata({
                 <Button
                   type="button"
                   variant="secondary"
-                  size="small"
+                  size={createTriggerSize}
                   className="h-auto max-w-[14rem] shrink-0 justify-end gap-1.5 font-normal"
                 >
                   {displayCategories.length > 0 ? (
@@ -305,7 +288,7 @@ export function WorksTicketPanelMetadata({
                       <Checkbox
                         id={`cat-${c}`}
                         checked={catDraft.has(c)}
-                        onCheckedChange={() => toggleCat(c)}
+                        onCheckedChange={(state) => toggleCatAndSave(c, state === true)}
                       />
                       <Label htmlFor={`cat-${c}`} className="cursor-pointer text-sm font-normal">
                         {c}
@@ -314,14 +297,6 @@ export function WorksTicketPanelMetadata({
                   ))}
                 </ul>
               )}
-              <div className="flex justify-end gap-2 border-t border-border pt-2">
-                <Button type="button" variant="outline" size="small" onClick={() => setCatOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="button" size="small" onClick={() => void applyCategories()}>
-                  Save
-                </Button>
-              </div>
             </PopoverContent>
           </Popover>
         ) : (

@@ -128,6 +128,7 @@ export function TicketDescriptionEditor({
     if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false
     const range = sel.getRangeAt(0)
     const offset = range.startOffset
+    const node = range.startContainer
     let block: HTMLElement | null = null
     if (node.nodeType === Node.TEXT_NODE) {
       const p = (node as Text).parentElement
@@ -234,7 +235,7 @@ export function TicketDescriptionEditor({
     return (
       <div
         className={cn(
-          'text-sm leading-5 text-foreground opacity-80 dark:opacity-90 [&_a]:text-primary [&_a]:underline [&_p]:mb-0',
+          'min-w-0 max-w-full break-words text-sm leading-5 text-foreground opacity-80 [overflow-wrap:anywhere] dark:opacity-90 [&_a]:break-all [&_a]:text-primary [&_a]:underline [&_p]:mb-0',
           className,
         )}
         dangerouslySetInnerHTML={{ __html: sanitizeDescriptionHtml(html) }}
@@ -272,11 +273,11 @@ export function TicketDescriptionEditor({
       onKeyDown={onKeyDown}
       onPaste={onPaste}
       className={cn(
-        'w-full text-sm leading-5 outline-none ring-0',
+        'min-w-0 max-w-full w-full break-words text-sm leading-5 outline-none ring-0 [overflow-wrap:anywhere]',
         compose ? 'relative z-[1] min-h-[15rem] cursor-text sm:min-h-[240px]' : 'min-h-[4rem]',
         compose ? 'text-neutral-900 dark:text-zinc-50' : 'text-foreground opacity-80 dark:opacity-90',
         !compose && (editing ? 'cursor-text' : 'cursor-default hover:cursor-text'),
-        '[&_a]:cursor-pointer [&_a]:text-primary [&_a]:underline',
+        '[&_a]:cursor-pointer [&_a]:break-all [&_a]:text-primary [&_a]:underline',
         '[&_p]:mb-0 [&_li]:mb-0',
         '[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5',
         !compose && 'empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]',
