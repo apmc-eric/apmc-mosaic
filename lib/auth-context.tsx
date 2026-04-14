@@ -30,10 +30,12 @@ interface AuthContextType {
   isAdmin: boolean
   isGuest: boolean
   isDesignerLike: boolean
+  hasGoogleToken: boolean
   refreshProfile: () => Promise<void>
   refreshSettings: () => Promise<void>
   refreshWorkspaceSettings: () => Promise<void>
   refreshTeams: () => Promise<void>
+  refreshGoogleConnection: () => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -49,27 +51,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [workspaceSettings, setWorkspaceSettings] = useState<WorkspaceSettings | null>(null)
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [hasGoogleToken, setHasGoogleToken] = useState(false)
 
   const refreshProfile = async () => {
     const { data: { user: currentUser } } = await supabase.auth.getUser()
     if (!currentUser) return
-    
+
     // Fetch profile
     const { data: profileData } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', currentUser.id)
       .single()
-    
+
     if (profileData) {
       // Fetch user's teams
       const { data: userTeamsData } = await supabase
         .from('user_teams')
         .select('team_id, team:teams(*)')
         .eq('user_id', currentUser.id)
-      
+
       const userTeams = userTeamsData?.map(ut => ut.team).filter(Boolean) as Team[] ?? []
-      
+
       setProfile({
         ...profileData,
         teams: userTeams
@@ -107,10 +110,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const refreshGoogleConnection = async () => {
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    if (!currentUser) {
+      setHasGoogleToken(false)
+      return
+    }
+    const { data } = await supabase
+      .from('user_google_tokens')
+      .select('id')
+      .eq('user_id', currentUser.id)
+      .maybeSingle()
+    setHasGoogleToken(!!data)
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
     setUser(null)
     setProfile(null)
+    setHasGoogleToken(false)
     window.location.href = '/login'
   }
 
@@ -118,9 +136,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
-      
+
       if (session?.user) {
-        // Fetch profile, user_teams, teams, and settings
+        // Fetch profile, user_teams, teams, settings, workspace settings, and google token status
         Promise.all([
           supabase
             .from('profiles')
@@ -134,7 +152,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           supabase.from('teams').select('*').order('name'),
           supabase.from('settings').select('*'),
           supabase.from('workspace_settings').select('*').limit(1).maybeSingle(),
-        ]).then(([profileRes, userTeamsRes, teamsRes, settingsRes, wsRes]) => {
+          supabase
+            .from('user_google_tokens')
+            .select('id')
+            .eq('user_id', session.user.id)
+            .maybeSingle(),
+        ]).then(([profileRes, userTeamsRes, teamsRes, settingsRes, wsRes, googleTokenRes]) => {
           if (profileRes.data) {
             const userTeams = userTeamsRes.data?.map(ut => ut.team).filter(Boolean) as Team[] ?? []
             setProfile({
@@ -155,6 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (wsRes.data) {
             setWorkspaceSettings(mapWorkspaceRow(wsRes.data as Record<string, unknown>))
           }
+          setHasGoogleToken(!!googleTokenRes.data)
           setIsLoading(false)
         }).catch(() => {
           setIsLoading(false)
@@ -169,8 +193,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
-      
+
       if (event === 'SIGNED_IN' && session?.user) {
+        // Save Google OAuth token if present (only available immediately after OAuth sign-in)
+        if (session.provider_token) {
+          void supabase
+            .from('user_google_tokens')
+            .upsert(
+              {
+                user_id: session.user.id,
+                access_token: session.provider_token,
+                refresh_token: session.provider_refresh_token ?? null,
+                token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'user_id' }
+            )
+            .then(() => setHasGoogleToken(true))
+        }
+
         Promise.all([
           supabase
             .from('profiles')
@@ -192,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })
       } else if (event === 'SIGNED_OUT') {
         setProfile(null)
+        setHasGoogleToken(false)
       }
     })
 
@@ -215,10 +257,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin,
       isGuest,
       isDesignerLike,
+      hasGoogleToken,
       refreshProfile,
       refreshSettings,
       refreshWorkspaceSettings,
       refreshTeams,
+      refreshGoogleConnection,
       signOut
     }}>
       {children}
