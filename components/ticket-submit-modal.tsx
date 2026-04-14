@@ -51,8 +51,9 @@ interface TicketSubmitModalProps {
 
 function checkpointDateForRpc(iso: string | null): string | null {
   if (!iso) return null
-  const d = iso.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  return new Date(t).toISOString()
 }
 
 function assigneeKey(ids: string[]) {

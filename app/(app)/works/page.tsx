@@ -705,7 +705,7 @@ export default function WorksPage() {
               </SheetTitle>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <header
-                  className="bg-background shrink-0 border-b border-border/50 px-6 pt-6 pb-6 pr-14"
+                  className="bg-background shrink-0 px-6 pt-6 pb-6 pr-14"
                   data-name="Header"
                   data-node-id="227:3295"
                 >

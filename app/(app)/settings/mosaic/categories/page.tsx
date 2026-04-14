@@ -51,7 +51,22 @@ export default function MosaicCategoriesPage() {
     void save(next)
   }
 
-  const remove = (label: string) => {
+  const remove = async (label: string) => {
+    const res = await fetch(`/api/workspace/team-category-usage?label=${encodeURIComponent(label)}`, {
+      credentials: 'same-origin',
+    })
+    const body = (await res.json()) as { count?: number; error?: string }
+    if (!res.ok) {
+      toast.error(body.error || 'Could not verify category usage')
+      return
+    }
+    const count = typeof body.count === 'number' ? body.count : 0
+    if (count > 0) {
+      toast.error(
+        `“${label}” is used on ${count} ticket${count === 1 ? '' : 's'}. Remove it from those tickets before deleting.`,
+      )
+      return
+    }
     const next = rows.filter((r) => r !== label)
     setRows(next)
     void save(next)
@@ -71,8 +86,8 @@ export default function MosaicCategoriesPage() {
         {rows.map((r) => (
           <li key={r} className="flex items-center justify-between border border-border rounded-md px-3 py-2 text-sm">
             {r}
-            <Button type="button" variant="ghost" size="small" onClick={() => remove(r)}>
-              Remove
+            <Button type="button" variant="ghost" size="small" onClick={() => void remove(r)}>
+              Delete
             </Button>
           </li>
         ))}

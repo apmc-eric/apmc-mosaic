@@ -122,50 +122,8 @@ export function TicketDescriptionEditor({
     [],
   )
 
-  const tryBulletOnSpace = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== ' ' || !ref.current) return false
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false
-    const range = sel.getRangeAt(0)
-    const offset = range.startOffset
-    const node = range.startContainer
-    let block: HTMLElement | null = null
-    if (node.nodeType === Node.TEXT_NODE) {
-      const p = (node as Text).parentElement
-      if (p) block = p.closest('p, div, li') as HTMLElement | null
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      block = (node as HTMLElement).closest('p, div, li')
-    }
-    if (!block || !ref.current.contains(block)) return false
-    const r = document.createRange()
-    r.selectNodeContents(block)
-    r.setEnd(range.startContainer, offset)
-    const before = r.toString()
-    const lines = before.split('\n')
-    const lastLine = lines[lines.length - 1] ?? ''
-    if (lastLine !== '-') return false
-    e.preventDefault()
-    const del = document.createRange()
-    del.setStart(range.startContainer, offset - 1)
-    del.setEnd(range.startContainer, offset)
-    del.deleteContents()
-    const ul = document.createElement('ul')
-    const li = document.createElement('li')
-    li.appendChild(document.createElement('br'))
-    ul.appendChild(li)
-    del.insertNode(ul)
-    const nr = document.createRange()
-    nr.setStart(li, 0)
-    nr.collapse(true)
-    sel.removeAllRanges()
-    sel.addRange(nr)
-    scheduleSave()
-    return true
-  }
-
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!canEdit || (!compose && !editing)) return
-    if (tryBulletOnSpace(e)) return
     const mod = e.metaKey || e.ctrlKey
     if (mod && e.key.toLowerCase() === 'b') {
       e.preventDefault()
@@ -189,6 +147,30 @@ export function TicketDescriptionEditor({
 
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     if (!canEdit || (!compose && !editing)) return
+    const root = ref.current
+    if (!root) return
+
+    const clipSel = window.getSelection()
+    if (clipSel && clipSel.rangeCount > 0) {
+      const anchor = clipSel.anchorNode
+      const liEl =
+        anchor?.nodeType === Node.TEXT_NODE
+          ? (anchor as Text).parentElement?.closest('li')
+          : (anchor as Element | null)?.closest?.('li')
+      if (liEl && root.contains(liEl)) {
+        e.preventDefault()
+        const plain = e.clipboardData.getData('text/plain') ?? ''
+        const range = clipSel.getRangeAt(0)
+        range.deleteContents()
+        range.insertNode(document.createTextNode(plain))
+        range.collapse(false)
+        clipSel.removeAllRanges()
+        clipSel.addRange(range)
+        scheduleSave()
+        return
+      }
+    }
+
     const text = e.clipboardData.getData('text/plain')?.trim() ?? ''
     if (!text || !looksLikeUrl(text)) return
     const sel = window.getSelection()

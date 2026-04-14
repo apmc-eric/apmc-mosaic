@@ -20,6 +20,26 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { data: viewerProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profileError) {
+      return NextResponse.json(
+        {
+          error: profileError.message || 'Profile query failed',
+          code: profileError.code,
+          details: profileError.details,
+        },
+        { status: 503 }
+      )
+    }
+
+    const viewerRole = viewerProfile?.role ?? null
+    const designerScoped = viewerRole === 'designer'
+
     const { data: projects, error: projectsError } = await supabase.from('projects').select('*').order('name')
 
     if (projectsError) {
@@ -33,15 +53,71 @@ export async function GET() {
       )
     }
 
-    const { data: ticketRows, error: ticketsError } = await supabase
-      .from('tickets')
-      .select(
-        `
+    let allowedTicketIds: string[] | null = null
+    if (designerScoped) {
+      const { data: createdRows, error: createdErr } = await supabase
+        .from('tickets')
+        .select('id')
+        .eq('created_by', user.id)
+
+      if (createdErr) {
+        return NextResponse.json(
+          {
+            error: createdErr.message || 'Tickets query failed',
+            code: createdErr.code,
+            details: createdErr.details,
+          },
+          { status: 503 }
+        )
+      }
+
+      const { data: assignTicketIds, error: assignErr } = await supabase
+        .from('ticket_assignees')
+        .select('ticket_id')
+        .eq('user_id', user.id)
+
+      if (assignErr) {
+        return NextResponse.json(
+          {
+            error: assignErr.message || 'Assignees query failed',
+            code: assignErr.code,
+            details: assignErr.details,
+          },
+          { status: 503 }
+        )
+      }
+
+      const idSet = new Set<string>()
+      for (const r of createdRows ?? []) {
+        if (r?.id) idSet.add(r.id as string)
+      }
+      for (const r of assignTicketIds ?? []) {
+        const tid = (r as { ticket_id?: string }).ticket_id
+        if (tid) idSet.add(tid)
+      }
+      allowedTicketIds = [...idSet]
+    }
+
+    let ticketsQuery = supabase.from('tickets').select(
+      `
         *,
         project:projects(id, name, abbreviation, team_access, ticket_counter, created_at)
       `
-      )
-      .order('checkpoint_date', { ascending: true })
+    )
+
+    if (designerScoped) {
+      if (!allowedTicketIds?.length) {
+        return NextResponse.json({
+          projects: projects as Project[],
+          tickets: [],
+        })
+      }
+      ticketsQuery = ticketsQuery.in('id', allowedTicketIds)
+    }
+
+    const { data: ticketRows, error: ticketsError } = await ticketsQuery.order('checkpoint_date', {
+      ascending: true,
+    })
 
     if (ticketsError) {
       return NextResponse.json(

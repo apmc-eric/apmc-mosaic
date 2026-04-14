@@ -107,7 +107,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
             className={cn('flex min-w-0 flex-col gap-3', showFlag && 'pr-16')}
             data-name="Top"
           >
-            <p className="font-sans text-base font-normal leading-6 text-zinc-500 dark:text-zinc-400">
+            <p className="font-sans text-sm font-normal leading-5 text-zinc-500 dark:text-zinc-400">
               {schedule}
             </p>
             <p className="line-clamp-2 min-w-0 text-xl font-semibold leading-6 tracking-[-0.3px] text-neutral-900 dark:text-zinc-50">

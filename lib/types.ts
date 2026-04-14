@@ -39,6 +39,8 @@ export interface Profile {
   name: string | null
   avatar_url: string | null
   role: MosaicRole
+  /** Legacy column; project access uses `user_teams`. */
+  team_id?: string | null
   is_active: boolean
   onboarding_complete: boolean
   created_at: string

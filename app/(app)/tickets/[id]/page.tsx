@@ -405,7 +405,7 @@ export default function TicketDetailPage() {
             <Input
               id="cp"
               type="date"
-              value={ticket.checkpoint_date ?? ''}
+              value={ticket.checkpoint_date?.slice(0, 10) ?? ''}
               onChange={(e) =>
                 scheduleSave('checkpoint_date', e.target.value || null, { checkpoint_date: e.target.value || null })
               }

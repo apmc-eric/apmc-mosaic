@@ -108,7 +108,9 @@ export function UserComment({
       </div>
       <div className="flex w-full items-start gap-2.5">
         <div className="w-8 shrink-0 self-stretch" aria-hidden />
-        <p className="min-w-0 flex-1 text-sm font-medium leading-5 text-foreground">{body}</p>
+        <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm font-medium leading-5 text-foreground">
+          {body}
+        </p>
       </div>
     </div>
   )

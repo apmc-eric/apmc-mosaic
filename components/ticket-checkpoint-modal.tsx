@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select'
 import type { Ticket } from '@/lib/types'
 import type { TimeSlot } from '@/lib/google-calendar'
+import { parseISO, startOfDay } from 'date-fns'
 import { getNextPhaseLabel } from '@/lib/mosaic-project-phases'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { cn } from '@/lib/utils'
@@ -147,7 +148,11 @@ export function TicketCheckpointModal({
 
   const handleConfirm = async () => {
     if (mode === 'schedule') {
-      const dateToSave = selectedSlot ? selectedSlot.start.slice(0, 10) : nextDate
+      const dateToSave = selectedSlot
+        ? selectedSlot.start
+        : nextDate
+          ? startOfDay(parseISO(nextDate)).toISOString()
+          : null
 
       if (!dateToSave) {
         toast.error(slotsStatus === 'found' ? 'Pick a time slot' : 'Choose a date')
