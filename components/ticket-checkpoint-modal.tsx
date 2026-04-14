@@ -26,6 +26,7 @@ import {
 import type { Ticket } from '@/lib/types'
 import type { TimeSlot } from '@/lib/google-calendar'
 import { getNextPhaseLabel } from '@/lib/mosaic-project-phases'
+import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { cn } from '@/lib/utils'
 import { CalendarSearch, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -40,7 +41,10 @@ interface TicketCheckpointModalProps {
   onOpenChange: (open: boolean) => void
   ticketId: string
   ticket: Ticket
+  /** Canonical order for “next phase” suggestions (`getNextPhaseLabel`). */
   orderedPhases: string[]
+  /** Options in the phase `<Select>` (may prepend a legacy phase so the current value stays valid). */
+  phaseSelectOptionsList: string[]
   onSuccess: () => void
   logChange: (field: string, previous: string | null, next: string | null) => Promise<void>
 }
@@ -61,6 +65,7 @@ export function TicketCheckpointModal({
   ticketId,
   ticket,
   orderedPhases,
+  phaseSelectOptionsList,
   onSuccess,
   logChange,
 }: TicketCheckpointModalProps) {
@@ -388,15 +393,15 @@ export function TicketCheckpointModal({
                   ? `Suggested next: ${nextSuggested} (current: ${ticket.phase})`
                   : `Current phase: ${ticket.phase}. Pick any phase below.`}
               </p>
-              {mode === 'phase' && orderedPhases.length > 0 && (
+              {mode === 'phase' && phaseSelectOptionsList.length > 0 && (
                 <Select value={targetPhase} onValueChange={setTargetPhase}>
                   <SelectTrigger className="mt-2 max-w-xs">
                     <SelectValue placeholder="Phase" />
                   </SelectTrigger>
                   <SelectContent>
-                    {orderedPhases.map((ph) => (
+                    {phaseSelectOptionsList.map((ph) => (
                       <SelectItem key={ph} value={ph}>
-                        {ph}
+                        <WorkflowPhaseTag phase={ph} />
                       </SelectItem>
                     ))}
                   </SelectContent>

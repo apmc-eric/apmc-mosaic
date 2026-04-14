@@ -1,36 +1,48 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { FilterBadge } from '@/components/filter-badge'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { ProfileImage } from '@/components/profile-image'
+import { ContextLink } from '@/components/context-link'
+import { HorizontalScrollFade } from '@/components/horizontal-scroll-fade'
+import { CommentsSectionHeader } from '@/components/comments-section-header'
+import { UserComment } from '@/components/user-comment'
+import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
+import { TicketTitleEditor } from '@/components/ticket-title-editor'
+import { WorksTicketPanelMetadata } from '@/components/works-ticket-panel-metadata'
 import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
-import type { Project, Ticket, TicketAssigneeRow } from '@/lib/types'
+import type { Project, Ticket, TicketAssigneeRow, TicketComment } from '@/lib/types'
+import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
+import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
 import { formatProfileLabel } from '@/lib/format-profile'
-import { phaseOptionsForProject } from '@/lib/mosaic-project-phases'
-import { cn } from '@/lib/utils'
+import { phaseOptionsForProject, phaseSelectOptions } from '@/lib/mosaic-project-phases'
 import {
-  addWeeks,
-  endOfWeek,
-  isWithinInterval,
-  parseISO,
-  startOfWeek,
-} from 'date-fns'
-import { Expand, Flag, Plus } from 'lucide-react'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
+  endOfWeekSunday,
+  formatWeekRange,
+  startOfWeekMonday,
+} from '@/lib/week-buckets'
+import { TicketCard } from '@/components/ticket-card'
+import { TimelineIndicator } from '@/components/timeline-indicator'
+import { addWeeks, endOfWeek, formatDistanceToNow, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
+import { Check, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 const supabase = createClient()
-
-const WORKS_WORKSPACE_WIDE_KEY = 'mosaic-works-workspace-wide'
 
 type Bucket = 'this_week' | 'next_week' | 'later' | 'backlog'
 
@@ -53,27 +65,6 @@ function checkpointBucket(checkpoint: string | null): Bucket {
   return 'later'
 }
 
-const SECTIONS: { key: Bucket; label: string }[] = [
-  { key: 'this_week', label: 'This week' },
-  { key: 'next_week', label: 'Next week' },
-  { key: 'later', label: 'Later' },
-  { key: 'backlog', label: 'Backlog' },
-]
-
-const PROJECT_BADGE_CLASSES = [
-  'bg-primary/15 text-primary border-primary/30',
-  'bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/30',
-  'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-  'bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/30',
-  'bg-sky-500/15 text-sky-700 dark:text-sky-200 border-sky-500/30',
-]
-
-function projectBadgeClass(projectId: string): string {
-  let h = 0
-  for (let i = 0; i < projectId.length; i++) h = (h + projectId.charCodeAt(i)) % 360
-  return PROJECT_BADGE_CLASSES[h % PROJECT_BADGE_CLASSES.length]
-}
-
 export default function WorksPage() {
   const { profile, isAdmin, workspaceSettings } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -81,31 +72,15 @@ export default function WorksPage() {
   const [projectFilter, setProjectFilter] = useState<string | 'all'>('all')
   const [loading, setLoading] = useState(true)
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
+  const [panelComments, setPanelComments] = useState<TicketComment[]>([])
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
-  /** Admins: when false, only tickets you created or are assigned to */
-  const [workspaceWide, setWorkspaceWide] = useState(true)
-
-  useEffect(() => {
-    if (!isAdmin) return
-    try {
-      const v = localStorage.getItem(WORKS_WORKSPACE_WIDE_KEY)
-      if (v !== null) setWorkspaceWide(v === '1')
-    } catch {
-      /* ignore */
-    }
-  }, [isAdmin])
-
-  const setWorkspaceWidePersist = (wide: boolean) => {
-    setWorkspaceWide(wide)
-    if (isAdmin) {
-      try {
-        localStorage.setItem(WORKS_WORKSPACE_WIDE_KEY, wide ? '1' : '0')
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    ticket_id: string
+    title: string
+  } | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (!profile?.id) {
@@ -166,6 +141,25 @@ export default function WorksPage() {
     if (fresh) setPanelTicket(fresh)
   }, [tickets, panelTicket?.id])
 
+  useEffect(() => {
+    if (!panelTicket?.id) {
+      setPanelComments([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const { data } = await supabase
+        .from('ticket_comments')
+        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
+        .eq('ticket_id', panelTicket.id)
+        .order('created_at', { ascending: true })
+      if (!cancelled && data) setPanelComments(data as TicketComment[])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [panelTicket?.id])
+
   const panelCanCompleteCheckpoint = useMemo(() => {
     if (!panelTicket || !profile?.id) return false
     return (
@@ -175,6 +169,11 @@ export default function WorksPage() {
     )
   }, [panelTicket, profile?.id, isAdmin])
 
+  const panelCanDelete = useMemo(() => {
+    if (!panelTicket || !profile?.id) return false
+    return isAdmin || panelTicket.created_by === profile.id
+  }, [panelTicket, profile?.id, isAdmin])
+
   const panelOrderedPhases = useMemo(
     () =>
       phaseOptionsForProject(
@@ -182,6 +181,23 @@ export default function WorksPage() {
         workspaceSettings?.phase_label_sets ?? {}
       ),
     [panelTicket?.project, workspaceSettings?.phase_label_sets]
+  )
+
+  const panelPhaseSelectOptions = useMemo(
+    () => phaseSelectOptions(panelTicket?.phase),
+    [panelTicket?.phase]
+  )
+
+  const deletePanelComment = useCallback(
+    async (commentId: string) => {
+      const { error } = await supabase.from('ticket_comments').delete().eq('id', commentId)
+      if (error) {
+        toast.error('Could not delete comment')
+        return
+      }
+      setPanelComments((c) => c.filter((x) => x.id !== commentId))
+    },
+    [],
   )
 
   const panelLogChange = useCallback(
@@ -198,28 +214,138 @@ export default function WorksPage() {
     [profile?.id, panelTicket?.id]
   )
 
-  const visibleTickets = useMemo(() => {
-    if (!isAdmin || workspaceWide) return tickets
-    const uid = profile?.id
-    if (!uid) return tickets
-    return tickets.filter(
-      (t) =>
-        t.created_by === uid || (t.assignees ?? []).some((a) => a.user_id === uid)
-    )
-  }, [tickets, isAdmin, workspaceWide, profile?.id])
+  const patchPanelTicket = useCallback((id: string, patch: Partial<Ticket>) => {
+    const updatedAt = new Date().toISOString()
+    setTickets((list) => list.map((t) => (t.id === id ? { ...t, ...patch, updated_at: updatedAt } : t)))
+    setPanelTicket((p) => (p?.id === id ? { ...p, ...patch, updated_at: updatedAt } : p))
+  }, [])
+
+  const savePanelTitle = useCallback(
+    async (nextTitle: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.title
+      if (prev === nextTitle) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ title: nextTitle, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not save title')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { title: nextTitle })
+      await panelLogChange('title', prev, nextTitle)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.title, panelLogChange, patchPanelTicket]
+  )
+
+  const savePanelDescription = useCallback(
+    async (html: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.description ?? null
+      const next = html.trim() === '' ? null : html
+      if ((prev ?? '') === (next ?? '')) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ description: next, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not save description')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { description: next })
+      await panelLogChange('description', prev, next)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.description, panelLogChange, patchPanelTicket]
+  )
+
+  const commitPanelCheckpoint = useCallback(
+    async (iso: string | null) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.checkpoint_date ?? null
+      if (prev === iso) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ checkpoint_date: iso, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not update checkpoint')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { checkpoint_date: iso })
+      await panelLogChange('checkpoint_date', prev, iso)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.checkpoint_date, panelLogChange, patchPanelTicket]
+  )
+
+  const commitPanelPhase = useCallback(
+    async (phase: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.phase
+      if (prev === phase) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ phase, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not update phase')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { phase })
+      await panelLogChange('phase', prev, phase)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.phase, panelLogChange, patchPanelTicket]
+  )
+
+  const commitPanelCategories = useCallback(
+    async (commaSeparated: string | null) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.team_category ?? null
+      const next = commaSeparated?.trim() ? commaSeparated.trim() : null
+      if ((prev ?? '') === (next ?? '')) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({ team_category: next, updated_at: new Date().toISOString() })
+        .eq('id', panelTicket.id)
+      if (error) {
+        toast.error('Could not update categories')
+        return
+      }
+      patchPanelTicket(panelTicket.id, { team_category: next })
+      await panelLogChange('team_category', prev, next)
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.team_category, panelLogChange, patchPanelTicket]
+  )
+
+  const performDeletePanelTicket = useCallback(async (id: string) => {
+    setDeleteBusy(true)
+    try {
+      const { error } = await supabase.from('tickets').delete().eq('id', id)
+      if (error) {
+        toast.error('Could not delete ticket')
+        return
+      }
+      setTickets((list) => list.filter((t) => t.id !== id))
+      setPanelTicket(null)
+      setDeleteTarget(null)
+      toast.success('Ticket deleted')
+    } finally {
+      setDeleteBusy(false)
+    }
+  }, [])
 
   const projectCounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const t of visibleTickets) {
+    for (const t of tickets) {
       if (t.project_id) m.set(t.project_id, (m.get(t.project_id) ?? 0) + 1)
     }
     return m
-  }, [visibleTickets])
+  }, [tickets])
 
   const filtered = useMemo(() => {
-    if (projectFilter === 'all') return visibleTickets
-    return visibleTickets.filter((t) => t.project_id === projectFilter)
-  }, [visibleTickets, projectFilter])
+    if (projectFilter === 'all') return tickets
+    return tickets.filter((t) => t.project_id === projectFilter)
+  }, [tickets, projectFilter])
 
   const byBucket = useMemo(() => {
     const b: Record<Bucket, Ticket[]> = {
@@ -234,156 +360,221 @@ export default function WorksPage() {
     return b
   }, [filtered])
 
+  const scheduleLabels = useMemo(() => {
+    const now = new Date()
+    const thisMon = startOfWeekMonday(now)
+    const thisSun = endOfWeekSunday(thisMon)
+    const nextMon = addWeeks(thisMon, 1)
+    const upcomingEndSun = endOfWeekSunday(addWeeks(nextMon, 1))
+    return {
+      thisWeek: formatWeekRange(thisMon, thisSun),
+      upcoming: formatWeekRange(nextMon, upcomingEndSun),
+    }
+  }, [])
+
+  const upcomingTickets = useMemo(() => {
+    const merged = [...byBucket.next_week, ...byBucket.later]
+    merged.sort((a, b) => {
+      const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      if (ta !== tb) return ta - tb
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    })
+    return merged
+  }, [byBucket])
+
+  const thisWeekSorted = useMemo(() => {
+    const list = [...byBucket.this_week]
+    list.sort((a, b) => {
+      const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      if (ta !== tb) return ta - tb
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    })
+    return list
+  }, [byBucket])
+
+  const backlogSorted = useMemo(() => {
+    const list = [...byBucket.backlog]
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [byBucket])
+
+  const panelUrls = useMemo(
+    () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
+    [panelTicket?.urls],
+  )
+
+  const workSections = useMemo(
+    () =>
+      [
+        {
+          key: 'this_week' as const,
+          title: 'This Week',
+          rangeLabel: scheduleLabels.thisWeek,
+          tickets: thisWeekSorted,
+          nodeId: '199:491',
+          contentAreaId: '199:493',
+          cardGridId: '199:494',
+        },
+        {
+          key: 'upcoming' as const,
+          title: 'Upcoming',
+          rangeLabel: scheduleLabels.upcoming,
+          tickets: upcomingTickets,
+          nodeId: '199:500',
+          contentAreaId: '199:502',
+          cardGridId: '199:1273',
+        },
+        {
+          key: 'backlog' as const,
+          title: 'Backlog',
+          rangeLabel: 'ALL TICKETS',
+          tickets: backlogSorted,
+          nodeId: '199:1350',
+          contentAreaId: '199:1352',
+          cardGridId: '199:1354',
+        },
+      ] as const,
+    [scheduleLabels, thisWeekSorted, upcomingTickets, backlogSorted],
+  )
+
   const renderCard = (t: Ticket) => {
     const assignees = (t.assignees ?? []).slice(0, 3)
-    const overflow = (t.assignees?.length ?? 0) - 3
-    const proj = t.project as Project | undefined
+    const overflow = Math.max(0, (t.assignees?.length ?? 0) - 3)
+    const categoryPills =
+      t.team_category
+        ?.split(/[,;]/)
+        .map((s) => s.trim())
+        .filter(Boolean) ?? []
     return (
-      <button
+      <TicketCard
         key={t.id}
-        type="button"
+        ticketId={t.ticket_id}
+        title={t.title}
+        checkpointDate={t.checkpoint_date}
+        createdAt={t.created_at}
+        phase={t.phase}
+        tagPills={categoryPills}
+        assignees={assignees}
+        assigneeOverflow={overflow}
+        flagLabel={t.flag}
         onClick={() => setPanelTicket(t)}
-        className="w-full cursor-pointer text-left rounded-lg border border-border bg-card p-3 transition-colors hover:bg-accent/40"
-      >
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <span className="font-mono text-xs text-muted-foreground">{t.ticket_id}</span>
-          {t.flag && t.flag !== 'standard' && (
-            <Badge variant="destructive" className="text-[0.65rem] uppercase shrink-0">
-              <Flag className="w-3 h-3 mr-0.5" />
-              {t.flag}
-            </Badge>
-          )}
-        </div>
-        <p className="text-sm font-medium line-clamp-2 mb-2">{t.title}</p>
-        <div className="flex flex-wrap items-center gap-2 mb-2">
-          <Badge variant="outline" className="text-[0.65rem]">
-            {t.phase}
-          </Badge>
-          {proj && (
-            <Badge variant="outline" className={cn('text-[0.65rem] border', projectBadgeClass(proj.id))}>
-              {proj.abbreviation}
-            </Badge>
-          )}
-        </div>
-        {t.checkpoint_date && (
-          <p className="text-xs text-muted-foreground mb-2">{t.checkpoint_date}</p>
-        )}
-        <div className="flex -space-x-2">
-          {assignees.map((a) => (
-            <ProfileImage
-              key={a.id}
-              pathname={a.profile?.avatar_url}
-              alt={formatProfileLabel(a.profile) ?? 'Assignee'}
-              size="small"
-              className="border-2 border-background"
-              fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-            />
-          ))}
-          {overflow > 0 && (
-            <div className="w-7 h-7 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[0.6rem]">
-              +{overflow}
-            </div>
-          )}
-        </div>
-      </button>
+      />
     )
   }
 
   return (
     <div className="pb-28">
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
-        <div className="flex flex-col gap-4 mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <h1 className="text-3xl font-serif tracking-tight">Works</h1>
-            {isAdmin && (
-              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 sm:max-w-md">
-                <Switch
-                  id="works-admin-wide"
-                  checked={workspaceWide}
-                  onCheckedChange={setWorkspaceWidePersist}
-                />
-                <div className="space-y-0.5">
-                  <Label htmlFor="works-admin-wide" className="text-sm font-medium cursor-pointer">
-                    Admin: all workspace tickets
-                  </Label>
-                  <p className="text-xs text-muted-foreground leading-snug">
-                    Turn off to focus on tickets you created or are assigned to.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
+      <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="199:481">
+        <h1 className="sr-only">Work</h1>
+
+        <div
+          className="grid w-full grid-cols-12 gap-x-6 gap-y-4 pb-6"
+          data-name="Navigation"
+          data-node-id="199:483"
+        >
+          <div className="hidden md:col-span-2 md:block" aria-hidden data-name="Spacer" data-node-id="199:484" />
+          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-center md:justify-between">
+            <div
+              className="flex flex-wrap items-baseline gap-3"
+              data-name="FilterControls"
+              data-node-id="199:486"
+              role="tablist"
+              aria-label="Project filter"
+            >
+              <FilterBadge
+                role="tab"
+                aria-selected={projectFilter === 'all'}
+                label="ALL"
+                counter={`(${tickets.length})`}
+                showCounter
+                active={projectFilter === 'all'}
+                className="uppercase"
+                onClick={() => setProjectFilter('all')}
+              />
+              {projects.map((p) => {
+                const c = projectCounts.get(p.id) ?? 0
+                if (c === 0) return null
+                return (
+                  <FilterBadge
+                    key={p.id}
+                    role="tab"
+                    aria-selected={projectFilter === p.id}
+                    label={p.name}
+                    counter={`(${c})`}
+                    showCounter
+                    active={projectFilter === p.id}
+                    className="uppercase"
+                    onClick={() => setProjectFilter(p.id)}
+                  />
+                )
+              })}
+            </div>
             <Button
               type="button"
-              variant={projectFilter === 'all' ? 'default' : 'outline'}
-              size="small"
-              onClick={() => setProjectFilter('all')}
+              className="shrink-0 items-center gap-2 self-end md:self-auto"
+              onClick={() => setSubmitOpen(true)}
             >
-              All
-              <Badge variant="secondary" className="ml-2">
-                {visibleTickets.length}
-              </Badge>
+              <Plus className="size-4 shrink-0" aria-hidden />
+              New Ticket
             </Button>
-            {projects.map((p) => {
-              const c = projectCounts.get(p.id) ?? 0
-              if (c === 0) return null
-              return (
-                <Button
-                  key={p.id}
-                  type="button"
-                  variant={projectFilter === p.id ? 'default' : 'outline'}
-                  size="small"
-                  onClick={() => setProjectFilter(p.id)}
-                >
-                  {p.name}
-                  <Badge variant="secondary" className="ml-2">
-                    {c}
-                  </Badge>
-                </Button>
-              )
-            })}
           </div>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-20 text-muted-foreground text-sm">Loading tickets…</div>
-        ) : (
-          <div className="space-y-10">
-            {SECTIONS.map(({ key, label }) => {
-              const list = byBucket[key]
-              if (list.length === 0) return null
-              return (
-                <section key={key}>
-                  <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground mb-4">{label}</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="hidden md:block text-sm text-muted-foreground pt-2">{label}</div>
-                    <div className="md:col-span-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">{list.map(renderCard)}</div>
-                  </div>
-                </section>
-              )
-            })}
-            {!loading && filtered.length === 0 && (
-              <p className="text-muted-foreground text-center py-16">
-                {visibleTickets.length === 0
-                  ? isAdmin && !workspaceWide
-                    ? 'No tickets match “your work”. Turn on “Admin: all workspace tickets” to see everything, or create a ticket.'
-                    : 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
-                  : 'No tickets in this filter. Try “All” or another project.'}
-              </p>
-            )}
-          </div>
-        )}
+        <div className="w-full space-y-10">
+          {loading ? (
+            <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading tickets…</div>
+          ) : (
+            <>
+              {workSections.map(
+                ({
+                  key,
+                  title,
+                  rangeLabel,
+                  tickets,
+                  nodeId,
+                  contentAreaId,
+                  cardGridId,
+                }) => {
+                  if (tickets.length === 0) return null
+                  return (
+                    <section
+                      key={key}
+                      className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
+                      data-name="ContentWrapper"
+                      data-node-id={nodeId}
+                    >
+                      <div className="col-span-12 md:col-span-2">
+                        <TimelineIndicator heading={title} dateRange={rangeLabel} />
+                      </div>
+                      <div
+                        className="col-span-12 min-w-0 md:col-span-10"
+                        data-name="ContentArea"
+                        data-node-id={contentAreaId}
+                      >
+                        <div
+                          className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4"
+                          data-name="CardGrid"
+                          data-node-id={cardGridId}
+                        >
+                          {tickets.map(renderCard)}
+                        </div>
+                      </div>
+                    </section>
+                  )
+                })}
+              {filtered.length === 0 && (
+                <p className="py-16 text-center text-muted-foreground">
+                  {tickets.length === 0
+                    ? 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
+                    : 'No tickets in this filter. Try “All” or another project.'}
+                </p>
+              )}
+            </>
+          )}
+        </div>
       </div>
-
-      <Button
-        type="button"
-        className="fixed bottom-6 right-6 z-40 shadow-lg"
-        onClick={() => setSubmitOpen(true)}
-      >
-        <Plus />
-        New ticket
-      </Button>
 
       <TicketSubmitModal open={submitOpen} onOpenChange={setSubmitOpen} onCreated={() => void load()} />
 
@@ -397,170 +588,174 @@ export default function WorksPage() {
         }}
       >
         <SheetContent
-          className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden border-l bg-background/95 p-0 backdrop-blur sm:max-w-lg"
+          className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden border-l bg-background p-0 sm:max-w-[540px]"
           headerActions={
-            panelTicket ? (
-              <Button variant="ghost" size="icon" className="shrink-0" asChild>
-                <Link
-                  href={`/tickets/${panelTicket.id}`}
-                  aria-label="Open full page"
-                  onClick={() => setPanelTicket(null)}
-                >
-                  <Expand className="size-4" />
-                </Link>
+            panelTicket && panelCanDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label="Delete ticket"
+                onClick={() =>
+                  panelTicket &&
+                  setDeleteTarget({
+                    id: panelTicket.id,
+                    ticket_id: panelTicket.ticket_id,
+                    title: panelTicket.title,
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
               </Button>
             ) : null
           }
         >
           {panelTicket && (
             <>
-              <SheetHeader className="shrink-0 space-y-2 border-b border-border px-5 pb-4 pt-14 text-left">
-                <SheetTitle className="font-mono text-sm">{panelTicket.ticket_id}</SheetTitle>
-                <p className="pr-2 font-serif text-lg font-medium leading-snug tracking-tight">
-                  {panelTicket.title}
-                </p>
-              </SheetHeader>
-              <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-6 px-5 py-6 text-sm">
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Description</Label>
-                    <p className="mt-2 whitespace-pre-wrap text-foreground">
-                      {panelTicket.description?.trim() ? panelTicket.description : '—'}
+              <SheetTitle className="sr-only">
+                Ticket {panelTicket.ticket_id}: {panelTicket.title}
+              </SheetTitle>
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-6 pb-6"
+                  data-name="Sidepanel"
+                  data-node-id="227:3294"
+                >
+                  <div className="flex flex-col gap-7">
+                  <header
+                    className="flex flex-col gap-2 pr-14"
+                    data-name="Header"
+                    data-node-id="227:3295"
+                  >
+                    <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
+                      {panelTicket.ticket_id}
                     </p>
-                  </div>
-
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Links</Label>
-                    {(panelTicket.urls ?? []).filter(Boolean).length === 0 ? (
-                      <p className="mt-2">—</p>
-                    ) : (
-                      <ul className="mt-2 list-inside list-disc space-y-1 font-mono text-xs">
-                        {(panelTicket.urls ?? []).filter(Boolean).map((u) => (
-                          <li key={u}>
-                            <a
-                              href={u}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="break-all text-primary underline underline-offset-2 hover:no-underline"
-                            >
-                              {u}
-                            </a>
-                          </li>
+                    <TicketTitleEditor
+                      key={panelTicket.id}
+                      ticketId={panelTicket.id}
+                      title={panelTicket.title}
+                      canEdit={panelCanCompleteCheckpoint}
+                      onSave={(t) => void savePanelTitle(t)}
+                    />
+                    {(panelTicket.assignees ?? []).length > 0 ? (
+                      <div
+                        className="flex items-center mix-blend-multiply pr-1 dark:mix-blend-normal"
+                        data-name="Assignees"
+                        data-node-id="227:3298"
+                      >
+                        {(panelTicket.assignees ?? []).map((a: TicketAssigneeRow, i: number) => (
+                          <ProfileImage
+                            key={a.id}
+                            pathname={a.profile?.avatar_url}
+                            alt={formatProfileLabel(a.profile) ?? 'Assignee'}
+                            size="xs"
+                            className={cn('border-2 border-white dark:border-zinc-950', i > 0 && '-ml-1')}
+                            fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                          />
                         ))}
-                      </ul>
-                    )}
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Phase</Label>
-                      <p className="mt-1.5">{panelTicket.phase}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Flag</Label>
-                      <p className="mt-1.5">
-                        {panelTicket.flag && panelTicket.flag !== 'standard' ? (
-                          <Badge variant="outline" className="text-[0.65rem] uppercase">
-                            {panelTicket.flag}
-                          </Badge>
-                        ) : (
-                          'Standard'
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Checkpoint</Label>
-                      <p className="mt-1.5">{panelTicket.checkpoint_date ?? '—'}</p>
-                    </div>
-                    {panelTicket.team_category ? (
-                      <div>
-                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">Category</Label>
-                        <p className="mt-1.5">{panelTicket.team_category}</p>
                       </div>
                     ) : null}
+                  </header>
+
+                  <div data-node-id="227:3466">
+                    <TicketDescriptionEditor
+                      key={panelTicket.id}
+                      ticketId={panelTicket.id}
+                      description={panelTicket.description}
+                      canEdit={panelCanCompleteCheckpoint}
+                      onSave={(html) => void savePanelDescription(html)}
+                      className="w-full [&_p]:mb-0"
+                    />
                   </div>
 
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Project</Label>
-                    <p className="mt-1.5">
-                      {(panelTicket.project as Project | undefined)?.name ?? '—'}
-                      {(panelTicket.project as Project | undefined)?.abbreviation ? (
-                        <span className="text-muted-foreground">
-                          {' '}
-                          ({(panelTicket.project as Project).abbreviation})
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
+                  {panelUrls.length > 0 ? (
+                    <HorizontalScrollFade data-name="Links" data-node-id="243:3677">
+                      {panelUrls.map((u) => (
+                        <ContextLink
+                          key={u}
+                          href={u}
+                          title={contextLinkTitleFromUrl(u)}
+                        />
+                      ))}
+                    </HorizontalScrollFade>
+                  ) : null}
 
-                  <Separator />
+                  <WorksTicketPanelMetadata
+                    checkpointDate={panelTicket.checkpoint_date}
+                    phase={panelTicket.phase}
+                    teamCategory={panelTicket.team_category}
+                    phaseOptions={panelOrderedPhases}
+                    categoryOptions={workspaceSettings?.team_categories ?? []}
+                    canEdit={panelCanCompleteCheckpoint}
+                    onCheckpointCommit={commitPanelCheckpoint}
+                    onPhaseCommit={commitPanelPhase}
+                    onCategoriesCommit={commitPanelCategories}
+                  />
 
-                  <div>
-                    <Label className="text-muted-foreground text-xs uppercase tracking-wide">Assignees</Label>
-                    {(panelTicket.assignees ?? []).length === 0 ? (
-                      <p className="mt-2 text-muted-foreground">None yet.</p>
-                    ) : (
-                      <ul className="mt-3 space-y-3">
-                        {(panelTicket.assignees ?? []).map((a: TicketAssigneeRow) => (
-                          <li key={a.id} className="flex items-center gap-3">
-                            <ProfileImage
-                              pathname={a.profile?.avatar_url}
-                              alt={formatProfileLabel(a.profile) ?? 'Assignee'}
-                              size="md"
-                              className="border border-border"
-                              fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-                            />
-                            <div>
-                              <p className="font-medium leading-none">{formatProfileLabel(a.profile)}</p>
-                              <p className="text-muted-foreground mt-1 text-xs capitalize">{a.role}</p>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-1 gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-                    <div>
-                      <span className="uppercase tracking-wide">Created</span>
-                      <p className="mt-1 text-foreground">
-                        {panelTicket.created_at
-                          ? new Date(panelTicket.created_at).toLocaleString()
-                          : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="uppercase tracking-wide">Updated</span>
-                      <p className="mt-1 text-foreground">
-                        {panelTicket.updated_at
-                          ? new Date(panelTicket.updated_at).toLocaleString()
-                          : '—'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </ScrollArea>
-              {panelCanCompleteCheckpoint && (
-                <div className="shrink-0 border-t border-border bg-background/95 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                  <Button
-                    type="button"
-                    className="w-full"
-                    onClick={() => setCheckpointModalOpen(true)}
+                  <div
+                    className="flex w-full flex-col gap-5 overflow-clip pb-10 pt-4"
+                    data-name="CommentsWrapper"
+                    data-node-id="227:3336"
                   >
-                    Complete checkpoint
-                  </Button>
+                    <CommentsSectionHeader count={panelComments.length} />
+                    <div className="flex flex-col gap-6" data-name="CommentStack">
+                      {panelComments.map((c) => {
+                        const name =
+                          [c.profile?.first_name, c.profile?.last_name].filter(Boolean).join(' ') ||
+                          c.profile?.name?.trim() ||
+                          'Someone'
+                        return (
+                          <UserComment
+                            key={c.id}
+                            name={name}
+                            subtitle={mosaicRoleLabel(c.profile?.role)}
+                            timeAgo={formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                            body={c.body}
+                            avatarPathname={c.profile?.avatar_url}
+                            avatarFallback={
+                              <>
+                                {c.profile?.first_name?.[0]}
+                                {c.profile?.last_name?.[0]}
+                              </>
+                            }
+                            showDelete={isAdmin || c.author_id === profile?.id}
+                            onDelete={() => void deletePanelComment(c.id)}
+                          />
+                        )
+                      })}
+                      {panelComments.length === 0 ? (
+                        <p className="py-2 text-center text-sm text-muted-foreground">No comments yet.</p>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-              )}
+                </div>
+
+                {panelCanCompleteCheckpoint ? (
+                  <div
+                    className="flex shrink-0 justify-start border-t border-border/60 bg-background px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                    data-name="Footer"
+                    data-node-id="245:3710"
+                  >
+                    <Button
+                      type="button"
+                      className="w-auto shrink-0 gap-1.5 self-start"
+                      onClick={() => setCheckpointModalOpen(true)}
+                    >
+                      <Check className="size-3.5 shrink-0" aria-hidden />
+                      Complete checkpoint
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
               <TicketCheckpointModal
                 open={checkpointModalOpen}
                 onOpenChange={setCheckpointModalOpen}
                 ticketId={panelTicket.id}
                 ticket={panelTicket}
                 orderedPhases={panelOrderedPhases}
+                phaseSelectOptionsList={panelPhaseSelectOptions}
                 onSuccess={() => void load()}
                 logChange={panelLogChange}
               />
@@ -568,6 +763,41 @@ export default function WorksPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure you want to delete this ticket?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="text-foreground text-base font-medium">
+                  {deleteTarget
+                    ? `${deleteTarget.ticket_id}: ${deleteTarget.title}`
+                    : '\u00a0'}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button" disabled={deleteBusy}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteBusy || !deleteTarget}
+              onClick={() => deleteTarget && void performDeletePanelTicket(deleteTarget.id)}
+            >
+              Yes, I&apos;m sure
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -1,13 +1,50 @@
 import type { Project } from '@/lib/types'
 
-/** Default workflow phases when workspace has none configured (order matters for “next phase”). */
-export const DEFAULT_PHASE_PIPELINE = ['Backlog', 'Concept', 'Design', 'Build'] as const
+/**
+ * Default workflow phases (order matters for “next phase” and picker defaults).
+ * **Triage** is first — lightweight planning; downstream phases expect fuller ticket detail (templating later).
+ */
+export const DEFAULT_PHASE_PIPELINE = [
+  'Triage',
+  'Backlog',
+  'Concept',
+  'Design',
+  'Build',
+] as const
+
+export type StandardWorkflowPhase = (typeof DEFAULT_PHASE_PIPELINE)[number]
+
+/** Default `phase` when creating a ticket if none is sent (matches pipeline head). */
+export const DEFAULT_NEW_TICKET_PHASE: StandardWorkflowPhase = DEFAULT_PHASE_PIPELINE[0]
+
+/**
+ * When `true`, `phaseOptionsForProject` merges labels from `workspace_settings.phase_label_sets`.
+ * When `false`, the product uses the fixed pipeline only (see **WorkflowPhaseTag** in Figma `199:1197`).
+ * Flip to `true` when team-specific phase lists return.
+ */
+export const WORKSPACE_PHASE_CUSTOMIZATION_ENABLED = false
+
+/**
+ * Options shown in phase `<Select>`s. Uses the standard pipeline in order; if `currentPhase` is a
+ * legacy value not in the pipeline, it is prepended so Radix `value` stays valid until the user picks a standard phase.
+ */
+export function phaseSelectOptions(currentPhase: string | undefined | null): string[] {
+  const base = [...DEFAULT_PHASE_PIPELINE]
+  const cur = currentPhase?.trim()
+  if (!cur) return base
+  if (base.some((p) => p.toLowerCase() === cur.toLowerCase())) return base
+  return [cur, ...base]
+}
 
 /** Phase lists in workspace_settings are keyed by team id; projects expose access via team_access. */
 export function phaseOptionsForProject(
   project: Project | undefined,
   phaseLabelSets: Record<string, string[]>
 ): string[] {
+  if (!WORKSPACE_PHASE_CUSTOMIZATION_ENABLED) {
+    return [...DEFAULT_PHASE_PIPELINE]
+  }
+
   const merged = new Set<string>()
 
   if (project?.team_access?.length) {

@@ -23,6 +23,7 @@ export type UserCommentProps = {
 
 /**
  * Figma **UserComment** (`139:1461`) — bordered card, avatar + name/title, timestamp, indented body.
+ * Delete replaces the timestamp on row hover (and when the delete control is focus-visible).
  */
 export function UserComment({
   name,
@@ -36,10 +37,12 @@ export function UserComment({
   showDelete,
   onDelete,
 }: UserCommentProps) {
+  const canDelete = Boolean(showDelete && onDelete)
+
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 overflow-hidden rounded-md border border-[rgba(10,10,10,0.1)] px-3 pb-4 pt-3',
+        'group flex flex-col gap-3 overflow-hidden rounded-md border border-[rgba(10,10,10,0.1)] px-3 pb-4 pt-3',
         className,
       )}
       data-name="UserComment"
@@ -64,24 +67,43 @@ export function UserComment({
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {showDelete ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={onDelete}
-              className="text-muted-foreground hover:text-destructive"
-              aria-label="Delete comment"
-            >
-              <Trash2 className="!size-3" />
-            </Button>
-          ) : null}
-          <div className="py-1">
-            <p className="whitespace-nowrap text-xs font-medium leading-none text-[rgba(10,10,10,0.4)]">
-              {timeAgo}
-            </p>
-          </div>
+        <div className="relative flex h-6 min-w-[4.5rem] shrink-0 items-center justify-end">
+          {canDelete ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={onDelete}
+                className={cn(
+                  'absolute right-0 top-1/2 z-[1] -translate-y-1/2 text-muted-foreground transition-opacity',
+                  'opacity-0 pointer-events-none',
+                  'group-hover:opacity-100 group-hover:pointer-events-auto',
+                  'group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
+                  'hover:text-destructive',
+                  'focus-visible:text-destructive',
+                )}
+                aria-label="Delete comment"
+              >
+                <Trash2 className="!size-3" />
+              </Button>
+              <p
+                className={cn(
+                  'whitespace-nowrap py-1 text-xs font-medium leading-none text-[rgba(10,10,10,0.4)] transition-opacity',
+                  'group-hover:pointer-events-none group-hover:opacity-0',
+                  'group-focus-within:pointer-events-none group-focus-within:opacity-0',
+                )}
+              >
+                {timeAgo}
+              </p>
+            </>
+          ) : (
+            <div className="py-1">
+              <p className="whitespace-nowrap text-xs font-medium leading-none text-[rgba(10,10,10,0.4)]">
+                {timeAgo}
+              </p>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex w-full items-start gap-2.5">
