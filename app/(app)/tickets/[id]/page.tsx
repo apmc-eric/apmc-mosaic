@@ -38,6 +38,7 @@ import {
   phaseSelectOptions,
 } from '@/lib/mosaic-project-phases'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
+import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { ArrowLeft, MoreHorizontal, History } from 'lucide-react'
 import { toast } from 'sonner'
@@ -171,16 +172,47 @@ export default function TicketDetailPage() {
     if (historyOpen) void loadAudit()
   }, [historyOpen, loadAudit])
 
-  const logChange = async (field: string, previous: string | null, next: string | null) => {
-    if (!profile?.id) return
-    await supabase.from('audit_log').insert({
-      ticket_id: id,
-      field_changed: field,
-      previous_value: previous,
-      new_value: next,
-      changed_by: profile.id,
-    })
-  }
+  const logChange = useCallback(
+    async (field: string, previous: string | null, next: string | null) => {
+      if (!profile?.id) return
+      await supabase.from('audit_log').insert({
+        ticket_id: id,
+        field_changed: field,
+        previous_value: previous,
+        new_value: next,
+        changed_by: profile.id,
+      })
+    },
+    [profile?.id, id],
+  )
+
+  const commitTicketCheckpoint = useCallback(
+    async (iso: string | null) => {
+      if (!ticket || !profile?.id) return
+      const prev = ticket.checkpoint_date ?? null
+      const prevMeet = ticket.checkpoint_meet_link ?? null
+      if (prev === iso && !(prevMeet ?? null)) return
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          checkpoint_date: iso,
+          checkpoint_meet_link: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+      if (error) {
+        toast.error('Could not update checkpoint')
+        void load()
+        return
+      }
+      setTicket((t) => (t ? { ...t, checkpoint_date: iso, checkpoint_meet_link: null } : t))
+      await logChange('checkpoint_date', prev, iso)
+      if (prevMeet) {
+        await logChange('checkpoint_meet_link', prevMeet, null)
+      }
+    },
+    [ticket, profile?.id, id, load, logChange],
+  )
 
   const canEditAssignees =
     !!profile?.id &&
@@ -251,12 +283,18 @@ export default function TicketDetailPage() {
     const key = field as string
     if (pending.current[key]) clearTimeout(pending.current[key])
 
-    setTicket((t) => (t ? { ...t, ...displayUpdate } : t))
+    setTicket((t) => {
+      if (!t) return t
+      const next = { ...t, ...displayUpdate } as Ticket
+      if (field === 'checkpoint_date') next.checkpoint_meet_link = null
+      return next
+    })
 
     pending.current[key] = setTimeout(async () => {
       const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (field === 'checkpoint_date') {
         payload.checkpoint_date = nextStr ? nextStr : null
+        payload.checkpoint_meet_link = null
       } else {
         payload[field] = nextStr
       }
@@ -521,16 +559,20 @@ export default function TicketDetailPage() {
           className="min-h-[80px]"
         />
         <Button type="button" className="mt-2" onClick={() => void submitComment()}>
-          Post comment
+          Post Comment
         </Button>
       </div>
 
       {canEditAssignees && (
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
-            <Button className="w-full sm:w-auto" onClick={() => setCheckpointModalOpen(true)}>
-              Complete checkpoint
-            </Button>
+            <TicketCheckpointIndicator
+              checkpointDate={ticket.checkpoint_date}
+              checkpointMeetLink={ticket.checkpoint_meet_link ?? null}
+              canEdit
+              onCheckpointCommit={commitTicketCheckpoint}
+              onCompleteCheckpoint={() => setCheckpointModalOpen(true)}
+            />
           </div>
         </div>
       )}

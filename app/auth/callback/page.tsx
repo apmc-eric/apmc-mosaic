@@ -4,34 +4,84 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+/**
+ * Only navigate inside this origin. Supabase (or old bookmarks) can pass an absolute
+ * `next` (e.g. http://localhost:3000/...) which would otherwise send production users to localhost.
+ */
+function safeInternalNext(raw: string | null, origin: string): string {
+  if (!raw?.trim()) return '/'
+  const t = raw.trim()
+  if (t.startsWith('//')) return '/'
+  if (t.startsWith('/')) return t
+  try {
+    const u = new URL(t)
+    if (u.origin === origin) return `${u.pathname}${u.search}${u.hash}` || '/'
+  } catch {
+    /* ignore */
+  }
+  return '/'
+}
+
 function AuthCallbackContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [status, setStatus] = useState<'loading' | 'error'>('loading')
 
   useEffect(() => {
-    const next = searchParams.get('next') ?? '/'
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const next = safeInternalNext(searchParams.get('next'), origin)
 
     const run = async () => {
       const supabase = createClient()
 
-      // PKCE flow: ?code=... (normal magic link from signInWithOtp)
+      const mergeAliasIfSession = async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+        await fetch('/api/auth/merge-company-email-alias', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }).catch(() => {})
+      }
+
+      const finishSignedIn = async () => {
+        await mergeAliasIfSession()
+        router.replace(next)
+      }
+
+      // PKCE flow: ?code=... (magic link + Google OAuth)
       const code = searchParams.get('code')
       if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (!error) {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession()
-          if (session?.access_token) {
-            await fetch('/api/auth/merge-company-email-alias', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${session.access_token}` },
-            }).catch(() => {})
-          }
-          router.replace(next)
+        const {
+          data: { session: already },
+        } = await supabase.auth.getSession()
+        // One-time `code` must not be exchanged twice (React Strict Mode remount / duplicate effect).
+        if (already?.user) {
+          await finishSignedIn()
           return
         }
+
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
+        if (!error) {
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href)
+            url.searchParams.delete('code')
+            url.searchParams.delete('state')
+            window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+          }
+          await finishSignedIn()
+          return
+        }
+
+        const {
+          data: { session: recovered },
+        } = await supabase.auth.getSession()
+        if (recovered?.user) {
+          await finishSignedIn()
+          return
+        }
+
         setStatus('error')
         router.replace(`/auth/error?next=${encodeURIComponent(next)}`)
         return
@@ -39,6 +89,15 @@ function AuthCallbackContent() {
 
       // Implicit flow: #access_token=... (e.g. dev-login via admin generateLink)
       if (typeof window !== 'undefined' && window.location.hash) {
+        const {
+          data: { session: hashSession },
+        } = await supabase.auth.getSession()
+        if (hashSession?.user) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search)
+          await finishSignedIn()
+          return
+        }
+
         const hash = window.location.hash.substring(1)
         const params = new URLSearchParams(hash)
         const access_token = params.get('access_token')
@@ -58,12 +117,19 @@ function AuthCallbackContent() {
               method: 'POST',
               headers: { Authorization: `Bearer ${access_token}` },
             }).catch(() => {})
-            // Clear hash from URL
             window.history.replaceState(null, '', window.location.pathname + window.location.search)
             router.replace(next)
             return
           }
         }
+      }
+
+      const {
+        data: { session: stray },
+      } = await supabase.auth.getSession()
+      if (stray?.user) {
+        await finishSignedIn()
+        return
       }
 
       setStatus('error')

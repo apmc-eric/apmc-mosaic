@@ -123,35 +123,59 @@ export function findFreeSlots(
  * Create a Google Calendar event and send invites to all attendees.
  * Returns the event including an htmlLink to view it in Google Calendar.
  */
+function extractMeetLinkFromEventPayload(data: Record<string, unknown>): string | null {
+  const hangout = data.hangoutLink
+  if (typeof hangout === 'string' && hangout.startsWith('http')) return hangout
+  const cd = data.conferenceData as { entryPoints?: { entryPointType?: string; uri?: string }[] } | undefined
+  const video = cd?.entryPoints?.find((e) => e.entryPointType === 'video' && e.uri)
+  if (video?.uri) return video.uri
+  return null
+}
+
 export async function createCalendarEvent(
   accessToken: string,
   summary: string,
   description: string,
   slot: TimeSlot,
   attendeeEmails: string[]
-): Promise<{ htmlLink: string; id: string }> {
-  const res = await fetch(
-    'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+): Promise<{ htmlLink: string; id: string; meetLink: string | null }> {
+  const requestId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+
+  const url =
+    'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1'
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      summary,
+      description,
+      start: { dateTime: slot.start },
+      end: { dateTime: slot.end },
+      attendees: attendeeEmails.map((email) => ({ email })),
+      conferenceData: {
+        createRequest: {
+          requestId,
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
       },
-      body: JSON.stringify({
-        summary,
-        description,
-        start: { dateTime: slot.start },
-        end: { dateTime: slot.end },
-        attendees: attendeeEmails.map((email) => ({ email })),
-      }),
-    }
-  )
+    }),
+  })
 
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Calendar event creation failed ${res.status}: ${text}`)
   }
 
-  return res.json()
+  const data = (await res.json()) as Record<string, unknown>
+  const htmlLink = typeof data.htmlLink === 'string' ? data.htmlLink : ''
+  const id = typeof data.id === 'string' ? data.id : ''
+  const meetLink = extractMeetLinkFromEventPayload(data)
+  return { htmlLink, id, meetLink }
 }

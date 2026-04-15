@@ -143,7 +143,14 @@ export function CheckpointDatetimePickerBody({
             }}
             disabled={committing}
           >
-            <SelectTrigger size="sm" className="h-9 w-[3.25rem] shrink-0 font-sans text-sm">
+            <SelectTrigger
+              size="default"
+              className={cn(
+                'h-10 min-h-10 w-[3.75rem] min-w-[3.75rem] shrink-0 justify-center gap-1 px-2 py-0',
+                'font-sans text-base font-medium tabular-nums leading-none',
+                '[&_[data-slot=select-value]]:line-clamp-none [&_[data-slot=select-value]]:!block [&_[data-slot=select-value]]:overflow-visible',
+              )}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -166,7 +173,14 @@ export function CheckpointDatetimePickerBody({
             }}
             disabled={committing}
           >
-            <SelectTrigger size="sm" className="h-9 w-[3.25rem] shrink-0 font-sans text-sm">
+            <SelectTrigger
+              size="default"
+              className={cn(
+                'h-10 min-h-10 w-[3.75rem] min-w-[3.75rem] shrink-0 justify-center gap-1 px-2 py-0',
+                'font-sans text-base font-medium tabular-nums leading-none',
+                '[&_[data-slot=select-value]]:line-clamp-none [&_[data-slot=select-value]]:!block [&_[data-slot=select-value]]:overflow-visible',
+              )}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="max-h-48">

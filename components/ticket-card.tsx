@@ -157,7 +157,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         {/* Visual only — whole card is the control (Figma hover **HoverCTA** `199:1903`). */}
         <div
           className={cn(
-            'pointer-events-none absolute inset-x-[-1px] bottom-[-1px] z-[5] flex translate-y-full items-center justify-between bg-black px-6 py-3 text-xs font-medium leading-none text-white transition-transform duration-200 ease-out',
+            'pointer-events-none absolute inset-x-[-1px] bottom-[-1px] z-[5] flex translate-y-full items-center justify-between bg-black px-6 py-3 text-xs font-medium leading-snug text-white transition-transform duration-200 ease-out',
             'group-hover:translate-y-0 group-focus-visible:translate-y-0',
             'motion-reduce:transition-none',
             'dark:bg-foreground dark:text-background',

@@ -24,7 +24,7 @@ export function TicketCategoryTag({ label, className, ...props }: TicketCategory
       data-node-id="227:3470"
       {...props}
     >
-      <span className="truncate text-xs font-medium leading-none text-white">{label}</span>
+      <span className="truncate py-px text-xs font-medium leading-snug text-white">{label}</span>
     </span>
   )
 }

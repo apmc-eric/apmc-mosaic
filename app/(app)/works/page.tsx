@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import {
@@ -16,20 +16,23 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { FilterBadge } from '@/components/filter-badge'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
-import { ProfileImage } from '@/components/profile-image'
 import { ContextLink } from '@/components/context-link'
 import { HorizontalScrollFade } from '@/components/horizontal-scroll-fade'
 import { CommentsSectionHeader } from '@/components/comments-section-header'
-import { UserComment } from '@/components/user-comment'
+import {
+  buildWorksActivityItems,
+  worksActivityShowTimeline,
+  type WorksActivityAudit,
+  WorksTicketActivityStack,
+} from '@/components/works-ticket-activity-stack'
 import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
 import { TicketTitleEditor } from '@/components/ticket-title-editor'
 import { WorksTicketPanelMetadata } from '@/components/works-ticket-panel-metadata'
 import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
-import type { Project, Ticket, TicketAssigneeRow, TicketComment } from '@/lib/types'
+import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
+import type { Project, Profile, Ticket, TicketComment } from '@/lib/types'
 import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
-import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
-import { formatProfileLabel } from '@/lib/format-profile'
 import { phaseOptionsForProject, phaseSelectOptions } from '@/lib/mosaic-project-phases'
 import {
   endOfWeekSunday,
@@ -38,10 +41,9 @@ import {
 } from '@/lib/week-buckets'
 import { TicketCard } from '@/components/ticket-card'
 import { TimelineIndicator } from '@/components/timeline-indicator'
-import { addWeeks, endOfWeek, formatDistanceToNow, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
-import { Check, Plus, Trash2 } from 'lucide-react'
+import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
+import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
 
 const supabase = createClient()
 
@@ -78,8 +80,14 @@ export default function WorksPage() {
   const [loading, setLoading] = useState(true)
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
   const [panelComments, setPanelComments] = useState<TicketComment[]>([])
+  const [panelAudit, setPanelAudit] = useState<WorksActivityAudit[]>([])
+  const [panelCreatorProfile, setPanelCreatorProfile] = useState<Pick<
+    Profile,
+    'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'
+  > | null>(null)
   const [panelCommentDraft, setPanelCommentDraft] = useState('')
   const [commentPosting, setCommentPosting] = useState(false)
+  const panelCommentTaRef = useRef<HTMLTextAreaElement>(null)
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -151,25 +159,70 @@ export default function WorksPage() {
   useEffect(() => {
     if (!panelTicket?.id) {
       setPanelComments([])
+      setPanelAudit([])
+      setPanelCreatorProfile(null)
       return
     }
     let cancelled = false
     void (async () => {
-      const { data } = await supabase
-        .from('ticket_comments')
-        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
-        .eq('ticket_id', panelTicket.id)
-        .order('created_at', { ascending: true })
-      if (!cancelled && data) setPanelComments(data as TicketComment[])
+      const [commentsRes, auditRes, creatorRes] = await Promise.all([
+        supabase
+          .from('ticket_comments')
+          .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
+          .eq('ticket_id', panelTicket.id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('audit_log')
+          .select(
+            `
+            id,
+            ticket_id,
+            field_changed,
+            previous_value,
+            new_value,
+            changed_by,
+            changed_at,
+            actor:profiles!changed_by(id, first_name, last_name, name, avatar_url, role)
+          `,
+          )
+          .eq('ticket_id', panelTicket.id)
+          .in('field_changed', ['assignees', 'phase', 'checkpoint_completed'])
+          .order('changed_at', { ascending: false }),
+        supabase
+          .from('profiles')
+          .select('id, first_name, last_name, name, avatar_url, role')
+          .eq('id', panelTicket.created_by)
+          .maybeSingle(),
+      ])
+      if (cancelled) return
+      if (commentsRes.data) setPanelComments(commentsRes.data as TicketComment[])
+      if (auditRes.data) setPanelAudit(auditRes.data as WorksActivityAudit[])
+      setPanelCreatorProfile(
+        creatorRes.data
+          ? (creatorRes.data as Pick<
+              Profile,
+              'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'
+            >)
+          : null,
+      )
     })()
     return () => {
       cancelled = true
     }
-  }, [panelTicket?.id])
+  }, [panelTicket?.id, panelTicket?.updated_at])
 
   useEffect(() => {
     setPanelCommentDraft('')
   }, [panelTicket?.id])
+
+  useLayoutEffect(() => {
+    const el = panelCommentTaRef.current
+    if (!el) return
+    el.style.height = '0px'
+    const minPx = 32
+    const maxPx = 200
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, minPx), maxPx)}px`
+  }, [panelCommentDraft, panelTicket?.id])
 
   const postPanelComment = useCallback(async () => {
     if (!profile?.id || !panelTicket?.id) return
@@ -314,19 +367,27 @@ export default function WorksPage() {
     async (iso: string | null) => {
       if (!profile?.id || !panelTicket?.id) return
       const prev = panelTicket.checkpoint_date ?? null
-      if (prev === iso) return
+      const prevMeet = panelTicket.checkpoint_meet_link ?? null
+      if (prev === iso && !(prevMeet ?? null)) return
       const { error } = await supabase
         .from('tickets')
-        .update({ checkpoint_date: iso, updated_at: new Date().toISOString() })
+        .update({
+          checkpoint_date: iso,
+          checkpoint_meet_link: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', panelTicket.id)
       if (error) {
         toast.error('Could not update checkpoint')
         return
       }
-      patchPanelTicket(panelTicket.id, { checkpoint_date: iso })
+      patchPanelTicket(panelTicket.id, { checkpoint_date: iso, checkpoint_meet_link: null })
       await panelLogChange('checkpoint_date', prev, iso)
+      if (prevMeet) {
+        await panelLogChange('checkpoint_meet_link', prevMeet, null)
+      }
     },
-    [profile?.id, panelTicket?.id, panelTicket?.checkpoint_date, panelLogChange, patchPanelTicket]
+    [profile?.id, panelTicket?.id, panelTicket?.checkpoint_date, panelTicket?.checkpoint_meet_link, panelLogChange, patchPanelTicket]
   )
 
   const commitPanelPhase = useCallback(
@@ -467,6 +528,21 @@ export default function WorksPage() {
   const panelUrls = useMemo(
     () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
     [panelTicket?.urls],
+  )
+
+  const panelActivityItems = useMemo(() => {
+    if (!panelTicket) return []
+    return buildWorksActivityItems(
+      panelTicket.created_at,
+      panelCreatorProfile,
+      panelComments,
+      panelAudit,
+    )
+  }, [panelTicket, panelCreatorProfile, panelComments, panelAudit])
+
+  const panelShowActivityTimeline = useMemo(
+    () => worksActivityShowTimeline(panelActivityItems, panelComments.length),
+    [panelActivityItems, panelComments.length],
   )
 
   const workSections = useMemo(
@@ -703,13 +779,13 @@ export default function WorksPage() {
               <SheetTitle className="sr-only">
                 Ticket {panelTicket.ticket_id}: {panelTicket.title}
               </SheetTitle>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
                 <header
-                  className="bg-background shrink-0 px-6 pt-6 pb-6 pr-14"
+                  className="bg-background flex w-full min-w-0 shrink-0 flex-col justify-start gap-4 px-6 pt-6 pb-4 pr-6"
                   data-name="Header"
                   data-node-id="227:3295"
                 >
-                  <div className="flex flex-col gap-2">
+                  <div className="flex w-full min-w-0 flex-col gap-2">
                     <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
                       {panelTicket.ticket_id}
                     </p>
@@ -720,152 +796,114 @@ export default function WorksPage() {
                       canEdit={panelCanCompleteCheckpoint}
                       onSave={(t) => void savePanelTitle(t)}
                     />
-                    {(panelTicket.assignees ?? []).length > 0 ? (
-                      <div
-                        className="flex items-center mix-blend-multiply pr-1 dark:mix-blend-normal"
-                        data-name="Assignees"
-                        data-node-id="227:3298"
-                      >
-                        {(panelTicket.assignees ?? []).map((a: TicketAssigneeRow, i: number) => (
-                          <ProfileImage
-                            key={a.id}
-                            pathname={a.profile?.avatar_url}
-                            alt={formatProfileLabel(a.profile) ?? 'Assignee'}
-                            size="xs"
-                            className={cn('border-2 border-white dark:border-zinc-950', i > 0 && '-ml-1')}
-                            fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
+                  </div>
+                  <div className="w-full min-w-0" data-name="CheckpointController">
+                    <TicketCheckpointIndicator
+                      className="w-full max-w-full"
+                      checkpointDate={panelTicket.checkpoint_date}
+                      checkpointMeetLink={panelTicket.checkpoint_meet_link ?? null}
+                      canEdit={panelCanCompleteCheckpoint}
+                      onCheckpointCommit={commitPanelCheckpoint}
+                      onCompleteCheckpoint={() => setCheckpointModalOpen(true)}
+                    />
                   </div>
                 </header>
 
-                <div
-                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-6"
-                  data-name="Sidepanel"
-                  data-node-id="227:3294"
-                >
-                  <div className="flex flex-col gap-7">
-                  <div className="min-w-0" data-node-id="227:3466">
-                    <TicketDescriptionEditor
-                      key={panelTicket.id}
-                      ticketId={panelTicket.id}
-                      description={panelTicket.description}
-                      canEdit={panelCanCompleteCheckpoint}
-                      onSave={(html) => void savePanelDescription(html)}
-                      className="w-full [&_p]:mb-0"
-                    />
+                <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+                  <div
+                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-6"
+                    data-name="Sidepanel"
+                    data-node-id="227:3294"
+                  >
+                    <div className="flex flex-col gap-7">
+                      <div className="min-w-0" data-node-id="227:3466">
+                        <TicketDescriptionEditor
+                          key={panelTicket.id}
+                          ticketId={panelTicket.id}
+                          description={panelTicket.description}
+                          canEdit={panelCanCompleteCheckpoint}
+                          onSave={(html) => void savePanelDescription(html)}
+                          className="w-full [&_p]:mb-0"
+                        />
+                      </div>
+
+                      {panelUrls.length > 0 ? (
+                        <HorizontalScrollFade data-name="Links" data-node-id="243:3677">
+                          {panelUrls.map((u) => (
+                            <ContextLink
+                              key={u}
+                              href={u}
+                              title={contextLinkTitleFromUrl(u)}
+                            />
+                          ))}
+                        </HorizontalScrollFade>
+                      ) : null}
+
+                      <WorksTicketPanelMetadata
+                        checkpointDate={panelTicket.checkpoint_date}
+                        phase={panelTicket.phase}
+                        teamCategory={panelTicket.team_category}
+                        phaseOptions={panelOrderedPhases}
+                        categoryOptions={workspaceSettings?.team_categories ?? []}
+                        canEdit={panelCanCompleteCheckpoint}
+                        onCheckpointCommit={commitPanelCheckpoint}
+                        onPhaseCommit={commitPanelPhase}
+                        onCategoriesCommit={commitPanelCategories}
+                        designerAssignees={panelTicket.assignees ?? []}
+                        hideCheckpointRow
+                      />
+
+                      <div
+                        className="flex w-full flex-col gap-5 overflow-clip pb-0 pt-4"
+                        data-name="ActivityWrapper"
+                        data-node-id="227:3336"
+                      >
+                        <CommentsSectionHeader title="Activity" showCount={false} />
+                        <WorksTicketActivityStack
+                          items={panelActivityItems}
+                          showTimeline={panelShowActivityTimeline}
+                          isAdmin={!!isAdmin}
+                          viewerUserId={profile?.id}
+                          onDeleteComment={(id) => void deletePanelComment(id)}
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  {panelUrls.length > 0 ? (
-                    <HorizontalScrollFade data-name="Links" data-node-id="243:3677">
-                      {panelUrls.map((u) => (
-                        <ContextLink
-                          key={u}
-                          href={u}
-                          title={contextLinkTitleFromUrl(u)}
-                        />
-                      ))}
-                    </HorizontalScrollFade>
-                  ) : null}
-
-                  <WorksTicketPanelMetadata
-                    checkpointDate={panelTicket.checkpoint_date}
-                    phase={panelTicket.phase}
-                    teamCategory={panelTicket.team_category}
-                    phaseOptions={panelOrderedPhases}
-                    categoryOptions={workspaceSettings?.team_categories ?? []}
-                    canEdit={panelCanCompleteCheckpoint}
-                    onCheckpointCommit={commitPanelCheckpoint}
-                    onPhaseCommit={commitPanelPhase}
-                    onCategoriesCommit={commitPanelCategories}
-                  />
-
-                  <div
-                    className="flex w-full flex-col gap-5 overflow-clip pb-0 pt-4"
-                    data-name="CommentsWrapper"
-                    data-node-id="227:3336"
-                  >
-                    <CommentsSectionHeader count={panelComments.length} />
-                    <div className="flex flex-col gap-6" data-name="CommentStack">
-                      {panelComments.map((c) => {
-                        const name =
-                          [c.profile?.first_name, c.profile?.last_name].filter(Boolean).join(' ') ||
-                          c.profile?.name?.trim() ||
-                          'Someone'
-                        return (
-                          <UserComment
-                            key={c.id}
-                            name={name}
-                            subtitle={mosaicRoleLabel(c.profile?.role)}
-                            timeAgo={formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
-                            body={c.body}
-                            avatarPathname={c.profile?.avatar_url}
-                            avatarFallback={
-                              <>
-                                {c.profile?.first_name?.[0]}
-                                {c.profile?.last_name?.[0]}
-                              </>
-                            }
-                            showDelete={isAdmin || c.author_id === profile?.id}
-                            onDelete={() => void deletePanelComment(c.id)}
-                          />
-                        )
-                      })}
-                      {panelComments.length === 0 ? (
-                        <p className="py-2 text-center text-sm text-muted-foreground">No comments yet.</p>
-                      ) : null}
-                    </div>
-
-                    {profile?.id ? (
+                  {profile?.id ? (
+                    <div className="w-full min-w-0 shrink-0 border-t border-border/60 bg-background px-6 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
                       <form
-                        className="border-border/60 flex flex-col gap-2 border-t pt-4"
+                        className="w-full min-w-0"
                         onSubmit={(e) => {
                           e.preventDefault()
                           void postPanelComment()
                         }}
                       >
-                        <Textarea
-                          value={panelCommentDraft}
-                          onChange={(e) => setPanelCommentDraft(e.target.value)}
-                          placeholder="Add a comment…"
-                          rows={3}
-                          disabled={commentPosting}
-                          className="min-h-[4.5rem] resize-y"
-                          aria-label="New comment"
-                        />
-                        <div className="flex justify-end">
+                        <div className="flex items-end gap-2.5 rounded-xl border border-black/5 bg-neutral-100 p-1.5 dark:border-zinc-700 dark:bg-zinc-900/40">
+                          <Textarea
+                            ref={panelCommentTaRef}
+                            variant="embedded"
+                            value={panelCommentDraft}
+                            onChange={(e) => setPanelCommentDraft(e.target.value)}
+                            placeholder="Write a comment…"
+                            rows={1}
+                            disabled={commentPosting}
+                            className="max-h-[200px] min-h-0 min-w-0 flex-1 resize-none px-2 py-1.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 overflow-y-auto"
+                            aria-label="New comment"
+                          />
                           <Button
                             type="submit"
                             size="small"
                             disabled={commentPosting || !panelCommentDraft.trim()}
+                            className="shrink-0 rounded-[6px]"
                           >
-                            {commentPosting ? 'Posting…' : 'Post comment'}
+                            {commentPosting ? 'Sending…' : 'Comment'}
                           </Button>
                         </div>
                       </form>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : null}
                 </div>
-                </div>
-
-                {panelCanCompleteCheckpoint ? (
-                  <div
-                    className="flex shrink-0 justify-start border-t border-border/60 bg-background px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
-                    data-name="Footer"
-                    data-node-id="245:3710"
-                  >
-                    <Button
-                      type="button"
-                      className="w-auto shrink-0 gap-1.5 self-start"
-                      onClick={() => setCheckpointModalOpen(true)}
-                    >
-                      <Check className="size-3.5 shrink-0" aria-hidden />
-                      Complete checkpoint
-                    </Button>
-                  </div>
-                ) : null}
               </div>
               <TicketCheckpointModal
                 open={checkpointModalOpen}

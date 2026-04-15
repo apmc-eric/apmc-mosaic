@@ -2,11 +2,25 @@
 
 Single source of truth for **how we translate Figma into this repo**. Use this when implementing UI, reviewing PRs, or prompting assistants—**update this file when tokens or rules change**.
 
+**Borrowing / porting:** Prefer **§6** (Works board, sheet, checkpoint, Activity) + **§8** (file map) as the **canonical** bundle to lift into another codebase; **§9** is dated history and may include superseded layout notes—on conflict, follow **§6** / **§8**.
+
+| § | Topic |
+|---|--------|
+| **1** | Layout: Fill, Hug, Hard |
+| **2** | Buttons (+ CTA Title Case) |
+| **3** | Overlay viewer (modal shell) |
+| **4** | UserComment |
+| **5** | Tokens, globals, **`mono-micro`**, **`Textarea`** variants, truncation / line-height |
+| **6** | **Works board, Sheet sidepanel, checkpoint, Activity** (porting hub) |
+| **7** | Figma workflow notes |
+| **8** | Quick file map |
+| **9** | Changelog / history |
+
 ### Sync with “permanent context” requests
 
-When the user asks to add something to **permanent context** (Cursor rules, memories, team conventions, or similar), **update this file in the same change** so the repo stays aligned with what should be remembered. Add or adjust the relevant section here (or a short bullet under **Changelog / notes** if it is a one-off policy). Do not rely only on chat-side memory—**this document is the durable record**.
+When the user asks to add something to **permanent context** (Cursor rules, memories, team conventions, or similar), **update this file in the same change** so the repo stays aligned with what should be remembered. Add or adjust the relevant section here (or a short bullet under **§9 Changelog / notes** if it is a one-off policy). Do not rely only on chat-side memory—**this document is the durable record**.
 
-**Cursor:** This workflow is enforced for agents via **`.cursor/rules/design-system.mdc`** (`alwaysApply: true`).
+**Cursor:** This workflow is enforced for agents via **`.cursor/rules/design-system.mdc`** (`alwaysApply: true`). **Figma variable → Tailwind** mappings live in **`.cursor/rules/figma-tailwind-tokens.mdc`** (use alongside this doc).
 
 ---
 
@@ -55,6 +69,10 @@ Figma **Small** is often **Hug** in the file; in code we currently map to **fixe
 
 **Base behavior:** `items-center justify-center`, `rounded-[6px]`, focus ring per shadcn pattern.
 
+### CTA copy (permanent convention)
+
+Use **Title Case** for visible **button labels** and **primary action** menu items (e.g. **Complete Checkpoint**, **Join Meeting**, **Reschedule Checkpoint**, **Find Available Times**, **Comment**). **Cancel**, **Apply**, and single-word actions stay as-is. **Body copy**, **descriptions**, **helper text**, and **toast** sentences stay **sentence case** unless the string is itself a short action label.
+
 ---
 
 ## 3. Overlay viewer (modal shell)
@@ -83,7 +101,7 @@ Figma **Small** is often **Hug** in the file; in code we currently map to **fixe
 
 **Implementation:** `components/user-comment.tsx`.
 
-- Card: bordered, rounded, avatar + name + optional role + timestamp; body indented (spacer aligns with text block).
+- Card: bordered, rounded, avatar + name + optional role + timestamp; body indented (spacer aligns with text block). **Role** and **timestamp** use **`leading-snug`** so **`text-xs`** is not clipped (see **§5**).
 - **Delete:** When allowed, **delete replaces the timestamp on hover** (`group` / `group-hover`); **keyboard:** `group-focus-within` + focus styles so delete is reachable without hover.
 
 ---
@@ -94,9 +112,70 @@ Figma **Small** is often **Hug** in the file; in code we currently map to **fixe
 - **shadcn / Tailwind:** `components.json`, `@import` chain in `globals.css` (`tailwindcss`, `tw-animate-css`, `shadcn/tailwind.css`).
 - **Utilities:** `@/lib/utils` (`cn`, etc.).
 
+### Single-line labels, `truncate`, and glyph clipping
+
+- **`leading-none` (`line-height: 1`)** next to **`truncate`** / **`overflow-hidden`** often **clips real font ascenders and descenders**. For **single-line** or **ellipsis** UI copy, prefer **`leading-snug`** on **`text-xs`–`text-sm`** (and **`leading-snug`** or **`leading-tight`** on **truncated** titles). **`Button`** keeps **`leading-none`** where the control height is fixed and metrics are tuned separately.
+- Use a touch of **vertical padding** (**`py-px`** or **`py-0.5`**) on chips, metadata value triggers, and tight rows so **letterforms** sit inside the paint box.
+- **`overflow-y: auto`** does **not** help **single-line** ellipsis (there is no vertical overflow to scroll). **`overflow-y: visible`** with **`overflow-x: hidden`** is **not** a reliable way to “show” descenders under ellipsis—browsers may still clip; fix **line-height** and **padding** instead.
+
+### Custom typography (`mono-micro`)
+
+**Implementation:** `app/globals.css` (`:root` / `.dark`) + `@theme inline` where wired.
+
+| Token / utility | Role |
+|-----------------|------|
+| **`--type-mono-micro-size`**, **`--type-mono-micro-leading`**, **`--type-mono-micro-tracking`** | Geist Mono **12px** / **16px** line / tracking **2.5** (Figma-aligned); use for ticket ids, timeline dates, dense meta. |
+| **`text-mono-micro`**, **`.type-mono-micro`**, **`font-mono text-mono-micro`** | Prefer these over ad-hoc **`text-[12px]`** for mono meta lines. |
+
+### `Textarea` variants
+
+**Implementation:** `components/ui/textarea.tsx`.
+
+| `variant` | When |
+|-----------|------|
+| **`default`** | Forms: includes **`field-sizing-content`**, **`min-h-16`**, border, focus ring. |
+| **`embedded`** | Dense shells (e.g. Works comment composer): **no** intrinsic min-height / content field-sizing; pair with **`useLayoutEffect`** height sync from **`scrollHeight`** for single-line default + capped growth. |
+
 ---
 
-## 6. Figma workflow notes
+## 6. Works board, sheet sidepanel & activity (canonical)
+
+Use this block when **porting** or **rebuilding** Mosaic-style Works + tickets UI elsewhere. Figma references: sidepanel **`309:1683`**, **ActivityUpdate** **`309:1962`**, **CheckpointIndicator** **`309:1895`**.
+
+### Works grid (`TicketCard`)
+
+- **Card grid breakpoints** (avoid Tailwind v4 duplicate `@media` overrides): **`min-[640px]:grid-cols-2`**, **`min-[1024px]:max-[1439px]:grid-cols-3`**, **`min-[1440px]:grid-cols-4`** on the card grid — do **not** use **`sm:grid-cols-2`** for this grid (see **§9** changelog).
+- **TicketCard** (`199:1222`): **280px** tile height, **10px** radius, hover strip **View Details**, **`TicketCategoryTag`** on card (not outline chips). **`cursor-pointer`** on the whole card button.
+
+### Radix `Sheet` (ticket sidepanel)
+
+- **Shell:** `components/ui/sheet.tsx` — **never** put **`relative`** on **`SheetContent`**’s **`className`** (`tailwind-merge` can drop **`fixed`**, hiding the panel). Use an **inner** **`relative`** wrapper if needed.
+- **Works width:** **`SheetContent`** **`className`** includes **`sm:max-w-[540px]`** (overrides default **`sm:max-w-sm`** where applied), **`w-full`**, **`gap-0`**, **`p-0`** on the sheet page.
+- **Column width:** Outer shells use **`w-full min-w-0 flex-1 flex-col overflow-hidden`** so children (header checkpoint bar, scroll, footer) span the panel.
+- **Header:** **`pr-6`** (align with **`px-6`**); **`justify-start`**. **Ticket id** (mono-micro, 50% opacity) + **`TicketTitleEditor`**; below that **`TicketCheckpointIndicator`** wrapped in **`data-name="CheckpointController"`** (full-width bar).
+- **Scroll body:** Description (**`TicketDescriptionEditor`**), **`HorizontalScrollFade`** + **`ContextLink`** row, **`WorksTicketPanelMetadata`**.
+- **Footer composer:** **`flex items-end gap-2.5`**, neutral **`rounded-xl`** container; **`Textarea variant="embedded"`** **`flex-1 min-w-0`**; submit **`Button`** **`size="small"`** **`shrink-0`** **`rounded-[6px]`**; **`useLayoutEffect`** sets textarea **`height`** from **`scrollHeight`** (floor ~32px, cap 200px).
+
+### Checkpoint UX
+
+- **`TicketCheckpointIndicator`** (`components/ticket-checkpoint-indicator.tsx`): bar **`rounded-[10px]`**, **`border-black/10`**, **`bg-black/[0.05]`**; date opens **`Popover`** + **`CheckpointDatetimePickerBody`**; **`Popover`** lives in **`min-w-0 flex-1`** so the bar spans the sheet; primary actions **Title Case**; chevron menu **`Button variant="ghost" size="icon-sm"`** (not outline); primary **`Button`** uses default **`rounded-[6px]`** (not pills).
+- **`TicketCheckpointModal`**: “Complete Checkpoint” flow; on **schedule success** also inserts **`audit_log.field_changed = 'checkpoint_completed'`** (alongside **`checkpoint_date`** / meet link rows). Phase-only advance logs **`phase`** only.
+- **Checkpoint label helper:** `lib/format-ticket-checkpoint.ts`. **Join window:** `lib/checkpoint-meeting-ui.ts` (**`isCheckpointJoinWindowActive`**, **`checkpointMeetingEndIso`**).
+
+### Activity feed
+
+- **Stack:** `components/works-ticket-activity-stack.tsx` — merges **Request submitted** (ticket **`created_at`** + creator profile), **`ticket_comments`**, and **`audit_log`** rows where **`field_changed`** ∈ **`assignees`**, **`phase`**, **`checkpoint_completed`**; **newest first**.
+- **System rows:** `components/activity-update.tsx` — dot + **`text-xs`** + optional **`/`** + meta date (**`MMMM do`**); export **`ACTIVITY_UPDATE_TIMELINE_CENTER_PX`** (**`9`**) = horizontal center of dot (**`px-1.5`** + half **`size-1.5`**); **`WorksTicketActivityStack`** **`TimelineTrack`** uses **`left: ${…}px`** + **`-translate-x-1/2`** so the dashed line hits dot centers (comments use **`UserComment`**; line is tuned for **ActivityUpdate** dots).
+- **Timeline visibility:** show dashed track when **more than one feed row** **or** at least one **comment** (creation-only, no comments → no track).
+- **Data loading (this repo):** `app/(app)/works/page.tsx` loads comments + filtered audit + creator **`profiles`** row; refetch tied to **`panelTicket.id`** and **`panelTicket.updated_at`**.
+
+### Sidepanel metadata
+
+- **`WorksTicketPanelMetadata`**: optional **`designerAssignees`** (first row, **`Users`** icon + avatars); optional **`hideCheckpointRow`** when checkpoint lives in **`TicketCheckpointIndicator`**; phase + categories rows unchanged pattern (`227:3402`).
+
+---
+
+## 7. Figma workflow notes
 
 1. **MCP / Code Connect** often emits **names** (`Small`, `Default`) without **pixel** or **Hug/Fill/Fixed**—this doc + explicit notes beat guessing.
 2. Prefer **layer names or descriptions** when a node diverges from the baseline (§1).
@@ -104,41 +183,64 @@ Figma **Small** is often **Hug** in the file; in code we currently map to **fixe
 
 ---
 
-## 7. Quick file map
+## 8. Quick file map
 
 | Area | Path |
 |------|------|
 | Button | `components/ui/button.tsx` |
+| Textarea (+ **`variant="embedded"`**) | `components/ui/textarea.tsx` |
+| Label | `components/ui/label.tsx` |
+| Sheet / dialog primitives | `components/ui/sheet.tsx`, `components/ui/dialog.tsx` |
 | Overlay shell | `components/overlay-viewer.tsx` |
 | Inspire detail / overlay body | `components/post-detail-panel.tsx` |
 | Comment row | `components/user-comment.tsx` |
 | Profile avatar | `components/profile-image.tsx` |
-| Dialog (generic) | `components/ui/dialog.tsx` |
 | Workflow phase pill (Triage → Build) | `components/workflow-phase-tag.tsx` + `lib/mosaic-project-phases.ts` |
 | Works **TicketCard** (kanban tile) | `components/ticket-card.tsx` (Figma `199:1222`) |
 | Works ticket **category** pill | `components/ticket-category-tag.tsx` (Figma **Tag** `227:3470` / `227:3471`) |
 | Ticket **ContextLink** (URL row + favicon) | `components/context-link.tsx` + `lib/link-favicon.ts` (Figma `243:3688`) |
 | Horizontal link row + **scroll fades** | `components/horizontal-scroll-fade.tsx` |
-| **Comments** section title + count | `components/comments-section-header.tsx` (Figma `227:3337`) |
-| Works ticket **sidepanel** (sheet) | `app/(app)/works/page.tsx` **Sheet** (Figma `227:3294`); title **`components/ticket-title-editor.tsx`**; description **`components/ticket-description-editor.tsx`**; metadata popovers **`components/works-ticket-panel-metadata.tsx`**; delete confirm **`AlertDialog`** |
-| **Create ticket** (full-screen dialog) | **`components/ticket-submit-modal.tsx`** (Figma **`290:3775`**): centered **`max-w-[480px]`** column, **`TicketTitleEditor`** / **`TicketDescriptionEditor`** **`compose`** mode, **`WorksTicketPanelMetadata`**, link previews from description **`extractUrlsFromDescriptionHtml`** |
+| **TimelineIndicator** (board column label) | `components/timeline-indicator.tsx` (Figma `131:311`) |
+| **FilterBadge** (Works project filter) | `components/filter-badge.tsx` |
+| **Comments** / **Activity** section title (+ optional count) | `components/comments-section-header.tsx` (Figma `227:3337`; Works uses **Activity** + **`showCount={false}`**) |
+| Works ticket **sidepanel** (sheet) | `app/(app)/works/page.tsx` — full behavior **§6**; Figma **`309:1683`** |
+| Ticket **detail** page (checkpoint + modal, comments) | `app/(app)/tickets/[id]/page.tsx` — shares **`TicketCheckpointIndicator`** / **`TicketCheckpointModal`** patterns |
+| **Activity** stack (merge, timeline, comments) | `components/works-ticket-activity-stack.tsx` |
+| **ActivityUpdate** row (Figma **`309:1962`**) | `components/activity-update.tsx` — dot + **`text-xs`** + optional **`/`** + meta; exports **`ACTIVITY_UPDATE_TIMELINE_CENTER_PX`** |
+| **TicketCheckpointIndicator** | `components/ticket-checkpoint-indicator.tsx` (Figma **`309:1895`**) |
+| **TicketCheckpointModal** | `components/ticket-checkpoint-modal.tsx` |
+| **Checkpoint** date popover body | `components/checkpoint-datetime-picker-body.tsx` |
+| **Ticket title / description** (inline + compose) | `components/ticket-title-editor.tsx`, `components/ticket-description-editor.tsx` |
+| **Works ticket metadata** (checkpoint / phase / categories / designers) | `components/works-ticket-panel-metadata.tsx` |
+| **Create ticket** (full-screen dialog) | `components/ticket-submit-modal.tsx` (Figma **`290:3775`**) |
+| Works **board data** (server, cookies) | `app/api/works/data/route.ts` |
 | Checkpoint label string | `lib/format-ticket-checkpoint.ts` |
+| Checkpoint **Meet** window | `lib/checkpoint-meeting-ui.ts` |
 | Profile **role** subtitle (comments) | `lib/mosaic-role-label.ts` |
+| Profile display name | `lib/format-profile.ts` |
 
 ---
 
-## 8. Changelog / notes
+## 9. Changelog / notes
 
-Short-lived policies or decisions that do not warrant a full section—still worth persisting when the user adds **permanent context**.
+Short-lived policies or decisions that do not warrant a full section—still worth persisting when the user adds **permanent context**. **Older bullets** may describe earlier layouts; **§6** + **§8** win on conflict.
 
+- **2026-04-10** — **Porting / new repo:** intro **Borrowing / porting** (canonical **§6** + **§8**; **§9** = history); **TOC** table after intro; permanent-context sync line points to **§9 Changelog / notes**; **§8** file map adds **`app/(app)/tickets/[id]/page.tsx`** (checkpoint + modal shared with Works).
+- **2026-04-12** — **Doc consolidation for porting:** added **§6** (canonical Works + sheet + Activity + checkpoint), **§5** (`mono-micro`, **`Textarea`** **`embedded`**), expanded **§8** file map, renumbered changelog to **§9**. Stale sheet bullets below kept as history only.
+- **2026-04-12** — **TicketCheckpointIndicator** (Figma **`309:1895`**): bar **`w-full min-w-0`** **`rounded-[10px]`** **`border-black/10`** **`bg-black/[0.05]`** **`p-1.5`**; date **`Popover`** sits in **`min-w-0 flex-1`** so the bar spans the sheet; primary CTAs in **Title Case** (**Join Meeting**, **Complete Checkpoint**, menu **Reschedule Checkpoint**). Chevron **`ghost`** **`icon-sm`**. Read-only: **Join Meeting** only in window when link set.
+- **2026-04-12** — **Typography / eliding:** avoid **`leading-none`** on **`truncate`** and tight metadata (**`leading-snug`**, **`py-px`** on rows/chips). See **§5** (Single-line labels…). **Button** unchanged unless a specific control clips.
+- **2026-04-12** — **Button CTA copy:** Title Case for action labels (see **§2** CTA copy); sentence case for long descriptions and toasts.
+- **2026-04-12** — **Works sheet** composer: **`flex items-end gap-2.5`** — **`Textarea`** **`flex-1 min-w-0`**, submit **`shrink-0`** (no absolute pin). Header **`pr-6`** (aligns with **`px-6`**); shell columns use **`w-full min-w-0`** so checkpoint + footer use full panel width.
+- **2026-04-12** — **Works sidepanel v2** (Figma **`309:1683`**): **Activity** feed (**`WorksTicketActivityStack`**) + **`ActivityUpdate`**; composer **`flex items-end`** + **`Textarea`** **`variant="embedded"`** + **`TicketCheckpointModal`** **`checkpoint_completed`** on schedule; metadata **`designerAssignees`** / **`hideCheckpointRow`**. (See newer bullets for full-width header / Title Case.)
+- **2026-04-12** — **Custom domain / production URL:** no app code change required; auth uses the live **`Origin`** for **`/auth/callback`**. Follow **`docs/CUSTOM_DOMAIN.md`** for Supabase redirect allowlist, hosting DNS, and Google OAuth console steps. Env var names live in **`.env.example`** at repo root.
 - **2026-04-08** — *Permanent context sync:* whenever the user asks to add something to permanent context, update `docs/DESIGN_SYSTEM.md` in the same pass (see § intro). Added **`.cursor/rules/design-system.mdc`** so agents always load this doc + the sync rule.
 - **2026-04-09** — **WorkflowPhaseTag** (Figma `199:1197`): **mono-micro bold uppercase** label; **Triage** = small upward **triangle** (neutral fill), **Backlog** = hollow **8px** rounded square/ring, **Concept** orange / **Design** blue / **Build** green solids. Pipeline order: **Triage → Backlog → Concept → Design → Build** (`DEFAULT_PHASE_PIPELINE`); default new-ticket phase **`DEFAULT_NEW_TICKET_PHASE`** (Triage). **`WORKSPACE_PHASE_CUSTOMIZATION_ENABLED`** re-enables merging `phase_label_sets` later.
-- **2026-04-09** — **TicketCard** (Figma `199:1222`): fixed **280px** height, **10px** radius, **neutral-100** default / **neutral-50** on hover; **hover**: **1px** **neutral-200** border (default **transparent** border so layout does not shift); **hover** / **focus-visible** animate bottom **padding** and **slide** the **non-interactive** black **View Details** strip up (`translate-y-full` → `0`, **200ms** **ease-out**, same timing as padding—no opacity crossfade); **`motion-reduce`**: transitions off. Whole **`<button>`** opens the panel. Category chips only when set. **TimelineIndicator** (`131:311`): heading **text-base semibold leading-none**, date **mono-micro** @ 50%, side label **max-w-[96px]**.
+- **2026-04-09** — **TicketCard** (Figma `199:1222`): fixed **280px** height, **10px** radius, **neutral-100** default / **neutral-50** on hover; **hover**: **1px** **neutral-200** border (default **transparent** border so layout does not shift); **hover** / **focus-visible** animate bottom **padding** and **slide** the **non-interactive** black **View Details** strip up (`translate-y-full` → `0`, **200ms** **ease-out**, same timing as padding—no opacity crossfade); **`motion-reduce`**: transitions off. Whole **`<button>`** opens the panel. Category chips only when set. **TimelineIndicator** (`131:311`): heading **text-base semibold** (implementation: **`leading-snug`** for glyph safety), date **mono-micro** @ 50%, side label **max-w-[96px]**.
 - **2026-04-10** — **TicketCard** (Figma `199:1222` refresh): schedule line **text-base** **normal**; title **`text-xl`** / **`leading-6`** / **`tracking-[-0.3px]`**, **`line-clamp-2`**; **`overflow-clip`**; **HoverCTA** **`inset-x-[-1px] bottom-[-1px]`**. **TagRow** uses **`TicketCategoryTag`** (Figma **Tag** `227:3471`), not bordered outline chips.
 - **2026-04-12** — **TicketCard** (Figma `199:1222`): padding **`pt-4`** (**16px**), **`px-5`** (**20px**), default **`pb-5`** (**20px**); hover / focus still **`pb-14`**; flag badge **`top-4`**. **Works Sheet**: do **not** put **`relative`** on **`SheetContent`** — it overrides Radix **`fixed`** via **`tailwind-merge`**, hiding the panel; use an **inner** **`relative`** wrapper for the fixed footer.
-- **2026-04-11** — **TicketCategoryTag** (Figma **Tag** `227:3470`): **stadium** (**`rounded-full`**), charcoal **`bg-neutral-700`** (**`dark:bg-zinc-800`**), light stroke **`border-neutral-200`** (**`dark:border-zinc-400`**), **`px-1.5`** **`py-1`**, **`text-xs`** **`font-medium`** **`leading-none`** **`text-white`** on the pill (Figma labels dark fill + light type for contrast).
+- **2026-04-11** — **TicketCategoryTag** (Figma **Tag** `227:3470`): **stadium** (**`rounded-full`**), charcoal **`bg-neutral-700`** (**`dark:bg-zinc-800`**), light stroke **`border-neutral-200`** (**`dark:border-zinc-400`**), **`px-1.5`** **`py-1`**, **`text-xs`** **`font-medium`**, label **`leading-snug`** + **`py-px`** on truncated text (**§5**) for glyph safety; **`text-white`** on the pill.
 - **2026-04-11** — **ContextLink** (Figma `243:3688`): fixed **`w-[180px]`** **`shrink-0`** in the board/sheet (override via **`className`** if needed); title + subtitle **`block`** **`overflow-hidden`** **`text-ellipsis`** **`whitespace-nowrap`**; rest as before (favicon, **`border-black/10`**, **`ExternalLink`** on hover/focus).
-- **2026-04-11** — **Works ticket Sheet** (Figma **`227:3294`**): **`sm:max-w-[540px]`**, shell **`px-6`** **`pt-16`** **`gap-7`**; header **mono-micro** ticket id @ **50%** opacity, **`text-xl`** semibold title, **24px** assignee stack (**`size-xs`**, **`-ml-1`**, white ring); **ContextLink** row in **`HorizontalScrollFade`** (horizontal scroll, hidden scrollbar, **`from-background` / `to-transparent`** **64px** edge fades only when overflow + not at that edge); metadata rows **`border-t`** **`slate-200`**, **CalendarCheck** / **Layers** / **Tags** + values; categories = **outline** chips (**not** dark **TicketCategoryTag**); **`CommentsSectionHeader`** + **`UserComment`** list (loads **`ticket_comments`**); footer CTA **`absolute bottom-0`** full width **`px-6`** **`py-4`** with **Check** icon — scroll body gets extra **`pb`** when footer visible so content clears the bar.
+- **2026-04-11** — **Works ticket Sheet** (Figma **`227:3294`**) — *historical*: described footer checkpoint **absolute** + header assignee stack; **current** layout is **§6** (checkpoint in header, **Activity** feed, flex composer, **`pr-6`**).
 - **2026-04-10** — **Works ticket Sheet** (follow-up): scroll body **`pt-6`** (**24px**), **`pb-6`**; header **`pr-14`** so copy does not sit under **`SheetContent`** absolute controls; **footer CTA in document flow** (**`shrink-0`**) under **`flex-1 overflow-y-auto`** so the **scrollbar does not extend under** the footer; footer **no shadow**, **`flex justify-start`**, CTA **`w-auto`** (**hug**); **Expand** removed; **delete** (**Trash**) for **admin** or **creator**; **in-place** title/description + metadata **popover**s.
 - **2026-04-10** — **Works sheet** inline fields: **title** + **description** use **click-to-edit** (`contentEditable` off until pointer down); **`cursor-default`** by default, **`hover:cursor-text`** and **`cursor-text`** while editing; metadata value triggers **`cursor-pointer`**. Ticket **delete** uses **`AlertDialog`** (copy: ticket id + title, **Cancel** / **Yes, I&apos;m sure**).
 - **2026-04-10** — **Create ticket** modal (Figma **`290:3775`**): **full-screen** **`DialogContent`** (**`inset-0`**, no radius); **compose** title (**focus** + muted **placeholder** → **foreground** when filled) + rich **description** (**`-` + Space** → **bullet** `ul`/`li`, paste **URL** → **link** + **ContextLink** previews); **`p_urls`** from description links only (legacy **`tickets.urls`** still used for old rows); **`WorksTicketPanelMetadata`** for checkpoint / phase / categories.
@@ -150,4 +252,4 @@ Short-lived policies or decisions that do not warrant a full section—still wor
 
 ---
 
-*Last aligned with implementation in-repo; bump this document when design contracts change.*
+*Last aligned with implementation in-repo (2026-04-10); bump this document when design contracts change.*

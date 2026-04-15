@@ -84,7 +84,11 @@ export async function POST(req: NextRequest) {
       slot,
       attendeeEmails
     )
-    return NextResponse.json({ htmlLink: event.htmlLink, eventId: event.id })
+    return NextResponse.json({
+      htmlLink: event.htmlLink,
+      eventId: event.id,
+      meetLink: event.meetLink,
+    })
   } catch (err) {
     console.error('[api/calendar/event] Failed to create event', err)
     return NextResponse.json({ error: 'Failed to create calendar event' }, { status: 500 })

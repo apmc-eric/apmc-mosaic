@@ -64,14 +64,14 @@ export const ContextLink = React.forwardRef<HTMLAnchorElement, ContextLinkProps>
         </div>
 
         <div
-          className="flex min-h-px min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden pr-10 text-xs leading-none"
+          className="flex min-h-px min-w-0 flex-1 flex-col justify-center gap-1 overflow-hidden pr-10 text-xs leading-snug"
           data-name="Metadata"
           data-node-id="243:3684"
         >
-          <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-foreground">
+          <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap font-semibold leading-snug text-foreground">
             {title}
           </span>
-          <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap font-normal text-neutral-500 dark:text-zinc-400">
+          <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap font-normal leading-snug text-neutral-500 dark:text-zinc-400">
             {line2}
           </span>
         </div>

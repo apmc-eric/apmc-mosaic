@@ -328,7 +328,7 @@ export function PostDetailPanel({
               data-node-id="149:2600"
             >
               <div className="min-w-0 space-y-1.5 pr-9">
-                <h2 className="truncate text-base font-bold leading-none text-foreground" title={post.title}>
+                <h2 className="truncate text-base font-bold leading-snug text-foreground" title={post.title}>
                   {post.title}
                 </h2>
                 <p className="text-xs font-medium leading-4 text-foreground/50">

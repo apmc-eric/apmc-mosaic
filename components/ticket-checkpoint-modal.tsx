@@ -161,24 +161,9 @@ export function TicketCheckpointModal({
 
       setSubmitting(true)
       const prev = ticket.checkpoint_date ?? null
+      const prevMeet = ticket.checkpoint_meet_link ?? null
 
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          checkpoint_date: dateToSave,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', ticketId)
-
-      if (error) {
-        toast.error(error.message || 'Could not update checkpoint')
-        setSubmitting(false)
-        return
-      }
-
-      await logChange('checkpoint_date', prev, dateToSave)
-
-      // If a slot was selected, also create a Google Calendar event
+      let meetLinkNext: string | null = null
       if (selectedSlot) {
         const eventRes = await fetch('/api/calendar/event', {
           method: 'POST',
@@ -191,9 +176,10 @@ export function TicketCheckpointModal({
         })
 
         if (eventRes.ok) {
-          const { htmlLink } = await eventRes.json()
+          const payload = (await eventRes.json()) as { meetLink?: string | null; htmlLink?: string | null }
+          meetLinkNext = (payload.meetLink ?? payload.htmlLink) || null
           toast.success('Checkpoint scheduled', {
-            description: htmlLink
+            description: meetLinkNext
               ? 'Calendar invites sent to all assignees.'
               : 'Checkpoint date saved.',
           })
@@ -203,6 +189,27 @@ export function TicketCheckpointModal({
       } else {
         toast.success('Checkpoint scheduled')
       }
+
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          checkpoint_date: dateToSave,
+          checkpoint_meet_link: meetLinkNext,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', ticketId)
+
+      if (error) {
+        toast.error(error.message || 'Could not update checkpoint')
+        setSubmitting(false)
+        return
+      }
+
+      await logChange('checkpoint_date', prev, dateToSave)
+      if ((prevMeet ?? null) !== (meetLinkNext ?? null)) {
+        await logChange('checkpoint_meet_link', prevMeet, meetLinkNext)
+      }
+      await logChange('checkpoint_completed', prev, dateToSave)
 
       setSubmitting(false)
       onOpenChange(false)
@@ -241,7 +248,7 @@ export function TicketCheckpointModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-serif text-xl tracking-tight">Complete checkpoint</DialogTitle>
+          <DialogTitle className="font-serif text-xl tracking-tight">Complete Checkpoint</DialogTitle>
           <DialogDescription>
             Schedule when you&apos;ll hit the next checkpoint, or advance this ticket to the next phase.
           </DialogDescription>
@@ -256,8 +263,8 @@ export function TicketCheckpointModal({
           <div className="flex items-start gap-3 rounded-lg border border-border p-3 focus-within:ring-2 focus-within:ring-ring">
             <RadioGroupItem value="schedule" id="cp-schedule" className="mt-0.5" />
             <div className="flex-1 space-y-3">
-              <Label htmlFor="cp-schedule" className="cursor-pointer font-medium leading-none">
-                Schedule next checkpoint
+              <Label htmlFor="cp-schedule" className="cursor-pointer font-medium leading-snug">
+                Schedule Next Checkpoint
               </Label>
               <p className="text-muted-foreground text-sm">Set the date for the next checkpoint review.</p>
 
@@ -269,7 +276,7 @@ export function TicketCheckpointModal({
                       <Button
                         type="button"
                         variant="outline"
-                        size="sm"
+                        size="small"
                         className="w-full gap-2"
                         onClick={() => void findAvailableTimes(searchOffset)}
                         disabled={slotsStatus === 'loading'}
@@ -277,12 +284,12 @@ export function TicketCheckpointModal({
                         {slotsStatus === 'loading' ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            Searching calendars…
+                            Searching Calendars…
                           </>
                         ) : (
                           <>
                             <CalendarSearch className="w-4 h-4" />
-                            Find available times
+                            Find Available Times
                           </>
                         )}
                       </Button>
@@ -321,10 +328,9 @@ export function TicketCheckpointModal({
                           <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
+                            size="small"
                             className="text-xs text-muted-foreground px-0 h-auto"
                             onClick={handleSearchNext}
-                            disabled={slotsStatus === 'loading'}
                           >
                             Search later →
                           </Button>
@@ -339,7 +345,7 @@ export function TicketCheckpointModal({
                           <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
+                            size="small"
                             className="text-xs text-muted-foreground px-0 h-auto"
                             onClick={handleSearchNext}
                           >
@@ -390,8 +396,8 @@ export function TicketCheckpointModal({
           <div className="flex items-start gap-3 rounded-lg border border-border p-3 focus-within:ring-2 focus-within:ring-ring">
             <RadioGroupItem value="phase" id="cp-phase" className="mt-0.5" />
             <div className="flex-1 space-y-2">
-              <Label htmlFor="cp-phase" className="cursor-pointer font-medium leading-none">
-                Move to next phase
+              <Label htmlFor="cp-phase" className="cursor-pointer font-medium leading-snug">
+                Move to Next Phase
               </Label>
               <p className="text-muted-foreground text-sm">
                 {nextSuggested

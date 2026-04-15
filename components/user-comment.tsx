@@ -61,7 +61,7 @@ export function UserComment({
           <div className="flex min-w-0 flex-col gap-0.5">
             <p className="truncate text-sm font-semibold leading-5 text-foreground">{name}</p>
             {subtitle ? (
-              <p className="text-xs font-medium leading-none text-[rgba(10,10,10,0.4)]">
+              <p className="text-xs font-medium leading-snug text-[rgba(10,10,10,0.4)]">
                 {subtitle}
               </p>
             ) : null}
@@ -89,7 +89,7 @@ export function UserComment({
               </Button>
               <p
                 className={cn(
-                  'whitespace-nowrap py-1 text-xs font-medium leading-none text-[rgba(10,10,10,0.4)] transition-opacity',
+                  'whitespace-nowrap py-1 text-xs font-medium leading-snug text-[rgba(10,10,10,0.4)] transition-opacity',
                   'group-hover:pointer-events-none group-hover:opacity-0',
                   'group-focus-within:pointer-events-none group-focus-within:opacity-0',
                 )}
@@ -99,7 +99,7 @@ export function UserComment({
             </>
           ) : (
             <div className="py-1">
-              <p className="whitespace-nowrap text-xs font-medium leading-none text-[rgba(10,10,10,0.4)]">
+              <p className="whitespace-nowrap text-xs font-medium leading-snug text-[rgba(10,10,10,0.4)]">
                 {timeAgo}
               </p>
             </div>

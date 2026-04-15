@@ -11,7 +11,7 @@ export type TimelineIndicatorProps = {
 }
 
 /**
- * Figma **TimelineIndicator** (`131:311`). Side label: optional **text-base / semibold / leading-none** heading
+ * Figma **TimelineIndicator** (`131:311`). Side label: optional **text-base / semibold / snug** heading
  * plus **mono-micro** date range at **50%** opacity; **2px** gap between lines.
  */
 export function TimelineIndicator({
@@ -34,7 +34,7 @@ export function TimelineIndicator({
       >
         {showHeading ? (
           <p
-            className="w-full shrink-0 font-sans text-base font-semibold leading-none"
+            className="w-full shrink-0 font-sans text-base font-semibold leading-snug"
             data-node-id="199:1253"
           >
             {heading}

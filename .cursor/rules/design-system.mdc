@@ -5,9 +5,9 @@ alwaysApply: true
 
 # Design system (`docs/DESIGN_SYSTEM.md`)
 
-1. **Before implementing or changing UI** (components, layout, Figma parity, modals, buttons, comments): open and follow **`docs/DESIGN_SYSTEM.md`**. It defines Fill/Hug/Hard baselines, button sizes, `OverlayViewer` rules (e.g. backdrop opacity), `UserComment` behavior, and the file map.
+1. **Before implementing or changing UI** (components, layout, Figma parity, modals, buttons, comments): open and follow **`docs/DESIGN_SYSTEM.md`**. It defines Fill/Hug/Hard baselines, button sizes, `OverlayViewer` rules (e.g. backdrop opacity), `UserComment` behavior, **Works sheet / checkpoint / Activity** (**§6**), and the file map (**§8**).
 
-2. **Permanent context:** When the user asks to add something to **permanent context** (rules, memories, standing conventions), **update `docs/DESIGN_SYSTEM.md` in the same change**—add a section or a bullet under **§8 Changelog / notes**. Chat-only memory is not enough; this file is the durable record.
+2. **Permanent context:** When the user asks to add something to **permanent context** (rules, memories, standing conventions), **update `docs/DESIGN_SYSTEM.md` in the same change**—add a section or a bullet under **§9 Changelog / notes**. Chat-only memory is not enough; this file is the durable record.
 
 3. **Figma MCP** does not always expose Hug/Fill/Fixed or exact pixels—when in doubt, match the doc and any **layer names** the user uses to flag deviations.
 
