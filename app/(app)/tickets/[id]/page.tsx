@@ -38,6 +38,7 @@ import {
   phaseSelectOptions,
 } from '@/lib/mosaic-project-phases'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
+import { mergeCheckpointDateFromDateInput } from '@/lib/ticket-checkpoint-date-input'
 import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
 import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
@@ -444,9 +445,16 @@ export default function TicketDetailPage() {
               id="cp"
               type="date"
               value={ticket.checkpoint_date?.slice(0, 10) ?? ''}
-              onChange={(e) =>
-                scheduleSave('checkpoint_date', e.target.value || null, { checkpoint_date: e.target.value || null })
-              }
+              onChange={(e) => {
+                const merged = mergeCheckpointDateFromDateInput(
+                  ticket.checkpoint_date,
+                  e.target.value || null,
+                  profile?.timezone ?? null,
+                )
+                scheduleSave('checkpoint_date', merged, {
+                  checkpoint_date: merged,
+                })
+              }}
               className="mt-1"
             />
           </div>

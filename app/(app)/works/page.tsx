@@ -971,7 +971,7 @@ export default function WorksPage() {
                               e.preventDefault()
                               void postPanelComment()
                             }}
-                            placeholder="Write a comment… (Enter to send · ⌘/Ctrl+Enter for new line)"
+                            placeholder="Write a comment…"
                             rows={1}
                             disabled={commentPosting}
                             className="max-h-[200px] min-h-0 min-w-0 flex-1 resize-none px-2 py-1.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 overflow-y-auto"
@@ -979,7 +979,6 @@ export default function WorksPage() {
                           />
                           <Button
                             type="submit"
-                            size="small"
                             disabled={commentPosting || !panelCommentDraft.trim()}
                             className="shrink-0 rounded-[6px]"
                           >
