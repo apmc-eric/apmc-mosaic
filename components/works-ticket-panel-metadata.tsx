@@ -1,18 +1,26 @@
 'use client'
 
 import * as React from 'react'
-import { CalendarCheck, Layers, Tags, Users } from 'lucide-react'
+import { CalendarCheck, ChevronDown, Layers, Tags, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { ProfileImage } from '@/components/profile-image'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { formatProfileLabel } from '@/lib/format-profile'
-import type { TicketAssigneeRow } from '@/lib/types'
+import type { Profile, TicketAssigneeRow } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 function parseCategoryCsv(raw: string | null): Set<string> {
@@ -37,6 +45,11 @@ export type WorksTicketPanelMetadataProps = {
   onCategoriesCommit: (commaSeparated: string | null) => Promise<void>
   /** When set, first row shows **Designer(s)** avatars (sidepanel v2). Omit in create flow. */
   designerAssignees?: TicketAssigneeRow[]
+  /** Workspace profiles for the designer picker (with **`onAssigneesCommit`**). */
+  assigneePickerDesigners?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>[]
+  /** Save lead + support assignees (same semantics as ticket detail page). */
+  onAssigneesCommit?: (leadUserId: string, supportUserIds: string[]) => Promise<void>
+  assigneeSaving?: boolean
   /** Hide the **Next Checkpoint** row (checkpoint lives in **TicketCheckpointIndicator**). */
   hideCheckpointRow?: boolean
   /**
@@ -51,6 +64,8 @@ export type WorksTicketPanelMetadataProps = {
    * **`panel`**: sidepanel density.
    */
   metadataLayout?: 'panel' | 'wizard'
+  /** IANA zone for checkpoint labels + picker (viewer profile). */
+  displayTimeZone?: string | null
 }
 
 export function WorksTicketPanelMetadata({
@@ -64,10 +79,14 @@ export function WorksTicketPanelMetadata({
   onPhaseCommit,
   onCategoriesCommit,
   designerAssignees,
+  assigneePickerDesigners,
+  onAssigneesCommit,
+  assigneeSaving = false,
   hideCheckpointRow = false,
   actionStyle = 'panel',
   hidePhaseRow = false,
   metadataLayout = 'panel',
+  displayTimeZone,
 }: WorksTicketPanelMetadataProps) {
   const isCreate = actionStyle === 'create'
   const isWizard = metadataLayout === 'wizard'
@@ -78,6 +97,27 @@ export function WorksTicketPanelMetadata({
   const [phOpen, setPhOpen] = React.useState(false)
   const [catOpen, setCatOpen] = React.useState(false)
   const [catDraft, setCatDraft] = React.useState(() => parseCategoryCsv(teamCategory))
+  const [assignOpen, setAssignOpen] = React.useState(false)
+  const [leadDraft, setLeadDraft] = React.useState('')
+  const [supportDraft, setSupportDraft] = React.useState<Set<string>>(() => new Set())
+
+  const assigneeSyncKey = React.useMemo(
+    () =>
+      (designerAssignees ?? [])
+        .map((a) => `${a.user_id}:${a.role}`)
+        .sort()
+        .join('|'),
+    [designerAssignees],
+  )
+
+  React.useEffect(() => {
+    if (!assignOpen) return
+    const lead = designerAssignees?.find((a) => a.role === 'lead')
+    setLeadDraft(lead?.user_id ?? '')
+    setSupportDraft(
+      new Set(designerAssignees?.filter((a) => a.role === 'support').map((a) => a.user_id) ?? []),
+    )
+  }, [assignOpen, assigneeSyncKey, designerAssignees])
 
   React.useEffect(() => {
     if (catOpen) setCatDraft(parseCategoryCsv(teamCategory))
@@ -107,7 +147,7 @@ export function WorksTicketPanelMetadata({
       {designerAssignees !== undefined ? (
         <div
           className={cn(
-            'flex w-full items-center justify-between border-t border-slate-200 dark:border-zinc-700',
+            'flex w-full items-center justify-between gap-2 border-t border-slate-200 dark:border-zinc-700',
             rowPad,
           )}
         >
@@ -115,7 +155,98 @@ export function WorksTicketPanelMetadata({
             <Users className="size-4 shrink-0 text-neutral-500" aria-hidden />
             <span className={cn('font-medium leading-snug text-neutral-500', labelClass)}>Designer(s)</span>
           </div>
-          {designerAssignees.length > 0 ? (
+          {canEdit && onAssigneesCommit && assigneePickerDesigners && assigneePickerDesigners.length > 0 ? (
+            <Popover open={assignOpen} onOpenChange={setAssignOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex max-w-[min(100%,16rem)] cursor-pointer items-center gap-1.5 rounded-md py-1 pl-1 pr-0.5 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  aria-label="Edit designer assignments"
+                >
+                  {designerAssignees.length > 0 ? (
+                    <div className="flex min-w-0 items-center">
+                      {designerAssignees.map((a, i) => (
+                        <ProfileImage
+                          key={a.id}
+                          pathname={a.profile?.avatar_url}
+                          alt={formatProfileLabel(a.profile) ?? 'Assignee'}
+                          size="xs"
+                          className={cn('border-2 border-white dark:border-zinc-950', i > 0 && '-ml-1')}
+                          fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs font-semibold leading-snug text-foreground">—</span>
+                  )}
+                  <ChevronDown className="size-4 shrink-0 text-neutral-500 opacity-70" aria-hidden />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 space-y-3 p-3">
+                <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wide">
+                  Assign designers
+                </p>
+                <div>
+                  <Label className="text-xs">Lead designer</Label>
+                  <Select value={leadDraft} onValueChange={setLeadDraft}>
+                    <SelectTrigger className="mt-1 h-9">
+                      <SelectValue placeholder="Select lead" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {assigneePickerDesigners.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {formatProfileLabel(d)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Support designers</Label>
+                  <ScrollArea className="mt-1 h-32 rounded-md border border-border p-2">
+                    <ul className="space-y-2 pr-2">
+                      {assigneePickerDesigners
+                        .filter((d) => d.id !== leadDraft)
+                        .map((d) => (
+                          <li key={d.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`works-meta-support-${d.id}`}
+                              checked={supportDraft.has(d.id)}
+                              onCheckedChange={(c) => {
+                                setSupportDraft((prev) => {
+                                  const next = new Set(prev)
+                                  if (c === true) next.add(d.id)
+                                  else next.delete(d.id)
+                                  return next
+                                })
+                              }}
+                            />
+                            <Label
+                              htmlFor={`works-meta-support-${d.id}`}
+                              className="flex-1 cursor-pointer text-sm font-normal"
+                            >
+                              {formatProfileLabel(d)}
+                            </Label>
+                          </li>
+                        ))}
+                    </ul>
+                  </ScrollArea>
+                </div>
+                <Button
+                  type="button"
+                  size="small"
+                  className="w-full"
+                  disabled={assigneeSaving || !leadDraft}
+                  onClick={() => {
+                    const support = [...supportDraft].filter((id) => id !== leadDraft)
+                    void onAssigneesCommit(leadDraft, support).then(() => setAssignOpen(false))
+                  }}
+                >
+                  {assigneeSaving ? 'Saving…' : 'Save assignees'}
+                </Button>
+              </PopoverContent>
+            </Popover>
+          ) : designerAssignees.length > 0 ? (
             <div className="flex items-center mix-blend-multiply pr-1 dark:mix-blend-normal">
               {designerAssignees.map((a, i) => (
                 <ProfileImage
@@ -155,14 +286,14 @@ export function WorksTicketPanelMetadata({
                     size={createTriggerSize}
                     className="max-w-[min(100%,12rem)] shrink-0 truncate font-normal leading-snug"
                   >
-                    {checkpointDate ? formatTicketCheckpointLabel(checkpointDate) : 'Select Time'}
+                    {checkpointDate ? formatTicketCheckpointLabel(checkpointDate, displayTimeZone) : 'Select Time'}
                   </Button>
                 ) : (
                   <button
                     type="button"
                     className="max-w-[min(100%,12rem)] cursor-pointer truncate py-px text-right text-xs font-semibold leading-snug text-foreground underline-offset-2 hover:underline"
                   >
-                    {formatTicketCheckpointLabel(checkpointDate)}
+                    {formatTicketCheckpointLabel(checkpointDate, displayTimeZone)}
                   </button>
                 )}
               </PopoverTrigger>
@@ -170,6 +301,7 @@ export function WorksTicketPanelMetadata({
                 <CheckpointDatetimePickerBody
                   open={cpOpen}
                   checkpointDate={checkpointDate}
+                  timeZone={displayTimeZone}
                   onCommit={onCheckpointCommit}
                   onRequestClose={() => setCpOpen(false)}
                 />
@@ -177,7 +309,7 @@ export function WorksTicketPanelMetadata({
             </Popover>
           ) : (
             <span className="text-xs font-semibold leading-snug text-foreground">
-              {formatTicketCheckpointLabel(checkpointDate)}
+              {formatTicketCheckpointLabel(checkpointDate, displayTimeZone)}
             </span>
           )}
         </div>

@@ -1,13 +1,22 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, X, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { defaultProfileTimeZone, PROFILE_TIMEZONE_CHOICES } from '@/lib/timezone-choices'
 
 const supabase = createClient()
 
@@ -38,13 +47,28 @@ function GoogleIcon() {
 }
 
 export default function GeneralSettingsPage() {
-  const { user, hasGoogleToken, refreshSettings, refreshGoogleConnection } = useAuth()
+  const { user, profile, hasGoogleToken, refreshSettings, refreshGoogleConnection, refreshProfile } = useAuth()
   const [domains, setDomains] = useState<string[]>(DEFAULT_DOMAINS)
   const [newDomain, setNewDomain] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [connectingGoogle, setConnectingGoogle] = useState(false)
   const [disconnectingGoogle, setDisconnectingGoogle] = useState(false)
+  const [profileTimeZone, setProfileTimeZone] = useState(() => defaultProfileTimeZone())
+  const [savingTz, setSavingTz] = useState(false)
+
+  const timeZoneChoices = useMemo(() => {
+    const b = defaultProfileTimeZone()
+    const list = [...PROFILE_TIMEZONE_CHOICES]
+    if (!list.some((x) => x.value === b)) {
+      list.unshift({ value: b, label: `${b.replace(/_/g, ' ')} (this device)` })
+    }
+    return list
+  }, [])
+
+  useEffect(() => {
+    if (profile?.timezone?.trim()) setProfileTimeZone(profile.timezone.trim())
+  }, [profile?.timezone])
 
   // Load settings from key-value store (logo_url remains in DB; not editable in UI)
   useEffect(() => {
@@ -132,6 +156,20 @@ export default function GeneralSettingsPage() {
     // On success browser navigates away
   }
 
+  const handleSaveTimeZone = async () => {
+    if (!user?.id) return
+    setSavingTz(true)
+    const tz = profileTimeZone.trim() || defaultProfileTimeZone()
+    const { error } = await supabase.from('profiles').update({ timezone: tz, updated_at: new Date().toISOString() }).eq('id', user.id)
+    setSavingTz(false)
+    if (error) {
+      toast.error('Could not save time zone', { description: error.message })
+      return
+    }
+    await refreshProfile()
+    toast.success('Time zone saved')
+  }
+
   const handleDisconnectGoogle = async () => {
     if (!user) return
     setDisconnectingGoogle(true)
@@ -202,6 +240,39 @@ export default function GeneralSettingsPage() {
         </CardContent>
       </Card>
 
+      {user ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your time zone</CardTitle>
+            <CardDescription>
+              Checkpoint times and labels use this zone. Requires the{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">profiles.timezone</code> column — run
+              migrations if saving fails.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Label htmlFor="settings-tz">IANA time zone</Label>
+              <Select value={profileTimeZone} onValueChange={setProfileTimeZone}>
+                <SelectTrigger id="settings-tz" className="w-full max-w-md">
+                  <SelectValue placeholder="Select time zone" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {timeZoneChoices.map((z) => (
+                    <SelectItem key={z.value} value={z.value}>
+                      {z.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="button" variant="secondary" disabled={savingTz} onClick={() => void handleSaveTimeZone()}>
+              {savingTz ? 'Saving…' : 'Save time zone'}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Google Calendar</CardTitle>
@@ -219,7 +290,7 @@ export default function GeneralSettingsPage() {
               </div>
               <Button
                 variant="outline"
-                size="sm"
+                size="small"
                 onClick={handleDisconnectGoogle}
                 disabled={disconnectingGoogle}
               >

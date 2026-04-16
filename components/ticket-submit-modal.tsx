@@ -547,6 +547,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                         actionStyle="create"
                         metadataLayout="wizard"
                         hidePhaseRow
+                        displayTimeZone={profile?.timezone ?? null}
                         onCheckpointCommit={async (iso) => {
                           setCheckpointIso(iso)
                         }}

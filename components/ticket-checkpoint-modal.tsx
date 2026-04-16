@@ -13,20 +13,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
+import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import type { Ticket } from '@/lib/types'
 import type { TimeSlot } from '@/lib/google-calendar'
-import { parseISO, startOfDay } from 'date-fns'
+import { parseISO } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { getNextPhaseLabel } from '@/lib/mosaic-project-phases'
+import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { cn } from '@/lib/utils'
 import { CalendarSearch, Loader2 } from 'lucide-react'
@@ -34,7 +29,6 @@ import { toast } from 'sonner'
 
 const supabase = createClient()
 
-type Mode = 'schedule' | 'phase'
 type SlotsStatus = 'idle' | 'loading' | 'found' | 'none' | 'error'
 
 interface TicketCheckpointModalProps {
@@ -45,19 +39,19 @@ interface TicketCheckpointModalProps {
   /** Canonical order for “next phase” suggestions (`getNextPhaseLabel`). */
   orderedPhases: string[]
   /** Options in the phase `<Select>` (may prepend a legacy phase so the current value stays valid). */
+  /** Kept for API compatibility with ticket detail / Works callers (phase is chosen via “Move to next phase”). */
   phaseSelectOptionsList: string[]
   onSuccess: () => void
   logChange: (field: string, previous: string | null, next: string | null) => Promise<void>
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+function formatSlotDateLabel(dateStr: string, timeZone: string): string {
+  const d = new Date(`${dateStr}T12:00:00Z`)
+  return formatInTimeZone(d, timeZone, 'EEEE, MMMM d, yyyy')
 }
 
-function formatSlotDateLabel(dateStr: string): string {
-  // Use noon UTC to avoid date-boundary issues across timezones
-  const d = new Date(`${dateStr}T12:00:00Z`)
-  return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+function formatTime(iso: string, timeZone: string): string {
+  return formatInTimeZone(parseISO(iso), timeZone, 'h:mm a')
 }
 
 export function TicketCheckpointModal({
@@ -70,14 +64,14 @@ export function TicketCheckpointModal({
   onSuccess,
   logChange,
 }: TicketCheckpointModalProps) {
-  const { hasGoogleToken } = useAuth()
+  void phaseSelectOptionsList
+  const { hasGoogleToken, profile } = useAuth()
+  const displayTz = profile?.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
 
-  const [mode, setMode] = useState<Mode>('schedule')
-  const [nextDate, setNextDate] = useState('')
-  const [targetPhase, setTargetPhase] = useState('')
+  const [manualCheckpointIso, setManualCheckpointIso] = useState<string | null>(ticket.checkpoint_date)
+  const [movePhase, setMovePhase] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  // Smart scheduling state
   const [slotsStatus, setSlotsStatus] = useState<SlotsStatus>('idle')
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
   const [slotsDate, setSlotsDate] = useState<string | null>(null)
@@ -85,19 +79,19 @@ export function TicketCheckpointModal({
   const [usersWithoutGoogle, setUsersWithoutGoogle] = useState<string[]>([])
   const [searchOffset, setSearchOffset] = useState(0)
 
+  const nextSuggested = getNextPhaseLabel(ticket.phase, orderedPhases)
+
   useEffect(() => {
     if (!open) return
-    setMode('schedule')
-    setNextDate('')
+    setManualCheckpointIso(ticket.checkpoint_date)
+    setMovePhase(false)
     setSelectedSlot(null)
     setSlotsStatus('idle')
     setAvailableSlots([])
     setSlotsDate(null)
     setUsersWithoutGoogle([])
     setSearchOffset(0)
-    const suggested = getNextPhaseLabel(ticket.phase, orderedPhases)
-    setTargetPhase(suggested ?? orderedPhases[0] ?? ticket.phase)
-  }, [open, ticket.phase, orderedPhases])
+  }, [open, ticket.checkpoint_date, ticket.phase])
 
   const findAvailableTimes = async (offsetDays = 0) => {
     setSlotsStatus('loading')
@@ -105,7 +99,6 @@ export function TicketCheckpointModal({
     setAvailableSlots([])
     setSlotsDate(null)
 
-    // Build searchFrom date
     let searchFrom: string | undefined
     if (offsetDays > 0) {
       const d = new Date()
@@ -147,280 +140,249 @@ export function TicketCheckpointModal({
   }
 
   const handleConfirm = async () => {
-    if (mode === 'schedule') {
-      const dateToSave = selectedSlot
-        ? selectedSlot.start
-        : nextDate
-          ? startOfDay(parseISO(nextDate)).toISOString()
-          : null
-
-      if (!dateToSave) {
-        toast.error(slotsStatus === 'found' ? 'Pick a time slot' : 'Choose a date')
-        return
-      }
-
-      setSubmitting(true)
-      const prev = ticket.checkpoint_date ?? null
-      const prevMeet = ticket.checkpoint_meet_link ?? null
-
-      let meetLinkNext: string | null = null
-      if (selectedSlot) {
-        const eventRes = await fetch('/api/calendar/event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketId,
-            ticketTitle: ticket.title,
-            slot: selectedSlot,
-          }),
-        })
-
-        if (eventRes.ok) {
-          const payload = (await eventRes.json()) as { meetLink?: string | null; htmlLink?: string | null }
-          meetLinkNext = (payload.meetLink ?? payload.htmlLink) || null
-          toast.success('Checkpoint scheduled', {
-            description: meetLinkNext
-              ? 'Calendar invites sent to all assignees.'
-              : 'Checkpoint date saved.',
-          })
-        } else {
-          toast.warning('Checkpoint saved — calendar invite could not be sent')
-        }
-      } else {
-        toast.success('Checkpoint scheduled')
-      }
-
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          checkpoint_date: dateToSave,
-          checkpoint_meet_link: meetLinkNext,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', ticketId)
-
-      if (error) {
-        toast.error(error.message || 'Could not update checkpoint')
-        setSubmitting(false)
-        return
-      }
-
-      await logChange('checkpoint_date', prev, dateToSave)
-      if ((prevMeet ?? null) !== (meetLinkNext ?? null)) {
-        await logChange('checkpoint_meet_link', prevMeet, meetLinkNext)
-      }
-      await logChange('checkpoint_completed', prev, dateToSave)
-
-      setSubmitting(false)
-      onOpenChange(false)
-      onSuccess()
+    const dateToSave = selectedSlot?.start ?? manualCheckpointIso
+    if (!dateToSave) {
+      toast.error(selectedSlot ? 'Pick a time slot' : 'Choose date and time for the checkpoint')
+      return
+    }
+    if (movePhase && !nextSuggested) {
+      toast.error('This ticket is already at the last phase for this project.')
       return
     }
 
-    // Phase mode
-    if (!targetPhase) {
-      toast.error('Choose a phase')
-      return
-    }
     setSubmitting(true)
+    const prev = ticket.checkpoint_date ?? null
+    const prevMeet = ticket.checkpoint_meet_link ?? null
     const prevPhase = ticket.phase
-    const { error } = await supabase
-      .from('tickets')
-      .update({
-        phase: targetPhase,
-        updated_at: new Date().toISOString(),
+
+    let meetLinkNext: string | null = null
+    let calendarInviteFailed = false
+    if (selectedSlot) {
+      const eventRes = await fetch('/api/calendar/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId,
+          ticketTitle: ticket.title,
+          slot: selectedSlot,
+        }),
       })
-      .eq('id', ticketId)
-    setSubmitting(false)
+
+      if (eventRes.ok) {
+        const payload = (await eventRes.json()) as { meetLink?: string | null; htmlLink?: string | null }
+        meetLinkNext = (payload.meetLink ?? payload.htmlLink) || null
+      } else {
+        calendarInviteFailed = true
+      }
+    }
+
+    const phaseNext = movePhase && nextSuggested ? nextSuggested : undefined
+    const { error, skippedMeetLinkColumn } = await updateTicketCheckpointFields(supabase, ticketId, {
+      checkpoint_date: dateToSave,
+      checkpoint_meet_link: meetLinkNext,
+      ...(phaseNext ? { phase: phaseNext } : {}),
+    })
+
     if (error) {
-      toast.error(error.message || 'Could not update phase')
+      toast.error(error.message || 'Could not update ticket')
+      setSubmitting(false)
       return
     }
-    await logChange('phase', prevPhase, targetPhase)
-    toast.success('Phase updated')
+
+    if (selectedSlot) {
+      if (calendarInviteFailed) {
+        toast.warning('Checkpoint saved — calendar invite could not be sent')
+      } else {
+        toast.success('Checkpoint scheduled', {
+          description: meetLinkNext
+            ? 'Calendar invites sent to all assignees.'
+            : 'Checkpoint date saved.',
+        })
+      }
+    } else if (movePhase && nextSuggested) {
+      toast.success('Checkpoint and phase updated')
+    } else {
+      toast.success('Checkpoint scheduled')
+    }
+
+    if (skippedMeetLinkColumn && meetLinkNext) {
+      toast.warning(
+        'Meet link was not stored until the database has the checkpoint_meet_link column.',
+        { duration: 10_000 },
+      )
+    }
+
+    await logChange('checkpoint_date', prev, dateToSave)
+    if (!skippedMeetLinkColumn && (prevMeet ?? null) !== (meetLinkNext ?? null)) {
+      await logChange('checkpoint_meet_link', prevMeet, meetLinkNext)
+    }
+    await logChange('checkpoint_completed', prev, dateToSave)
+    if (phaseNext && phaseNext !== prevPhase) {
+      await logChange('phase', prevPhase, phaseNext)
+    }
+
+    setSubmitting(false)
     onOpenChange(false)
     onSuccess()
   }
 
-  const nextSuggested = getNextPhaseLabel(ticket.phase, orderedPhases)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[min(90dvh,52rem)] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-serif text-xl tracking-tight">Complete Checkpoint</DialogTitle>
           <DialogDescription>
-            Schedule when you&apos;ll hit the next checkpoint, or advance this ticket to the next phase.
+            Set the next checkpoint date and time, optionally find a shared slot on Google Calendar, and move the
+            ticket to the next phase in the same step if you want.
           </DialogDescription>
         </DialogHeader>
 
-        <RadioGroup
-          value={mode}
-          onValueChange={(v) => setMode(v as Mode)}
-          className="grid gap-4 py-2"
-        >
-          {/* Schedule mode */}
-          <div className="flex items-start gap-3 rounded-lg border border-border p-3 focus-within:ring-2 focus-within:ring-ring">
-            <RadioGroupItem value="schedule" id="cp-schedule" className="mt-0.5" />
-            <div className="flex-1 space-y-3">
-              <Label htmlFor="cp-schedule" className="cursor-pointer font-medium leading-snug">
-                Schedule Next Checkpoint
-              </Label>
-              <p className="text-muted-foreground text-sm">Set the date for the next checkpoint review.</p>
+        <div className="grid gap-5 py-2">
+          <div className="rounded-lg border border-border p-3">
+            <Label className="font-medium leading-snug">Next checkpoint</Label>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Pick date and time. Uses your profile timezone{profile?.timezone ? ` (${profile.timezone})` : ''}.
+            </p>
+            <div className="mt-3 overflow-hidden rounded-lg border border-border">
+              <CheckpointDatetimePickerBody
+                open={open}
+                checkpointDate={manualCheckpointIso}
+                timeZone={profile?.timezone ?? null}
+                onCommit={async (iso) => {
+                  setManualCheckpointIso(iso)
+                  setSelectedSlot(null)
+                }}
+                onRequestClose={() => {}}
+              />
+            </div>
+          </div>
 
-              {mode === 'schedule' && (
-                <div className="space-y-3">
-                  {/* Smart scheduling */}
-                  {hasGoogleToken ? (
-                    <>
-                      <Button
+          {hasGoogleToken ? (
+            <div className="rounded-lg border border-border p-3">
+              <Label className="font-medium leading-snug">Find a time on calendars</Label>
+              <p className="text-muted-foreground mt-1 text-sm">Uses assignees’ connected Google calendars.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="small"
+                className="mt-3 w-full gap-2"
+                onClick={() => void findAvailableTimes(searchOffset)}
+                disabled={slotsStatus === 'loading'}
+              >
+                {slotsStatus === 'loading' ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Searching Calendars…
+                  </>
+                ) : (
+                  <>
+                    <CalendarSearch className="h-4 w-4" />
+                    Find Available Times
+                  </>
+                )}
+              </Button>
+
+              {usersWithoutGoogle.length > 0 && (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Note: {usersWithoutGoogle.join(', ')}{' '}
+                  {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} connected Google Calendar — their
+                  availability isn&apos;t included.
+                </p>
+              )}
+
+              {slotsStatus === 'found' && slotsDate && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm font-medium">{formatSlotDateLabel(slotsDate, displayTz)}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {availableSlots.map((slot) => (
+                      <button
+                        key={slot.start}
                         type="button"
-                        variant="outline"
-                        size="small"
-                        className="w-full gap-2"
-                        onClick={() => void findAvailableTimes(searchOffset)}
-                        disabled={slotsStatus === 'loading'}
-                      >
-                        {slotsStatus === 'loading' ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Searching Calendars…
-                          </>
-                        ) : (
-                          <>
-                            <CalendarSearch className="w-4 h-4" />
-                            Find Available Times
-                          </>
+                        onClick={() => {
+                          setSelectedSlot(slot)
+                          setManualCheckpointIso(slot.start)
+                        }}
+                        className={cn(
+                          'rounded-md border px-3 py-1.5 text-sm transition-colors',
+                          selectedSlot?.start === slot.start
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-background hover:border-foreground/50',
                         )}
-                      </Button>
-
-                      {usersWithoutGoogle.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          Note: {usersWithoutGoogle.join(', ')}{' '}
-                          {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} connected Google
-                          Calendar — their availability isn&apos;t included.
-                        </p>
-                      )}
-
-                      {slotsStatus === 'found' && slotsDate && (
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium">{formatSlotDateLabel(slotsDate)}</p>
-                          <div className="flex flex-wrap gap-2">
-                            {availableSlots.map((slot) => (
-                              <button
-                                key={slot.start}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedSlot(slot)
-                                  setNextDate('')
-                                }}
-                                className={cn(
-                                  'rounded-md border px-3 py-1.5 text-sm transition-colors',
-                                  selectedSlot?.start === slot.start
-                                    ? 'border-primary bg-primary text-primary-foreground'
-                                    : 'border-border bg-background hover:border-foreground/50'
-                                )}
-                              >
-                                {formatTime(slot.start)}
-                              </button>
-                            ))}
-                          </div>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="small"
-                            className="text-xs text-muted-foreground px-0 h-auto"
-                            onClick={handleSearchNext}
-                          >
-                            Search later →
-                          </Button>
-                        </div>
-                      )}
-
-                      {slotsStatus === 'none' && (
-                        <div className="space-y-1">
-                          <p className="text-sm text-muted-foreground">
-                            No available slots found in the next 14 days.
-                          </p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="small"
-                            className="text-xs text-muted-foreground px-0 h-auto"
-                            onClick={handleSearchNext}
-                          >
-                            Search further out →
-                          </Button>
-                        </div>
-                      )}
-
-                      {slotsStatus === 'error' && (
-                        <p className="text-sm text-destructive">
-                          Could not fetch calendar availability. Try again or pick a date manually.
-                        </p>
-                      )}
-
-                      <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                          <span className="w-full border-t border-border" />
-                        </div>
-                        <span className="relative flex justify-center bg-background px-2 text-xs text-muted-foreground">
-                          or pick manually
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      <Link href="/settings" className="underline hover:text-foreground">
-                        Connect Google Calendar
-                      </Link>{' '}
-                      to find available times across all assignees.
-                    </p>
-                  )}
-
-                  <Input
-                    type="date"
-                    value={nextDate}
-                    onChange={(e) => {
-                      setNextDate(e.target.value)
-                      setSelectedSlot(null)
-                    }}
-                    className="max-w-[12rem]"
-                  />
+                      >
+                        {formatTime(slot.start, displayTz)}
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    className="h-auto px-0 text-xs text-muted-foreground"
+                    onClick={handleSearchNext}
+                  >
+                    Search later →
+                  </Button>
                 </div>
               )}
-            </div>
-          </div>
 
-          {/* Phase mode */}
-          <div className="flex items-start gap-3 rounded-lg border border-border p-3 focus-within:ring-2 focus-within:ring-ring">
-            <RadioGroupItem value="phase" id="cp-phase" className="mt-0.5" />
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="cp-phase" className="cursor-pointer font-medium leading-snug">
-                Move to Next Phase
-              </Label>
-              <p className="text-muted-foreground text-sm">
-                {nextSuggested
-                  ? `Suggested next: ${nextSuggested} (current: ${ticket.phase})`
-                  : `Current phase: ${ticket.phase}. Pick any phase below.`}
-              </p>
-              {mode === 'phase' && phaseSelectOptionsList.length > 0 && (
-                <Select value={targetPhase} onValueChange={setTargetPhase}>
-                  <SelectTrigger className="mt-2 max-w-xs">
-                    <SelectValue placeholder="Phase" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {phaseSelectOptionsList.map((ph) => (
-                      <SelectItem key={ph} value={ph}>
-                        <WorkflowPhaseTag phase={ph} />
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {slotsStatus === 'none' && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-muted-foreground text-sm">No available slots found in the next 14 days.</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    className="h-auto px-0 text-xs text-muted-foreground"
+                    onClick={handleSearchNext}
+                  >
+                    Search further out →
+                  </Button>
+                </div>
+              )}
+
+              {slotsStatus === 'error' && (
+                <p className="text-destructive mt-2 text-sm">
+                  Could not fetch calendar availability. Try again or pick a time manually above.
+                </p>
               )}
             </div>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              <Link href="/settings" className="underline hover:text-foreground">
+                Connect Google Calendar
+              </Link>{' '}
+              to find available times across assignees.
+            </p>
+          )}
+
+          <div className="rounded-lg border border-border p-3">
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="cp-move-phase"
+                checked={movePhase}
+                onCheckedChange={(c) => setMovePhase(c === true)}
+                disabled={!nextSuggested}
+                className="mt-0.5"
+              />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor="cp-move-phase" className={cn('cursor-pointer font-medium leading-snug', !nextSuggested && 'text-muted-foreground')}>
+                  Move to Next Phase
+                </Label>
+                {nextSuggested ? (
+                  <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
+                    <span className="inline-flex items-center gap-1.5">
+                      <WorkflowPhaseTag phase={ticket.phase} />
+                      <span aria-hidden>→</span>
+                      <WorkflowPhaseTag phase={nextSuggested} />
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm">Already at the last phase for this project pipeline.</p>
+                )}
+              </div>
+            </div>
           </div>
-        </RadioGroup>
+        </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>

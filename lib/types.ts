@@ -43,6 +43,8 @@ export interface Profile {
   team_id?: string | null
   is_active: boolean
   onboarding_complete: boolean
+  /** IANA time zone (e.g. **`America/Chicago`**) for displaying checkpoint times. */
+  timezone?: string | null
   created_at: string
   updated_at: string
   user_teams?: UserTeam[]

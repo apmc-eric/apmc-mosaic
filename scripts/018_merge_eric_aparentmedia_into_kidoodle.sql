@@ -1,7 +1,25 @@
--- Merge duplicate company accounts: same email local-part across allowed domains
--- (e.g. name@aparentmedia.com + name@kidoodle.tv). Reassigns all FKs from `from_id` to `to_id`,
--- merges profile fields into `to_id`, deletes `from_id` profile row. Caller must then
--- delete `from_id` from auth.users via Supabase Admin API.
+-- Merge **eric@aparentmedia.com** → **eric@kidoodle.tv** (Google Sign-In is the surviving account).
+-- Uses exact email matches only (no `eric.sin` / fuzzy `LIKE '%eric%'` — those can pick the wrong row).
+--
+-- BEFORE running, inspect rows (paste in SQL editor):
+--   SELECT id, email, role, created_at
+--   FROM public.profiles
+--   WHERE lower(trim(email)) IN ('eric@kidoodle.tv', 'eric@aparentmedia.com')
+--   ORDER BY email, created_at;
+--
+-- You must see **two** rows: one per email. If `eric@aparentmedia.com` is missing, that data is already
+-- gone from `profiles` (merge may have run earlier in the other direction) — restore from backup or
+-- re-link data manually.
+--
+-- **`public.merge_profile_identity`** is defined below (same as `scripts/014_merge_company_email_alias.sql`)
+-- so this file runs in one paste even if that migration was never applied.
+--
+-- Adds **`profiles.timezone`** if missing (avoids `column "timezone" does not exist` when 017 / timezone
+-- migration was not applied yet).
+--
+-- After success:
+--   1. Sign in as **eric@kidoodle.tv** (OAuth or dev login with that exact email).
+--   2. Delete the orphaned **auth.users** row for **eric@aparentmedia.com** in Dashboard → Authentication.
 
 CREATE OR REPLACE FUNCTION public.merge_profile_identity(from_id uuid, to_id uuid)
 RETURNS void
@@ -21,7 +39,6 @@ BEGIN
     RETURN;
   END IF;
 
-  -- ticket_assignees: avoid UNIQUE (ticket_id, user_id) violation
   DELETE FROM public.ticket_assignees ta
   WHERE ta.user_id = from_id
     AND EXISTS (
@@ -74,7 +91,6 @@ BEGIN
 
   UPDATE public.folders SET user_id = to_id WHERE user_id = from_id;
 
-  -- Merge profile row: prefer @aparentmedia.com for stored email when either has it
   UPDATE public.profiles t
   SET
     first_name = COALESCE(NULLIF(TRIM(t.first_name), ''), (SELECT NULLIF(TRIM(f.first_name), '') FROM public.profiles f WHERE f.id = from_id)),
@@ -110,3 +126,57 @@ GRANT EXECUTE ON FUNCTION public.merge_profile_identity(uuid, uuid) TO service_r
 
 COMMENT ON FUNCTION public.merge_profile_identity(uuid, uuid) IS
   'Reassigns all app FKs from duplicate profile from_id to to_id, merges profile fields, deletes from_id profile. Caller deletes auth user from_id via Admin API.';
+
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+DO $$
+DECLARE
+  ap_id uuid;
+  kd_id uuid;
+  kd_email text;
+  ap_tz text;
+BEGIN
+  SELECT id, email INTO kd_id, kd_email
+  FROM public.profiles
+  WHERE lower(trim(email)) = 'eric@kidoodle.tv'
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  SELECT id INTO ap_id
+  FROM public.profiles
+  WHERE lower(trim(email)) = 'eric@aparentmedia.com'
+  ORDER BY created_at ASC
+  LIMIT 1;
+
+  IF kd_id IS NULL THEN
+    RAISE EXCEPTION
+      'merge_018: No profile with email exactly eric@kidoodle.tv (check spelling and run the diagnostic SELECT above).';
+  END IF;
+
+  IF ap_id IS NULL THEN
+    RAISE NOTICE 'merge_018: No profile with email exactly eric@aparentmedia.com — nothing to merge.';
+    RETURN;
+  END IF;
+
+  IF ap_id = kd_id THEN
+    RAISE NOTICE 'merge_018: Same profile id — skip.';
+    RETURN;
+  END IF;
+
+  ap_tz := (SELECT timezone FROM public.profiles WHERE id = ap_id);
+
+  RAISE NOTICE 'merge_018: merge_profile_identity(from=%, aparentmedia) → (to=%, kidoodle) | restore email %',
+    ap_id, kd_id, kd_email;
+
+  PERFORM public.merge_profile_identity(ap_id, kd_id);
+
+  UPDATE public.profiles t
+  SET
+    email = kd_email,
+    timezone = COALESCE(NULLIF(trim(t.timezone), ''), ap_tz),
+    updated_at = NOW()
+  WHERE t.id = kd_id;
+
+  RAISE NOTICE 'merge_018: done. Survivor profile id=% email=%', kd_id, kd_email;
+END $$;

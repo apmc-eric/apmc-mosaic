@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react'
 
 import { ProfileImage } from '@/components/profile-image'
 import { Button } from '@/components/ui/button'
+import { commentBodyToReact } from '@/lib/comment-rich-text'
 import { cn } from '@/lib/utils'
 
 export type UserCommentProps = {
@@ -108,9 +109,9 @@ export function UserComment({
       </div>
       <div className="flex w-full items-start gap-2.5">
         <div className="w-8 shrink-0 self-stretch" aria-hidden />
-        <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm font-medium leading-5 text-foreground">
-          {body}
-        </p>
+        <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm font-medium leading-5 text-foreground">
+          {commentBodyToReact(body)}
+        </div>
       </div>
     </div>
   )

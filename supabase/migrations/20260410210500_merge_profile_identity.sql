@@ -1,7 +1,5 @@
--- Merge duplicate company accounts: same email local-part across allowed domains
--- (e.g. name@aparentmedia.com + name@kidoodle.tv). Reassigns all FKs from `from_id` to `to_id`,
--- merges profile fields into `to_id`, deletes `from_id` profile row. Caller must then
--- delete `from_id` from auth.users via Supabase Admin API.
+-- Duplicate-company profile merge helper. Source of truth: scripts/014_merge_company_email_alias.sql
+-- Must run before 20260410220000_merge_eric_aparentmedia_into_kidoodle.sql (and any script that PERFORMs it).
 
 CREATE OR REPLACE FUNCTION public.merge_profile_identity(from_id uuid, to_id uuid)
 RETURNS void
@@ -21,7 +19,6 @@ BEGIN
     RETURN;
   END IF;
 
-  -- ticket_assignees: avoid UNIQUE (ticket_id, user_id) violation
   DELETE FROM public.ticket_assignees ta
   WHERE ta.user_id = from_id
     AND EXISTS (
@@ -74,7 +71,6 @@ BEGIN
 
   UPDATE public.folders SET user_id = to_id WHERE user_id = from_id;
 
-  -- Merge profile row: prefer @aparentmedia.com for stored email when either has it
   UPDATE public.profiles t
   SET
     first_name = COALESCE(NULLIF(TRIM(t.first_name), ''), (SELECT NULLIF(TRIM(f.first_name), '') FROM public.profiles f WHERE f.id = from_id)),

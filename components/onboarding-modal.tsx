@@ -1,16 +1,24 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ProfileImage } from '@/components/profile-image'
 import { User, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Team } from '@/lib/types'
+import { defaultProfileTimeZone, PROFILE_TIMEZONE_CHOICES } from '@/lib/timezone-choices'
 
 const supabase = createClient()
 
@@ -21,10 +29,20 @@ interface OnboardingModalProps {
 }
 
 export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProps) {
+  const timeZoneChoices = useMemo(() => {
+    const b = defaultProfileTimeZone()
+    const list = [...PROFILE_TIMEZONE_CHOICES]
+    if (!list.some((x) => x.value === b)) {
+      list.unshift({ value: b, label: `${b.replace(/_/g, ' ')} (this device)` })
+    }
+    return list
+  }, [])
+
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([])
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [timeZone, setTimeZone] = useState(() => defaultProfileTimeZone())
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -93,7 +111,8 @@ export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProp
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         avatar_url: avatarUrl,
-        onboarding_complete: true
+        timezone: timeZone.trim() || defaultProfileTimeZone(),
+        onboarding_complete: true,
       })
       .eq('id', user.id)
 
@@ -156,6 +175,25 @@ export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProp
               <Upload className="w-4 h-4 mr-2" />
               {isUploading ? 'Uploading...' : 'Upload Photo'}
             </Button>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="mosaic-tz">Time zone</Label>
+            <p className="text-muted-foreground text-xs leading-snug">
+              Used for checkpoint times and calendar labels. You can change this later in account settings.
+            </p>
+            <Select value={timeZone} onValueChange={setTimeZone}>
+              <SelectTrigger id="mosaic-tz" className="w-full">
+                <SelectValue placeholder="Select time zone" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {timeZoneChoices.map((z) => (
+                  <SelectItem key={z.value} value={z.value}>
+                    {z.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

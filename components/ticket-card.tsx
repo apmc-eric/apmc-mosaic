@@ -1,34 +1,33 @@
 'use client'
 
 import * as React from 'react'
-import { format, isToday, isTomorrow, parseISO } from 'date-fns'
+import { parseISO } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { ExternalLink, Flag } from 'lucide-react'
 
 import { ProfileImage } from '@/components/profile-image'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { Badge } from '@/components/ui/badge'
+import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { formatProfileLabel } from '@/lib/format-profile'
 import { cn } from '@/lib/utils'
 import type { TicketAssigneeRow } from '@/lib/types'
 import { TicketCategoryTag } from '@/components/ticket-category-tag'
 
 /** Top meta line — checkpoint when set, otherwise created date (Figma **TicketCard** `199:1222`). */
-export function formatTicketCardScheduleLine(checkpointDate: string | null, createdAt: string): string {
+export function formatTicketCardScheduleLine(
+  checkpointDate: string | null,
+  createdAt: string,
+  timeZone?: string | null,
+): string {
   if (checkpointDate) {
-    try {
-      const d = parseISO(checkpointDate)
-      if (Number.isNaN(d.getTime())) return checkpointDate
-      if (isToday(d)) return `Today at ${format(d, 'h:mm a')}`
-      if (isTomorrow(d)) return `Tomorrow at ${format(d, 'h:mm a')}`
-      return format(d, 'EEE, MMM d · h:mm a')
-    } catch {
-      return checkpointDate
-    }
+    return formatTicketCheckpointLabel(checkpointDate, timeZone)
   }
   try {
     const c = parseISO(createdAt)
     if (Number.isNaN(c.getTime())) return '—'
-    return `Created ${format(c, 'MMM d, yyyy')}`
+    const tz = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
+    return `Created ${formatInTimeZone(c, tz, 'MMM d, yyyy')}`
   } catch {
     return '—'
   }
@@ -47,6 +46,8 @@ export type TicketCardProps = Omit<React.ComponentPropsWithoutRef<'button'>, 'ch
   flagLabel?: string | null
   /** Read aloud for accessibility */
   ticketId: string
+  /** IANA zone for schedule / created line (viewer profile). */
+  displayTimeZone?: string | null
 }
 
 export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
@@ -62,12 +63,13 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
       assigneeOverflow = 0,
       flagLabel,
       ticketId,
+      displayTimeZone,
       type = 'button',
       ...props
     },
     ref,
   ) => {
-    const schedule = formatTicketCardScheduleLine(checkpointDate, createdAt)
+    const schedule = formatTicketCardScheduleLine(checkpointDate, createdAt, displayTimeZone)
     const showFlag = Boolean(flagLabel && flagLabel !== 'standard')
     const categoryPills = tagPills.map((s) => s.trim()).filter(Boolean)
 

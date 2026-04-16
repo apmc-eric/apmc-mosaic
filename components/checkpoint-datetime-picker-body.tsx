@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { format, parseISO, setHours, setMilliseconds, setMinutes, setSeconds, startOfDay } from 'date-fns'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { Clock } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -16,78 +17,105 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 
-function isoToParts(iso: string | null): { day: Date; h12: number; min: number; pm: boolean } {
-  const d =
-    iso && !Number.isNaN(parseISO(iso).getTime()) ? parseISO(iso) : new Date()
-  const day = startOfDay(d)
-  let h = d.getHours()
-  const pm = h >= 12
-  let h12 = h % 12
-  if (h12 === 0) h12 = 12
-  return { day, h12, min: d.getMinutes(), pm }
-}
-
 function to24Hour(h12: number, isPm: boolean): number {
   if (h12 === 12) return isPm ? 12 : 0
   return isPm ? h12 + 12 : h12
 }
 
-function combineToIso(day: Date, h12: number, min: number, pm: boolean): string {
-  const base = startOfDay(day)
-  const h24 = to24Hour(h12, pm)
-  const withTime = setMilliseconds(
-    setSeconds(setMinutes(setHours(base, h24), min), 0),
-    0,
-  )
-  return withTime.toISOString()
-}
-
 const HOURS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 const MINUTES = Array.from({ length: 60 }, (_, i) => i)
+
+function isoToParts(
+  iso: string | null,
+  timeZone?: string | null,
+): { day: Date; h12: number; min: number; pm: boolean } {
+  const d =
+    iso && !Number.isNaN(parseISO(iso).getTime()) ? parseISO(iso) : new Date()
+  const tz = timeZone?.trim()
+  if (!tz) {
+    const day = startOfDay(d)
+    let h = d.getHours()
+    const pm = h >= 12
+    let h12 = h % 12
+    if (h12 === 0) h12 = 12
+    return { day, h12, min: d.getMinutes(), pm }
+  }
+  const y = Number(formatInTimeZone(d, tz, 'yyyy'))
+  const m = Number(formatInTimeZone(d, tz, 'M')) - 1
+  const da = Number(formatInTimeZone(d, tz, 'd'))
+  const day = new Date(y, m, da)
+  let h24 = Number(formatInTimeZone(d, tz, 'H'))
+  const min = Number(formatInTimeZone(d, tz, 'm'))
+  const pm = h24 >= 12
+  let h12 = h24 % 12
+  if (h12 === 0) h12 = 12
+  return { day, h12, min, pm }
+}
+
+function combineToIso(day: Date, h12: number, min: number, pm: boolean, timeZone?: string | null): string {
+  const h24 = to24Hour(h12, pm)
+  const tz = timeZone?.trim()
+  if (!tz) {
+    const base = startOfDay(day)
+    const withTime = setMilliseconds(
+      setSeconds(setMinutes(setHours(base, h24), min), 0),
+      0,
+    )
+    return withTime.toISOString()
+  }
+  const y = day.getFullYear()
+  const m = day.getMonth()
+  const d = day.getDate()
+  const wall = new Date(y, m, d, h24, min, 0, 0)
+  return fromZonedTime(wall, tz).toISOString()
+}
 
 export type CheckpointDatetimePickerBodyProps = {
   /** When **false**, external state is frozen (popover closed). */
   open: boolean
   checkpointDate: string | null
+  /** IANA zone (e.g. **`America/Chicago`**). Omit to use the browser’s local zone. */
+  timeZone?: string | null
   onCommit: (iso: string | null) => Promise<void>
   onRequestClose: () => void
 }
 
 /**
  * Checkpoint date + time UI (Figma-style): calendar, summary line, clock + 12h time + AM/PM, **Clear** only.
- * Commits on every change (no Save button).
+ * Commits on every change (no Save button). When **`timeZone`** is set, wall clock is interpreted in that zone.
  */
 export function CheckpointDatetimePickerBody({
   open,
   checkpointDate,
+  timeZone,
   onCommit,
   onRequestClose,
 }: CheckpointDatetimePickerBodyProps) {
-  const [day, setDay] = React.useState<Date>(() => isoToParts(checkpointDate).day)
-  const [h12, setH12] = React.useState(() => isoToParts(checkpointDate).h12)
-  const [minute, setMinute] = React.useState(() => isoToParts(checkpointDate).min)
-  const [pm, setPm] = React.useState(() => isoToParts(checkpointDate).pm)
+  const [day, setDay] = React.useState<Date>(() => isoToParts(checkpointDate, timeZone).day)
+  const [h12, setH12] = React.useState(() => isoToParts(checkpointDate, timeZone).h12)
+  const [minute, setMinute] = React.useState(() => isoToParts(checkpointDate, timeZone).min)
+  const [pm, setPm] = React.useState(() => isoToParts(checkpointDate, timeZone).pm)
   const [committing, setCommitting] = React.useState(false)
 
   React.useEffect(() => {
     if (!open) return
-    const p = isoToParts(checkpointDate)
+    const p = isoToParts(checkpointDate, timeZone)
     setDay(p.day)
     setH12(p.h12)
     setMinute(p.min)
     setPm(p.pm)
-  }, [open, checkpointDate])
+  }, [open, checkpointDate, timeZone])
 
   const commit = React.useCallback(
     async (nextDay: Date, nextH12: number, nextMin: number, nextPm: boolean) => {
       setCommitting(true)
       try {
-        await onCommit(combineToIso(nextDay, nextH12, nextMin, nextPm))
+        await onCommit(combineToIso(nextDay, nextH12, nextMin, nextPm, timeZone))
       } finally {
         setCommitting(false)
       }
     },
-    [onCommit],
+    [onCommit, timeZone],
   )
 
   const handleClear = async () => {
@@ -100,12 +128,21 @@ export function CheckpointDatetimePickerBody({
     }
   }
 
-  const weekday = format(day, 'EEE').toUpperCase()
-  const monthDay = format(day, 'MMM d').toUpperCase()
-  const year = format(day, 'yyyy')
+  const tzLabel = timeZone?.trim() ? timeZone.trim().replace(/_/g, ' ') : null
+  const tzEff = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
+  const previewIso = combineToIso(day, h12, minute, pm, timeZone)
+  const previewInst = parseISO(previewIso)
+  const weekday = formatInTimeZone(previewInst, tzEff, 'EEE').toUpperCase()
+  const monthDay = formatInTimeZone(previewInst, tzEff, 'MMM d').toUpperCase()
+  const year = formatInTimeZone(previewInst, tzEff, 'yyyy')
 
   return (
     <div className="w-[min(calc(100vw-2rem),20rem)] sm:w-80" data-name="CheckpointDateTimePicker">
+      {tzLabel ? (
+        <p className="text-muted-foreground border-b px-3 py-1.5 text-[0.65rem] font-medium leading-snug">
+          Times in {tzLabel}
+        </p>
+      ) : null}
       <div className="p-2">
         <Calendar
           mode="single"

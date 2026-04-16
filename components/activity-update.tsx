@@ -23,7 +23,7 @@ export function ActivityUpdate({ label, meta, className }: ActivityUpdateProps) 
   return (
     <div
       className={cn(
-        'relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-sm px-1.5 py-px',
+        'relative flex w-full min-w-0 items-start gap-2 overflow-hidden rounded-sm px-1.5 py-px',
         className,
       )}
       data-name="ActivityUpdate"
@@ -33,7 +33,7 @@ export function ActivityUpdate({ label, meta, className }: ActivityUpdateProps) 
         className="size-1.5 shrink-0 rounded-sm bg-neutral-200 dark:bg-neutral-600"
         aria-hidden
       />
-      <p className="min-w-0 truncate text-xs font-normal leading-snug text-neutral-400 dark:text-neutral-500">
+      <p className="min-w-0 flex-1 whitespace-normal break-words text-xs font-normal leading-snug text-neutral-400 dark:text-neutral-500">
         {label}
       </p>
       {showMeta ? (

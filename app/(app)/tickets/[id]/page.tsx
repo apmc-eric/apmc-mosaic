@@ -38,6 +38,7 @@ import {
   phaseSelectOptions,
 } from '@/lib/mosaic-project-phases'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
+import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
 import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { ArrowLeft, MoreHorizontal, History } from 'lucide-react'
@@ -192,22 +193,21 @@ export default function TicketDetailPage() {
       const prev = ticket.checkpoint_date ?? null
       const prevMeet = ticket.checkpoint_meet_link ?? null
       if (prev === iso && !(prevMeet ?? null)) return
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          checkpoint_date: iso,
-          checkpoint_meet_link: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
+      const { error, skippedMeetLinkColumn } = await updateTicketCheckpointFields(supabase, id, {
+        checkpoint_date: iso,
+        checkpoint_meet_link: null,
+      })
       if (error) {
-        toast.error('Could not update checkpoint')
+        toast.error(error.message || 'Could not update checkpoint')
         void load()
         return
       }
+      if (skippedMeetLinkColumn && prevMeet) {
+        toast.info('Checkpoint time saved. Meet link will apply after the checkpoint_meet_link migration is on the database.')
+      }
       setTicket((t) => (t ? { ...t, checkpoint_date: iso, checkpoint_meet_link: null } : t))
       await logChange('checkpoint_date', prev, iso)
-      if (prevMeet) {
+      if (!skippedMeetLinkColumn && prevMeet) {
         await logChange('checkpoint_meet_link', prevMeet, null)
       }
     },
@@ -569,6 +569,8 @@ export default function TicketDetailPage() {
             <TicketCheckpointIndicator
               checkpointDate={ticket.checkpoint_date}
               checkpointMeetLink={ticket.checkpoint_meet_link ?? null}
+              requestSubmittedAt={ticket.created_at}
+              displayTimeZone={profile?.timezone ?? null}
               canEdit
               onCheckpointCommit={commitTicketCheckpoint}
               onCompleteCheckpoint={() => setCheckpointModalOpen(true)}

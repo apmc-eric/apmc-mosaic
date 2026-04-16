@@ -34,6 +34,7 @@ import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indica
 import type { Project, Profile, Ticket, TicketComment } from '@/lib/types'
 import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
 import { phaseOptionsForProject, phaseSelectOptions } from '@/lib/mosaic-project-phases'
+import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
 import {
   endOfWeekSunday,
   formatWeekRange,
@@ -83,10 +84,14 @@ export default function WorksPage() {
   const [panelAudit, setPanelAudit] = useState<WorksActivityAudit[]>([])
   const [panelCreatorProfile, setPanelCreatorProfile] = useState<Pick<
     Profile,
-    'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'
+    'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role' | 'email'
   > | null>(null)
   const [panelCommentDraft, setPanelCommentDraft] = useState('')
   const [commentPosting, setCommentPosting] = useState(false)
+  const [workspaceDesigners, setWorkspaceDesigners] = useState<
+    Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>[]
+  >([])
+  const [assigneeSaving, setAssigneeSaving] = useState(false)
   const panelCommentTaRef = useRef<HTMLTextAreaElement>(null)
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
@@ -151,6 +156,18 @@ export default function WorksPage() {
   }, [load])
 
   useEffect(() => {
+    void supabase
+      .from('profiles')
+      .select('id, first_name, last_name, name, email, role')
+      .eq('is_active', true)
+      .in('role', ['admin', 'designer', 'collaborator', 'guest', 'user', 'member'])
+      .order('first_name', { ascending: true })
+      .then(({ data }) => {
+        if (data) setWorkspaceDesigners(data as Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>[])
+      })
+  }, [])
+
+  useEffect(() => {
     if (!panelTicket?.id) return
     const fresh = tickets.find((t) => t.id === panelTicket.id)
     if (fresh) setPanelTicket(fresh)
@@ -182,7 +199,7 @@ export default function WorksPage() {
             new_value,
             changed_by,
             changed_at,
-            actor:profiles!changed_by(id, first_name, last_name, name, avatar_url, role)
+            actor:profiles!changed_by(id, first_name, last_name, name, avatar_url, role, email)
           `,
           )
           .eq('ticket_id', panelTicket.id)
@@ -190,7 +207,7 @@ export default function WorksPage() {
           .order('changed_at', { ascending: false }),
         supabase
           .from('profiles')
-          .select('id, first_name, last_name, name, avatar_url, role')
+          .select('id, first_name, last_name, name, avatar_url, role, email')
           .eq('id', panelTicket.created_by)
           .maybeSingle(),
       ])
@@ -201,7 +218,7 @@ export default function WorksPage() {
         creatorRes.data
           ? (creatorRes.data as Pick<
               Profile,
-              'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'
+              'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role' | 'email'
             >)
           : null,
       )
@@ -369,25 +386,66 @@ export default function WorksPage() {
       const prev = panelTicket.checkpoint_date ?? null
       const prevMeet = panelTicket.checkpoint_meet_link ?? null
       if (prev === iso && !(prevMeet ?? null)) return
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          checkpoint_date: iso,
-          checkpoint_meet_link: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', panelTicket.id)
+      const { error, skippedMeetLinkColumn } = await updateTicketCheckpointFields(supabase, panelTicket.id, {
+        checkpoint_date: iso,
+        checkpoint_meet_link: null,
+      })
       if (error) {
-        toast.error('Could not update checkpoint')
+        toast.error(error.message || 'Could not update checkpoint')
         return
+      }
+      if (skippedMeetLinkColumn && prevMeet) {
+        toast.info('Checkpoint time saved. Meet link will apply after the checkpoint_meet_link migration is on the database.')
       }
       patchPanelTicket(panelTicket.id, { checkpoint_date: iso, checkpoint_meet_link: null })
       await panelLogChange('checkpoint_date', prev, iso)
-      if (prevMeet) {
+      if (!skippedMeetLinkColumn && prevMeet) {
         await panelLogChange('checkpoint_meet_link', prevMeet, null)
       }
     },
     [profile?.id, panelTicket?.id, panelTicket?.checkpoint_date, panelTicket?.checkpoint_meet_link, panelLogChange, patchPanelTicket]
+  )
+
+  const savePanelAssignees = useCallback(
+    async (leadUserId: string, supportUserIds: string[]) => {
+      if (!profile?.id || !panelTicket?.id || !leadUserId) {
+        toast.error('Choose a lead designer')
+        return
+      }
+      setAssigneeSaving(true)
+      try {
+        const { error: delErr } = await supabase.from('ticket_assignees').delete().eq('ticket_id', panelTicket.id)
+        if (delErr) {
+          console.error(delErr)
+          toast.error('Could not update assignees')
+          return
+        }
+        const support = supportUserIds.filter((uid) => uid !== leadUserId)
+        const rows = [
+          { ticket_id: panelTicket.id, user_id: leadUserId, role: 'lead' as const },
+          ...support.map((uid) => ({ ticket_id: panelTicket.id, user_id: uid, role: 'support' as const })),
+        ]
+        const { error: insErr } = await supabase.from('ticket_assignees').insert(rows)
+        if (insErr) {
+          console.error(insErr)
+          toast.error(insErr.message || 'Could not save assignees')
+          void load()
+          return
+        }
+        const prev =
+          panelTicket.assignees
+            ?.map((a) => `${a.role}:${a.user_id}`)
+            .sort()
+            .join(';') ?? ''
+        const next = `lead:${leadUserId};support:${support.join(',')}`
+        if (prev !== next) await panelLogChange('assignees', prev || null, next)
+        toast.success('Assignees updated')
+        void load()
+      } finally {
+        setAssigneeSaving(false)
+      }
+    },
+    [profile?.id, panelTicket, panelLogChange, load],
   )
 
   const commitPanelPhase = useCallback(
@@ -599,6 +657,7 @@ export default function WorksPage() {
         assignees={assignees}
         assigneeOverflow={overflow}
         flagLabel={t.flag}
+        displayTimeZone={profile?.timezone ?? null}
         onClick={() => setPanelTicket(t)}
       />
     )
@@ -802,6 +861,8 @@ export default function WorksPage() {
                       className="w-full max-w-full"
                       checkpointDate={panelTicket.checkpoint_date}
                       checkpointMeetLink={panelTicket.checkpoint_meet_link ?? null}
+                      requestSubmittedAt={panelTicket.created_at}
+                      displayTimeZone={profile?.timezone ?? null}
                       canEdit={panelCanCompleteCheckpoint}
                       onCheckpointCommit={commitPanelCheckpoint}
                       onCompleteCheckpoint={() => setCheckpointModalOpen(true)}
@@ -850,6 +911,10 @@ export default function WorksPage() {
                         onPhaseCommit={commitPanelPhase}
                         onCategoriesCommit={commitPanelCategories}
                         designerAssignees={panelTicket.assignees ?? []}
+                        assigneePickerDesigners={workspaceDesigners}
+                        onAssigneesCommit={(lead, support) => savePanelAssignees(lead, support)}
+                        assigneeSaving={assigneeSaving}
+                        displayTimeZone={profile?.timezone ?? null}
                         hideCheckpointRow
                       />
 
@@ -864,6 +929,7 @@ export default function WorksPage() {
                           showTimeline={panelShowActivityTimeline}
                           isAdmin={!!isAdmin}
                           viewerUserId={profile?.id}
+                          displayTimeZone={profile?.timezone ?? null}
                           onDeleteComment={(id) => void deletePanelComment(id)}
                         />
                       </div>
@@ -885,7 +951,27 @@ export default function WorksPage() {
                             variant="embedded"
                             value={panelCommentDraft}
                             onChange={(e) => setPanelCommentDraft(e.target.value)}
-                            placeholder="Write a comment…"
+                            onKeyDown={(e) => {
+                              if (e.key !== 'Enter' || commentPosting) return
+                              if (e.metaKey || e.ctrlKey) {
+                                e.preventDefault()
+                                const ta = e.currentTarget
+                                const start = ta.selectionStart ?? 0
+                                const end = ta.selectionEnd ?? 0
+                                const v = panelCommentDraft
+                                const next = `${v.slice(0, start)}\n${v.slice(end)}`
+                                setPanelCommentDraft(next)
+                                requestAnimationFrame(() => {
+                                  ta.selectionStart = ta.selectionEnd = start + 1
+                                })
+                                return
+                              }
+                              if (e.shiftKey) return
+                              if (!panelCommentDraft.trim()) return
+                              e.preventDefault()
+                              void postPanelComment()
+                            }}
+                            placeholder="Write a comment… (Enter to send · ⌘/Ctrl+Enter for new line)"
                             rows={1}
                             disabled={commentPosting}
                             className="max-h-[200px] min-h-0 min-w-0 flex-1 resize-none px-2 py-1.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 overflow-y-auto"

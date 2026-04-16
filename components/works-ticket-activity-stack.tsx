@@ -1,16 +1,19 @@
 'use client'
 
-import { format, formatDistanceToNow, parseISO } from 'date-fns'
+import { formatDistanceToNow, parseISO } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 
 import { ActivityUpdate, ACTIVITY_UPDATE_TIMELINE_CENTER_PX } from '@/components/activity-update'
 import { UserComment } from '@/components/user-comment'
+import { formatTicketCheckpointShort } from '@/lib/format-ticket-checkpoint'
+import { formatProfileLabel } from '@/lib/format-profile'
 import type { AuditLogEntry, Profile, TicketComment } from '@/lib/types'
 import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
 import { cn } from '@/lib/utils'
 
 export type WorksActivityActor = Pick<
   Profile,
-  'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'
+  'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role' | 'email'
 >
 
 export type WorksActivityAudit = AuditLogEntry & { actor?: WorksActivityActor }
@@ -20,13 +23,12 @@ export type WorksActivityItem =
   | { kind: 'comment'; at: string; comment: TicketComment }
   | { kind: 'audit'; at: string; audit: WorksActivityAudit }
 
-function formatActivityMeta(iso: string): string {
+function formatActivityMeta(iso: string, timeZone?: string | null): string {
   try {
     const d = parseISO(iso)
-    if (!Number.isNaN(d.getTime())) return format(d, 'MMMM do')
-    const d2 = new Date(iso)
-    if (Number.isNaN(d2.getTime())) return ''
-    return format(d2, 'MMMM do')
+    if (Number.isNaN(d.getTime())) return ''
+    const tz = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
+    return formatInTimeZone(d, tz, 'MMMM do')
   } catch {
     return ''
   }
@@ -45,8 +47,50 @@ function auditActivityLabel(audit: WorksActivityAudit): string {
   }
 }
 
-function auditActivityMeta(audit: WorksActivityAudit): string | null {
-  return formatActivityMeta(audit.changed_at)
+function countAssigneesInAuditSig(sig: string | null | undefined): number {
+  if (!sig?.trim()) return 0
+  let n = 0
+  const lead = sig.match(/lead:([^;]+)/)?.[1]?.trim()
+  if (lead) n += 1
+  const sup = sig.match(/support:([^;]*)/)?.[1]?.trim()
+  if (sup) n += sup.split(',').filter(Boolean).length
+  return n
+}
+
+/** Primary line for audit rows — includes before/→/after where it helps scanning. */
+function auditActivityPrimaryLabel(audit: WorksActivityAudit, displayTimeZone?: string | null): string {
+  const base = auditActivityLabel(audit)
+  switch (audit.field_changed) {
+    case 'phase': {
+      const prev = audit.previous_value?.trim() || '—'
+      const next = audit.new_value?.trim() || '—'
+      return `${base} (${prev} → ${next})`
+    }
+    case 'assignees': {
+      const a = countAssigneesInAuditSig(audit.previous_value)
+      const b = countAssigneesInAuditSig(audit.new_value)
+      return `${base} (${a} → ${b} assigned)`
+    }
+    case 'checkpoint_completed': {
+      const prev = formatTicketCheckpointShort(audit.previous_value, displayTimeZone)
+      const next = formatTicketCheckpointShort(audit.new_value, displayTimeZone)
+      return `${base} (${prev} → ${next})`
+    }
+    default:
+      return base
+  }
+}
+
+function auditActivitySecondaryLabel(audit: WorksActivityAudit): string | null {
+  const actor = audit.actor
+  if (!actor) return null
+  const who = formatProfileLabel(actor)
+  if (!who || who === 'Unknown') return null
+  return `by ${who}`
+}
+
+function auditActivityMeta(audit: WorksActivityAudit, displayTimeZone?: string | null): string | null {
+  return formatActivityMeta(audit.changed_at, displayTimeZone)
 }
 
 export type WorksTicketActivityStackProps = {
@@ -54,6 +98,8 @@ export type WorksTicketActivityStackProps = {
   showTimeline: boolean
   isAdmin: boolean
   viewerUserId?: string
+  /** IANA zone for activity meta dates + checkpoint audit snippets. */
+  displayTimeZone?: string | null
   onDeleteComment: (commentId: string) => void
 }
 
@@ -62,6 +108,7 @@ export function WorksTicketActivityStack({
   showTimeline,
   isAdmin,
   viewerUserId,
+  displayTimeZone,
   onDeleteComment,
 }: WorksTicketActivityStackProps) {
   return (
@@ -76,22 +123,27 @@ export function WorksTicketActivityStack({
       ) : null}
       {items.map((item) => {
         if (item.kind === 'created') {
+          const who = formatProfileLabel(item.profile ?? undefined)
+          const by = who && who !== 'Unknown' ? ` by ${who}` : ''
           return (
             <ActivityUpdate
               key="__created"
-              label="Request submitted"
-              meta={formatActivityMeta(item.at)}
+              label={`Request submitted${by}`}
+              meta={formatActivityMeta(item.at, displayTimeZone)}
               className="relative z-[1] bg-white dark:bg-zinc-950"
             />
           )
         }
         if (item.kind === 'audit') {
           const a = item.audit
+          const secondary = auditActivitySecondaryLabel(a)
+          const primary = auditActivityPrimaryLabel(a, displayTimeZone)
+          const label = secondary ? `${primary} ${secondary}` : primary
           return (
             <ActivityUpdate
               key={a.id}
-              label={auditActivityLabel(a)}
-              meta={auditActivityMeta(a)}
+              label={label}
+              meta={auditActivityMeta(a, displayTimeZone)}
               className="relative z-[1] bg-white dark:bg-zinc-950"
             />
           )
