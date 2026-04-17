@@ -83,18 +83,15 @@ export async function queryFreeBusy(
 }
 
 /**
- * Find all free 30-min slots on a given day that work for everyone.
- * Working window: 9 AM – 6 PM UTC. Caller should account for timezone if needed.
+ * Find all free **`slotMinutes`** slots between **`windowStart`** and **`windowEnd`** (UTC instants)
+ * where no calendar in **`busyPerCalendar`** has a busy interval overlapping the slot.
  */
 export function findFreeSlots(
   busyPerCalendar: Record<string, TimeSlot[]>,
-  dayDate: string, // YYYY-MM-DD
-  workStartHour = 9,
-  workEndHour = 18,
-  slotMinutes = 30
+  windowStart: Date,
+  windowEnd: Date,
+  slotMinutes = 30,
 ): TimeSlot[] {
-  const dayStart = new Date(`${dayDate}T${String(workStartHour).padStart(2, '0')}:00:00Z`)
-  const dayEnd = new Date(`${dayDate}T${String(workEndHour).padStart(2, '0')}:00:00Z`)
   const slotMs = slotMinutes * 60 * 1000
 
   const allBusy: Array<[number, number]> = Object.values(busyPerCalendar)
@@ -102,9 +99,10 @@ export function findFreeSlots(
     .map((b) => [new Date(b.start).getTime(), new Date(b.end).getTime()])
 
   const freeSlots: TimeSlot[] = []
-  let cursor = dayStart.getTime()
+  let cursor = windowStart.getTime()
+  const endMs = windowEnd.getTime()
 
-  while (cursor + slotMs <= dayEnd.getTime()) {
+  while (cursor + slotMs <= endMs) {
     const slotEnd = cursor + slotMs
     const hasConflict = allBusy.some(([bs, be]) => bs < slotEnd && be > cursor)
     if (!hasConflict) {

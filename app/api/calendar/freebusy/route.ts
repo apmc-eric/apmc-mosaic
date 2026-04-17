@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { formatInTimeZone } from 'date-fns-tz'
+import {
+  addCivilDaysYmd,
+  isoWeekdayInZone,
+  workWindowForCivilDay,
+} from '@/lib/calendar-civil-date'
 import { queryFreeBusy, findFreeSlots, refreshGoogleToken, type TimeSlot } from '@/lib/google-calendar'
 import { unwrapJoinProfile } from '@/lib/supabase-join-profile'
-
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d
-}
-
-function toDateString(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -25,7 +21,11 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}))
-  const { ticketId, searchFrom } = body as { ticketId?: string; searchFrom?: string }
+  const { ticketId, searchFrom, workTimeZone } = body as {
+    ticketId?: string
+    searchFrom?: string
+    workTimeZone?: string
+  }
 
   if (!ticketId) {
     return NextResponse.json({ error: 'ticketId required' }, { status: 400 })
@@ -103,41 +103,48 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Search day-by-day for the first day with available slots
-  const startDate = searchFrom ? new Date(`${searchFrom}T00:00:00Z`) : new Date()
-  const MAX_DAYS = 14
+  const userTz =
+    typeof workTimeZone === 'string' && workTimeZone.trim() ? workTimeZone.trim() : 'UTC'
+
+  let dayYmd = searchFrom?.trim() ?? ''
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayYmd)) {
+    dayYmd = formatInTimeZone(new Date(), userTz, 'yyyy-MM-dd')
+  }
+
+  /** Up to 14 **weekday** workdays searched (9a–6p in **`userTz`**) starting at **`dayYmd`**. */
+  const MAX_WEEKDAY_TRIES = 14
   let slotsDate: string | null = null
   let slots: TimeSlot[] = []
   let daysSearched = 0
+  let guard = 0
 
-  for (let i = 0; i < MAX_DAYS; i++) {
-    const day = addDays(startDate, i)
-    const dow = day.getUTCDay()
-
-    // Skip weekends
-    if (dow === 0 || dow === 6) {
-      daysSearched++
+  while (daysSearched < MAX_WEEKDAY_TRIES && guard < 48) {
+    guard++
+    const dow = isoWeekdayInZone(dayYmd, userTz)
+    if (dow === 6 || dow === 7) {
+      dayYmd = addCivilDaysYmd(dayYmd, 1, userTz)
       continue
     }
 
-    const dateStr = toDateString(day)
-    const dayStart = new Date(`${dateStr}T09:00:00Z`)
-    const dayEnd = new Date(`${dateStr}T18:00:00Z`)
+    daysSearched++
+    const { windowStart, windowEnd } = workWindowForCivilDay(dayYmd, userTz, 9, 18)
+    if (windowEnd.getTime() <= windowStart.getTime()) {
+      dayYmd = addCivilDaysYmd(dayYmd, 1, userTz)
+      continue
+    }
 
     try {
-      const busyData = await queryFreeBusy(accessToken, calendarIds, dayStart, dayEnd)
-      const daySlots = findFreeSlots(busyData, dateStr)
-      daysSearched++
-
+      const busyData = await queryFreeBusy(accessToken, calendarIds, windowStart, windowEnd)
+      const daySlots = findFreeSlots(busyData, windowStart, windowEnd)
       if (daySlots.length > 0) {
-        slotsDate = dateStr
+        slotsDate = dayYmd
         slots = daySlots
         break
       }
     } catch (err) {
-      console.error('[api/calendar/freebusy] Error for day', dateStr, err)
-      daysSearched++
+      console.error('[api/calendar/freebusy] Error for day', dayYmd, err)
     }
+    dayYmd = addCivilDaysYmd(dayYmd, 1, userTz)
   }
 
   return NextResponse.json({ slots, slotsDate, daysSearched, usersWithoutGoogle })

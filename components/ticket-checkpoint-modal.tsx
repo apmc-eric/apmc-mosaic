@@ -19,6 +19,7 @@ import type { Ticket } from '@/lib/types'
 import type { TimeSlot } from '@/lib/google-calendar'
 import { parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
+import { addCivilDaysYmd } from '@/lib/calendar-civil-date'
 import { getNextPhaseLabel } from '@/lib/mosaic-project-phases'
 import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
@@ -73,12 +74,6 @@ function slotSearchAnchorYyyyMmDd(
   return formatInTimeZone(new Date(), displayTz, 'yyyy-MM-dd')
 }
 
-function addCalendarDaysUtcYyyyMmDd(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T12:00:00Z`)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
 export function TicketCheckpointModal({
   open,
   onOpenChange,
@@ -102,7 +97,7 @@ export function TicketCheckpointModal({
   const [slotsDate, setSlotsDate] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [usersWithoutGoogle, setUsersWithoutGoogle] = useState<string[]>([])
-  /** Pagination for “Search later”: 14-day windows starting at `anchor + searchPage * 14` calendar days. */
+  /** Pagination for “Search later”: **`searchFrom`** = anchor + 14×page civil days in **`displayTz`** (API scans 14 weekdays from each **`searchFrom`**). */
   const [searchPage, setSearchPage] = useState(0)
 
   const nextSuggested = getNextPhaseLabel(ticket.phase, orderedPhases)
@@ -127,13 +122,13 @@ export function TicketCheckpointModal({
     setSearchPage(page)
 
     const anchor = slotSearchAnchorYyyyMmDd(manualCheckpointIso, ticket.checkpoint_date, displayTz)
-    const searchFrom = addCalendarDaysUtcYyyyMmDd(anchor, page * 14)
+    const searchFrom = addCivilDaysYmd(anchor, page * 14, displayTz)
 
     try {
       const res = await fetch('/api/calendar/freebusy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId, searchFrom }),
+        body: JSON.stringify({ ticketId, searchFrom, workTimeZone: displayTz }),
       })
       const data = await res.json()
 
@@ -160,10 +155,11 @@ export function TicketCheckpointModal({
     void findAvailableTimesPage(searchPage + 1)
   }
 
-  const handleConfirm = async () => {
-    const dateToSave = selectedSlot?.start ?? manualCheckpointIso
+  const handleConfirm = async (opts?: { forceManualCheckpoint?: boolean }) => {
+    const forceManual = Boolean(opts?.forceManualCheckpoint)
+    const dateToSave = forceManual ? manualCheckpointIso : selectedSlot?.start ?? manualCheckpointIso
     if (!dateToSave) {
-      toast.error(selectedSlot ? 'Pick a time slot' : 'Choose date and time for the checkpoint')
+      toast.error(selectedSlot && !forceManual ? 'Pick a time slot' : 'Choose date and time for the checkpoint')
       return
     }
     if (movePhase && !nextSuggested) {
@@ -178,7 +174,7 @@ export function TicketCheckpointModal({
 
     let meetLinkNext: string | null = null
     let calendarInviteFailed = false
-    if (selectedSlot) {
+    if (selectedSlot && !forceManual) {
       const eventRes = await fetch('/api/calendar/event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -210,7 +206,7 @@ export function TicketCheckpointModal({
       return
     }
 
-    if (selectedSlot) {
+    if (selectedSlot && !forceManual) {
       if (calendarInviteFailed) {
         toast.warning('Checkpoint saved — calendar invite could not be sent')
       } else {
@@ -356,8 +352,8 @@ export function TicketCheckpointModal({
               )}
 
               {slotsStatus === 'none' && (
-                <div className="mt-2 space-y-1">
-                  <p className="text-muted-foreground text-sm">No available slots found in the next 14 days.</p>
+                <div className="mt-2 space-y-3">
+                  <p className="text-muted-foreground text-sm">No available slots found in the next 14 weekdays.</p>
                   <Button
                     type="button"
                     variant="ghost"
@@ -367,13 +363,39 @@ export function TicketCheckpointModal({
                   >
                     Search further out →
                   </Button>
+                  {manualCheckpointIso ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="small"
+                      className="w-full"
+                      disabled={submitting}
+                      onClick={() => void handleConfirm({ forceManualCheckpoint: true })}
+                    >
+                      Schedule at your desired time anyway
+                    </Button>
+                  ) : null}
                 </div>
               )}
 
               {slotsStatus === 'error' && (
-                <p className="text-destructive mt-2 text-sm">
-                  Could not fetch calendar availability. Try again or pick a time manually above.
-                </p>
+                <div className="mt-2 space-y-3">
+                  <p className="text-destructive text-sm">
+                    Could not fetch calendar availability. Try again or use the time you already picked.
+                  </p>
+                  {manualCheckpointIso ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="small"
+                      className="w-full"
+                      disabled={submitting}
+                      onClick={() => void handleConfirm({ forceManualCheckpoint: true })}
+                    >
+                      Schedule at your desired time anyway
+                    </Button>
+                  ) : null}
+                </div>
               )}
             </div>
           ) : null}
