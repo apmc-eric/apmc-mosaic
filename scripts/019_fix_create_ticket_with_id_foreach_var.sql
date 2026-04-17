@@ -1,51 +1,6 @@
--- Store checkpoint wall time (scripts/015_checkpoint_timestamptz.sql). Safe if column is already timestamptz.
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'tickets'
-      AND column_name = 'checkpoint_date'
-      AND data_type = 'date'
-  ) THEN
-    ALTER TABLE public.tickets
-      ALTER COLUMN checkpoint_date TYPE timestamptz
-      USING (
-        CASE
-          WHEN checkpoint_date IS NULL THEN NULL
-          ELSE (checkpoint_date::timestamp AT TIME ZONE 'UTC')
-        END
-      );
-  END IF;
-END $$;
-
-DROP FUNCTION IF EXISTS public.create_ticket_with_id(
-  text,
-  text,
-  text[],
-  text,
-  uuid,
-  text,
-  date,
-  text,
-  uuid,
-  uuid[]
-);
-
-DROP FUNCTION IF EXISTS public.create_ticket_with_id(
-  text,
-  text,
-  text[],
-  text,
-  uuid,
-  text,
-  timestamptz,
-  text,
-  uuid,
-  uuid[]
-);
+-- Fixes typo in deployed `create_ticket_with_id`: `p_support` → `v_support` in the support-assignees loop.
+-- Run once in Supabase SQL Editor if ticket submit failed with: column "p_support" does not exist.
+-- (Corrected migration: supabase/migrations/20260410221500_tickets_checkpoint_date_timestamptz.sql)
 
 CREATE OR REPLACE FUNCTION public.create_ticket_with_id(
   p_title TEXT,

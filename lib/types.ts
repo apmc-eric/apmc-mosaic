@@ -167,7 +167,7 @@ export interface TicketAssigneeRow {
   ticket_id: string
   user_id: string
   role: 'lead' | 'support'
-  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'email'>
+  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'email' | 'role' | 'timezone'>
 }
 
 export interface TicketComment {
@@ -176,7 +176,7 @@ export interface TicketComment {
   author_id: string
   body: string
   created_at: string
-  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role'>
+  profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role' | 'email' | 'timezone'>
 }
 
 export interface AuditLogEntry {

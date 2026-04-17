@@ -195,6 +195,7 @@ Use this block when **porting** or **rebuilding** Mosaic-style Works + tickets U
 | Inspire detail / overlay body | `components/post-detail-panel.tsx` |
 | Comment row | `components/user-comment.tsx` |
 | Profile avatar | `components/profile-image.tsx` |
+| **ProfileCard** (hover card, Figma **`334:2317`**) | `components/profile-card.tsx` — tooltip via **`ProfileImage`** **`profile`** / **`profileCard`**; payload helper **`lib/profile-card-data.ts`** |
 | Workflow phase pill (Triage → Build) | `components/workflow-phase-tag.tsx` + `lib/mosaic-project-phases.ts` |
 | Works **TicketCard** (kanban tile) | `components/ticket-card.tsx` (Figma `199:1222`) |
 | Works ticket **category** pill | `components/ticket-category-tag.tsx` (Figma **Tag** `227:3470` / `227:3471`) |
@@ -225,6 +226,9 @@ Use this block when **porting** or **rebuilding** Mosaic-style Works + tickets U
 
 Short-lived policies or decisions that do not warrant a full section—still worth persisting when the user adds **permanent context**. **Older bullets** may describe earlier layouts; **§6** + **§8** win on conflict.
 
+- **2026-04-10** — **Calendar scheduling:** “Find a time on calendars” is **omitted** unless the viewer has linked Google in Mosaic (`hasGoogleToken`). Meet creation uses Calendar **`sendUpdates=all`** + **`attendees`** (profile emails, deduped, plus ticket **`created_by`** if missing from assignees); invite email is from Google, not Mosaic.
+- **2026-04-10** — **TicketCheckpointModal** “Find Available Times”: free-busy search **`searchFrom`** anchors on the **Next checkpoint** picker (`manualCheckpointIso` → wall date in profile timezone), not “today only”; **Search later** advances **14-day** windows from that anchor. Changing the picker clears prior slot results.
+- **2026-04-10** — **ProfileCard** (Figma **`334:2317`**): **`components/profile-card.tsx`** — header (**32px** avatar + name + role line) + **Clock** / **Mail** rows (**`text-xs`** **`font-medium`** **`leading-snug`**, muted **40%** ink); **220px** width, **`rounded-[10px]`**, **`border-border`**. Shown as a **Radix Tooltip** from **`ProfileImage`** when **`profile`** or **`profileCard`** is set; **`sideOffset={8}`** + **`collisionPadding={8}`** vs viewport. **Slack DM** row omitted until wired.
 - **2026-04-10** — **Porting / new repo:** intro **Borrowing / porting** (canonical **§6** + **§8**; **§9** = history); **TOC** table after intro; permanent-context sync line points to **§9 Changelog / notes**; **§8** file map adds **`app/(app)/tickets/[id]/page.tsx`** (checkpoint + modal shared with Works).
 - **2026-04-12** — **Doc consolidation for porting:** added **§6** (canonical Works + sheet + Activity + checkpoint), **§5** (`mono-micro`, **`Textarea`** **`embedded`**), expanded **§8** file map, renumbered changelog to **§9**. Stale sheet bullets below kept as history only.
 - **2026-04-12** — **TicketCheckpointIndicator** (Figma **`309:1895`**): bar **`w-full min-w-0`** **`rounded-[10px]`** **`border-black/10`** **`bg-black/[0.05]`** **`p-1.5`**; date **`Popover`** sits in **`min-w-0 flex-1`** so the bar spans the sheet; primary CTAs in **Title Case** (**Join Meeting**, **Complete Checkpoint**, menu **Reschedule Checkpoint**). Chevron **`ghost`** **`icon-sm`**. Read-only: **Join Meeting** only in window when link set.

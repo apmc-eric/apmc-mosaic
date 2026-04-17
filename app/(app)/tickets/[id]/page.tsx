@@ -122,7 +122,7 @@ export default function TicketDetailPage() {
     setTicket({ ...(data as Ticket), assignees })
     const { data: c } = await supabase
       .from('ticket_comments')
-      .select('*, profile:profiles(id, first_name, last_name, name, avatar_url)')
+      .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
       .eq('ticket_id', id)
       .order('created_at', { ascending: true })
     if (c) setComments(c as TicketComment[])

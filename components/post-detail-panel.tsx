@@ -6,7 +6,6 @@ import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { ProfileImage } from '@/components/profile-image'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { UserComment } from '@/components/user-comment'
 import { CommentsSectionHeader } from '@/components/comments-section-header'
@@ -132,7 +131,7 @@ export function PostDetailPanel({
 
   const fetchComments = async () => {
     const profileSelect =
-      'id, first_name, last_name, avatar_url, role'
+      'id, first_name, last_name, name, avatar_url, role, email, timezone'
 
     if (inspirationMode) {
       const { data } = await supabase
@@ -285,6 +284,19 @@ export function PostDetailPanel({
               {comment.profile?.last_name?.[0]}
             </>
           }
+          profile={
+            comment.profile
+              ? {
+                  name: comment.profile.name,
+                  first_name: comment.profile.first_name,
+                  last_name: comment.profile.last_name,
+                  email: comment.profile.email,
+                  role: comment.profile.role,
+                  timezone: comment.profile.timezone,
+                }
+              : null
+          }
+          viewerTimeZone={profile?.timezone ?? null}
           showDelete={isAdmin || comment.user_id === profile?.id}
           onDelete={() => handleDeleteComment(comment.id)}
         />

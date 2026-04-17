@@ -141,6 +141,8 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
                   size="md"
                   className={cn('size-8 shrink-0 border-2 border-background', i > 0 && '-ml-2')}
                   fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                  profile={a.profile ?? null}
+                  viewerTimeZone={displayTimeZone}
                 />
               ))}
               {assigneeOverflow > 0 ? (

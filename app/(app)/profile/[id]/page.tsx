@@ -121,6 +121,8 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                   {profileData.last_name?.[0]}
                 </>
               }
+              profile={profileData}
+              viewerTimeZone={currentProfile?.timezone ?? null}
             />
             <div>
               <h1 className="text-3xl font-serif">

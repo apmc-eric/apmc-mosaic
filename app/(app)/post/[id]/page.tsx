@@ -36,7 +36,7 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
       .from('posts')
       .select(`
         *,
-        profile:profiles(id, first_name, last_name, avatar_url, team:teams(id, name)),
+        profile:profiles(id, first_name, last_name, name, email, role, avatar_url, timezone, team:teams(id, name)),
         tags:post_tags(tag:tags(*))
       `)
       .eq('id', postId)
@@ -65,7 +65,7 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
   const fetchComments = async () => {
     const { data } = await supabase
       .from('comments')
-      .select('*, profile:profiles(id, first_name, last_name, avatar_url)')
+      .select('*, profile:profiles(id, first_name, last_name, name, email, role, avatar_url, timezone)')
       .eq('post_id', postId)
       .order('created_at', { ascending: true })
     if (data) setComments(data as Comment[])
@@ -263,13 +263,15 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
             <ProfileImage
               pathname={post.profile.avatar_url}
               alt={`${post.profile.first_name ?? ''} ${post.profile.last_name ?? ''}`.trim() || 'Author'}
-              size="default"
+              size="md"
               fallback={
                 <>
                   {post.profile.first_name?.[0]}
                   {post.profile.last_name?.[0]}
                 </>
               }
+              profile={post.profile}
+              viewerTimeZone={profile?.timezone ?? null}
             />
             <div>
               <p className="font-medium">
@@ -313,6 +315,8 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
                       {comment.profile?.last_name?.[0]}
                     </>
                   }
+                  profile={comment.profile ?? null}
+                  viewerTimeZone={profile?.timezone ?? null}
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2">

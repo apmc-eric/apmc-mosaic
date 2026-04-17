@@ -40,7 +40,7 @@ const CREATE_PHASE = DEFAULT_NEW_TICKET_PHASE
 
 type AssignableProfile = Pick<
   Profile,
-  'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'
+  'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url' | 'timezone'
 >
 
 interface TicketSubmitModalProps {
@@ -175,7 +175,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
 
     void supabase
       .from('profiles')
-      .select('id, first_name, last_name, name, email, role, avatar_url')
+      .select('id, first_name, last_name, name, email, role, avatar_url, timezone')
       .eq('is_active', true)
       .in('role', ['admin', 'designer', 'collaborator', 'guest', 'user', 'member'])
       .order('first_name', { ascending: true })
@@ -381,6 +381,8 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                     i > 0 && '-ml-1',
                                   )}
                                   fallback={d ? initialsForProfile(d) : '?'}
+                                  profile={d ?? null}
+                                  viewerTimeZone={profile?.timezone ?? null}
                                 />
                               )
                             })}

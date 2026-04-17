@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
@@ -54,6 +53,32 @@ function formatTime(iso: string, timeZone: string): string {
   return formatInTimeZone(parseISO(iso), timeZone, 'h:mm a')
 }
 
+/** First calendar day to search from (picker wins over saved ticket checkpoint, then today in `displayTz`). */
+function slotSearchAnchorYyyyMmDd(
+  manualIso: string | null,
+  ticketCheckpointIso: string | null,
+  displayTz: string,
+): string {
+  const raw = manualIso?.trim() || ticketCheckpointIso?.trim()
+  if (raw) {
+    try {
+      const p = parseISO(raw)
+      if (!Number.isNaN(p.getTime())) {
+        return formatInTimeZone(p, displayTz, 'yyyy-MM-dd')
+      }
+    } catch {
+      /* use today */
+    }
+  }
+  return formatInTimeZone(new Date(), displayTz, 'yyyy-MM-dd')
+}
+
+function addCalendarDaysUtcYyyyMmDd(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
 export function TicketCheckpointModal({
   open,
   onOpenChange,
@@ -77,7 +102,8 @@ export function TicketCheckpointModal({
   const [slotsDate, setSlotsDate] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [usersWithoutGoogle, setUsersWithoutGoogle] = useState<string[]>([])
-  const [searchOffset, setSearchOffset] = useState(0)
+  /** Pagination for “Search later”: 14-day windows starting at `anchor + searchPage * 14` calendar days. */
+  const [searchPage, setSearchPage] = useState(0)
 
   const nextSuggested = getNextPhaseLabel(ticket.phase, orderedPhases)
 
@@ -90,21 +116,18 @@ export function TicketCheckpointModal({
     setAvailableSlots([])
     setSlotsDate(null)
     setUsersWithoutGoogle([])
-    setSearchOffset(0)
+    setSearchPage(0)
   }, [open, ticket.checkpoint_date, ticket.phase])
 
-  const findAvailableTimes = async (offsetDays = 0) => {
+  const findAvailableTimesPage = async (page: number) => {
     setSlotsStatus('loading')
     setSelectedSlot(null)
     setAvailableSlots([])
     setSlotsDate(null)
+    setSearchPage(page)
 
-    let searchFrom: string | undefined
-    if (offsetDays > 0) {
-      const d = new Date()
-      d.setUTCDate(d.getUTCDate() + offsetDays)
-      searchFrom = d.toISOString().slice(0, 10)
-    }
+    const anchor = slotSearchAnchorYyyyMmDd(manualCheckpointIso, ticket.checkpoint_date, displayTz)
+    const searchFrom = addCalendarDaysUtcYyyyMmDd(anchor, page * 14)
 
     try {
       const res = await fetch('/api/calendar/freebusy', {
@@ -134,9 +157,7 @@ export function TicketCheckpointModal({
   }
 
   const handleSearchNext = () => {
-    const nextOffset = searchOffset + 14
-    setSearchOffset(nextOffset)
-    void findAvailableTimes(nextOffset)
+    void findAvailableTimesPage(searchPage + 1)
   }
 
   const handleConfirm = async () => {
@@ -207,8 +228,8 @@ export function TicketCheckpointModal({
 
     if (skippedMeetLinkColumn && meetLinkNext) {
       toast.warning(
-        'Meet link was not stored until the database has the checkpoint_meet_link column.',
-        { duration: 10_000 },
+        'Meet link was not saved in Mosaic: add column checkpoint_meet_link (run scripts/016_checkpoint_meet_link.sql or supabase/migrations/20260410180000_checkpoint_meet_link.sql in Supabase SQL Editor).',
+        { duration: 12_000 },
       )
     }
 
@@ -251,6 +272,11 @@ export function TicketCheckpointModal({
                 onCommit={async (iso) => {
                   setManualCheckpointIso(iso)
                   setSelectedSlot(null)
+                  setSearchPage(0)
+                  setSlotsStatus('idle')
+                  setAvailableSlots([])
+                  setSlotsDate(null)
+                  setUsersWithoutGoogle([])
                 }}
                 onRequestClose={() => {}}
               />
@@ -260,13 +286,17 @@ export function TicketCheckpointModal({
           {hasGoogleToken ? (
             <div className="rounded-lg border border-border p-3">
               <Label className="font-medium leading-snug">Find a time on calendars</Label>
-              <p className="text-muted-foreground mt-1 text-sm">Uses assignees’ connected Google calendars.</p>
+              <p className="text-muted-foreground mt-1 text-sm">
+                Uses assignees’ calendars that are linked in Mosaic for availability. When you pick a slot and
+                create the Meet, Google emails everyone on the ticket (by profile email) — including people who
+                haven’t linked Calendar here.
+              </p>
               <Button
                 type="button"
                 variant="outline"
                 size="small"
                 className="mt-3 w-full gap-2"
-                onClick={() => void findAvailableTimes(searchOffset)}
+                onClick={() => void findAvailableTimesPage(0)}
                 disabled={slotsStatus === 'loading'}
               >
                 {slotsStatus === 'loading' ? (
@@ -285,8 +315,8 @@ export function TicketCheckpointModal({
               {usersWithoutGoogle.length > 0 && (
                 <p className="text-muted-foreground mt-2 text-xs">
                   Note: {usersWithoutGoogle.join(', ')}{' '}
-                  {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} connected Google Calendar — their
-                  availability isn&apos;t included.
+                  {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} linked Google Calendar in Mosaic — their
+                  free/busy isn&apos;t used below, but they still get a calendar invite email when you schedule.
                 </p>
               )}
 
@@ -346,14 +376,7 @@ export function TicketCheckpointModal({
                 </p>
               )}
             </div>
-          ) : (
-            <p className="text-muted-foreground text-xs">
-              <Link href="/settings" className="underline hover:text-foreground">
-                Connect Google Calendar
-              </Link>{' '}
-              to find available times across assignees.
-            </p>
-          )}
+          ) : null}
 
           <div className="rounded-lg border border-border p-3">
             <div className="flex items-start gap-3">

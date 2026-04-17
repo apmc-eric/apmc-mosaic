@@ -120,8 +120,9 @@ export function findFreeSlots(
 }
 
 /**
- * Create a Google Calendar event and send invites to all attendees.
- * Returns the event including an htmlLink to view it in Google Calendar.
+ * Create a Google Calendar event on the organizer’s **primary** calendar.
+ * **`sendUpdates=all`** (see request URL) tells Google to **email every attendee** — they do not need Mosaic
+ * or Calendar connected to Mosaic; a normal inbox invite is enough to add it to their calendar.
  */
 function extractMeetLinkFromEventPayload(data: Record<string, unknown>): string | null {
   const hangout = data.hangoutLink

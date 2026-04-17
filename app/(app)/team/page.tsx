@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ProfileImage } from '@/components/profile-image'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { useAuth } from '@/lib/auth-context'
 import type { Profile, Team } from '@/lib/types'
 
 const supabase = createClient()
@@ -16,6 +17,7 @@ interface TeamMember extends Profile {
 }
 
 export default function TeamDirectoryPage() {
+  const { profile: viewerProfile } = useAuth()
   const [members, setMembers] = useState<TeamMember[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
@@ -100,6 +102,8 @@ export default function TeamDirectoryPage() {
                         {member.last_name?.[0]}
                       </>
                     }
+                    profile={member}
+                    viewerTimeZone={viewerProfile?.timezone ?? null}
                   />
                   
                   <div className="flex-1 min-w-0">

@@ -143,7 +143,7 @@ export async function GET() {
           ticket_id,
           user_id,
           role,
-          profile:profiles(id, first_name, last_name, name, avatar_url, email)
+          profile:profiles(id, first_name, last_name, name, avatar_url, email, role, timezone)
         `
         )
         .in('ticket_id', ids)

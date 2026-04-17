@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { queryFreeBusy, findFreeSlots, refreshGoogleToken, type TimeSlot } from '@/lib/google-calendar'
+import { unwrapJoinProfile } from '@/lib/supabase-join-profile'
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date)
@@ -77,11 +78,13 @@ export async function POST(req: NextRequest) {
   if (user.email) calendarIds.push(user.email)
 
   for (const assignee of assignees ?? []) {
-    const profile = assignee.profile as {
-      email: string
-      first_name: string | null
-      last_name: string | null
-    } | null
+    const profile = unwrapJoinProfile(
+      assignee.profile as {
+        email: string
+        first_name: string | null
+        last_name: string | null
+      } | null,
+    )
     if (!profile?.email || profile.email === user.email) continue
 
     calendarIds.push(profile.email)

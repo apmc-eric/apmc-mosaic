@@ -167,6 +167,8 @@ export function WorksTicketActivityStack({
                 {c.profile?.last_name?.[0]}
               </>
             }
+            profile={c.profile ?? null}
+            viewerTimeZone={displayTimeZone}
             className={cn(
               'relative z-[1] border-[rgba(10,10,10,0.1)] bg-white dark:border-zinc-700 dark:bg-zinc-950',
             )}

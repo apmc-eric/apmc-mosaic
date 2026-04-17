@@ -185,7 +185,7 @@ export default function WorksPage() {
       const [commentsRes, auditRes, creatorRes] = await Promise.all([
         supabase
           .from('ticket_comments')
-          .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
+          .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
           .eq('ticket_id', panelTicket.id)
           .order('created_at', { ascending: true }),
         supabase
@@ -250,7 +250,7 @@ export default function WorksPage() {
       const { data, error } = await supabase
         .from('ticket_comments')
         .insert({ ticket_id: panelTicket.id, author_id: profile.id, body })
-        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role)')
+        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
         .single()
       if (error) {
         console.error(error)

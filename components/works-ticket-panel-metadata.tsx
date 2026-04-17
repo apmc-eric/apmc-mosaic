@@ -173,6 +173,8 @@ export function WorksTicketPanelMetadata({
                           size="xs"
                           className={cn('border-2 border-white dark:border-zinc-950', i > 0 && '-ml-1')}
                           fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                          profile={a.profile ?? null}
+                          viewerTimeZone={displayTimeZone}
                         />
                       ))}
                     </div>
@@ -256,6 +258,8 @@ export function WorksTicketPanelMetadata({
                   size="xs"
                   className={cn('border-2 border-white dark:border-zinc-950', i > 0 && '-ml-1')}
                   fallback={(a.profile?.first_name?.[0] ?? a.profile?.email?.[0] ?? '?').toUpperCase()}
+                  profile={a.profile ?? null}
+                  viewerTimeZone={displayTimeZone}
                 />
               ))}
             </div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createCalendarEvent, refreshGoogleToken, type TimeSlot } from '@/lib/google-calendar'
+import { unwrapJoinProfile } from '@/lib/supabase-join-profile'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -57,20 +58,45 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Get all assignee emails for the ticket
   const { data: assignees } = await admin
     .from('ticket_assignees')
     .select('profile:profiles(email)')
     .eq('ticket_id', ticketId)
 
-  const attendeeEmails: string[] = []
+  const { data: ticketMeta } = await admin.from('tickets').select('created_by').eq('id', ticketId).maybeSingle()
 
-  // Current user is always an attendee
-  if (user.email) attendeeEmails.push(user.email)
+  let creatorEmail: string | null = null
+  if (ticketMeta?.created_by) {
+    const { data: creatorRow } = await admin
+      .from('profiles')
+      .select('email')
+      .eq('id', ticketMeta.created_by)
+      .maybeSingle()
+    creatorEmail = creatorRow?.email?.trim() ?? null
+  }
+
+  const seen = new Set<string>()
+  const attendeeEmails: string[] = []
+  const push = (raw: string | null | undefined) => {
+    const e = raw?.trim()
+    if (!e || !e.includes('@')) return
+    const k = e.toLowerCase()
+    if (seen.has(k)) return
+    seen.add(k)
+    attendeeEmails.push(e)
+  }
+
+  push(user.email ?? null)
 
   for (const assignee of assignees ?? []) {
-    const email = (assignee.profile as { email: string } | null)?.email
-    if (email && email !== user.email) attendeeEmails.push(email)
+    const prof = unwrapJoinProfile(assignee.profile as { email?: string | null } | null)
+    push(prof?.email ?? null)
+  }
+
+  push(creatorEmail)
+
+  if (attendeeEmails.length === 0) {
+    return NextResponse.json({ error: 'No attendee emails on this ticket' }, { status: 400 })
   }
 
   const summary = `Checkpoint: ${ticketTitle ?? ticketId}`

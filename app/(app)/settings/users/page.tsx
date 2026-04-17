@@ -33,7 +33,7 @@ function primaryTeamId(p: Profile): string | null {
 }
 
 export default function UsersSettingsPage() {
-  const { user: authUser } = useAuth()
+  const { user: authUser, profile: viewerProfile } = useAuth()
   const [users, setUsers] = useState<Profile[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -213,6 +213,8 @@ export default function UsersSettingsPage() {
                               {u.last_name?.[0]}
                             </>
                           }
+                          profile={u}
+                          viewerTimeZone={viewerProfile?.timezone ?? null}
                         />
                         <div>
                           <p className="text-sm font-medium">

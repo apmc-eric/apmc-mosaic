@@ -6,6 +6,7 @@ import { Trash2 } from 'lucide-react'
 import { ProfileImage } from '@/components/profile-image'
 import { Button } from '@/components/ui/button'
 import { commentBodyToReact } from '@/lib/comment-rich-text'
+import type { ProfileImagePreviewFields } from '@/lib/profile-card-data'
 import { cn } from '@/lib/utils'
 
 export type UserCommentProps = {
@@ -20,6 +21,9 @@ export type UserCommentProps = {
   className?: string
   showDelete?: boolean
   onDelete?: () => void
+  /** Enables **ProfileCard** tooltip on the avatar when profile fields are present. */
+  profile?: ProfileImagePreviewFields | null
+  viewerTimeZone?: string | null
 }
 
 /**
@@ -37,6 +41,8 @@ export function UserComment({
   className,
   showDelete,
   onDelete,
+  profile,
+  viewerTimeZone,
 }: UserCommentProps) {
   const canDelete = Boolean(showDelete && onDelete)
 
@@ -58,6 +64,8 @@ export function UserComment({
             fallback={avatarFallback}
             size="md"
             className="shrink-0"
+            profile={profile ?? null}
+            viewerTimeZone={viewerTimeZone}
           />
           <div className="flex min-w-0 flex-col gap-0.5">
             <p className="truncate text-sm font-semibold leading-5 text-foreground">{name}</p>
