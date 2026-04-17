@@ -669,7 +669,7 @@ export default function WorksPage() {
         <h1 className="sr-only">Work</h1>
 
         <div
-          className="grid w-full grid-cols-12 gap-x-6 gap-y-4 pb-6"
+          className="grid w-full grid-cols-12 gap-x-8 gap-y-4 pb-6"
           data-name="Navigation"
           data-node-id="199:483"
         >
@@ -728,7 +728,7 @@ export default function WorksPage() {
             <>
               {needsReviewSorted.length > 0 ? (
                 <section
-                  className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
+                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
                   data-name="NeedsReview"
                   aria-label="Needs review"
                 >
@@ -756,7 +756,7 @@ export default function WorksPage() {
                   return (
                     <section
                       key={key}
-                      className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
+                      className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
                       data-name="ContentWrapper"
                       data-node-id={nodeId}
                     >

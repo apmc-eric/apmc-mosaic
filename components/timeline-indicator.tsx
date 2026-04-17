@@ -12,7 +12,7 @@ export type TimelineIndicatorProps = {
 
 /**
  * Figma **TimelineIndicator** (`131:311`). Side label: optional **text-base / semibold / snug** heading
- * plus **mono-micro** date range at **50%** opacity; **2px** gap between lines.
+ * plus **mono-micro** date range at **50%** opacity; **4px** gap between lines (Figma **`gap-1`**).
  */
 export function TimelineIndicator({
   heading = null,
@@ -28,7 +28,7 @@ export function TimelineIndicator({
       data-node-id="131:311"
     >
       <div
-        className="flex w-full max-w-[96px] flex-col items-start gap-0.5 text-foreground"
+        className="flex w-full min-w-0 flex-col items-start gap-1 text-foreground"
         data-name="SideLabel"
         data-node-id="131:313"
       >

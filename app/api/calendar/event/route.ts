@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createCalendarEvent, refreshGoogleToken, type TimeSlot } from '@/lib/google-calendar'
+import { createCalendarEvent, refreshGoogleAccessToken, type TimeSlot } from '@/lib/google-calendar'
 import { unwrapJoinProfile } from '@/lib/supabase-join-profile'
 
 export async function POST(req: NextRequest) {
@@ -38,25 +38,56 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Google Calendar not connected' }, { status: 403 })
   }
 
-  // Refresh token if it expires within 5 minutes
-  let accessToken = tokenRow.access_token
-  if (tokenRow.refresh_token && tokenRow.token_expires_at) {
-    const expiresAt = new Date(tokenRow.token_expires_at)
-    if (expiresAt.getTime() - Date.now() < 5 * 60 * 1000) {
-      const refreshed = await refreshGoogleToken(tokenRow.refresh_token)
-      if (refreshed) {
-        accessToken = refreshed.access_token
-        await admin
-          .from('user_google_tokens')
-          .update({
-            access_token: refreshed.access_token,
-            token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id)
-      }
-    }
+  let accessToken = (tokenRow.access_token ?? '').trim()
+  if (!accessToken) {
+    return NextResponse.json(
+      {
+        error: 'Google Calendar is linked but no access token is stored. Reconnect Google in Settings.',
+      },
+      { status: 403 },
+    )
   }
+
+  const expiresAt = tokenRow.token_expires_at ? new Date(tokenRow.token_expires_at) : null
+  const needsProactiveRefresh =
+    !expiresAt ||
+    Number.isNaN(expiresAt.getTime()) ||
+    expiresAt.getTime() <= Date.now() + 5 * 60 * 1000
+
+  if (needsProactiveRefresh) {
+    const rt = tokenRow.refresh_token?.trim()
+    if (!rt) {
+      return NextResponse.json(
+        {
+          error: 'Google Calendar access expired or unknown.',
+          detail:
+            'No refresh token is stored. Disconnect and reconnect Google Calendar in Settings so Mosaic can renew access.',
+        },
+        { status: 403 },
+      )
+    }
+    const refreshed = await refreshGoogleAccessToken(rt)
+    if (!refreshed.ok) {
+      return NextResponse.json(
+        {
+          error: 'Google Calendar could not be renewed on the server.',
+          detail: refreshed.detail,
+        },
+        { status: 503 },
+      )
+    }
+    accessToken = refreshed.access_token.trim()
+    await admin
+      .from('user_google_tokens')
+      .update({
+        access_token: refreshed.access_token,
+        token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', user.id)
+  }
+
+  const refreshTokenFor401 = tokenRow.refresh_token?.trim() ?? ''
 
   const { data: assignees } = await admin
     .from('ticket_assignees')
@@ -102,19 +133,44 @@ export async function POST(req: NextRequest) {
   const summary = `Checkpoint: ${ticketTitle ?? ticketId}`
   const description = `Checkpoint review scheduled via Mosaic.`
 
+  const createWithToken = () =>
+    createCalendarEvent(accessToken, summary, description, slot, attendeeEmails)
+
   try {
-    const event = await createCalendarEvent(
-      accessToken,
-      summary,
-      description,
-      slot,
-      attendeeEmails
-    )
-    return NextResponse.json({
-      htmlLink: event.htmlLink,
-      eventId: event.id,
-      meetLink: event.meetLink,
-    })
+    try {
+      const event = await createWithToken()
+      return NextResponse.json({
+        htmlLink: event.htmlLink,
+        eventId: event.id,
+        meetLink: event.meetLink,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const unauthorized =
+        /\b401\b|UNAUTHENTICATED|Request had invalid authentication credentials|Invalid Credentials/i.test(msg)
+      if (!unauthorized || !refreshTokenFor401) {
+        throw e
+      }
+      const refreshed = await refreshGoogleAccessToken(refreshTokenFor401)
+      if (!refreshed.ok) {
+        throw e
+      }
+      accessToken = refreshed.access_token.trim()
+      await admin
+        .from('user_google_tokens')
+        .update({
+          access_token: refreshed.access_token,
+          token_expires_at: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', user.id)
+      const event = await createWithToken()
+      return NextResponse.json({
+        htmlLink: event.htmlLink,
+        eventId: event.id,
+        meetLink: event.meetLink,
+      })
+    }
   } catch (err) {
     console.error('[api/calendar/event] Failed to create event', err)
     return NextResponse.json({ error: 'Failed to create calendar event' }, { status: 500 })

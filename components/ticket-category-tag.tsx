@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 
-import { cn } from '@/lib/utils'
+import { CategoryTag } from '@/components/category-tag'
 
 export type TicketCategoryTagProps = Omit<React.ComponentPropsWithoutRef<'span'>, 'children'> & {
   /** Category label (e.g. Framer, Mobile). */
@@ -10,21 +10,13 @@ export type TicketCategoryTagProps = Omit<React.ComponentPropsWithoutRef<'span'>
 }
 
 /**
- * Ticket category pill — Figma **Tag** `227:3470` (frame `227:3471`).
- * Stadium shape, charcoal fill, light border, compact type.
+ * Ticket category chip — uses **`CategoryTag`** (Figma **Tag** `339:3285`).
+ * Thin wrapper for **`TicketCard`** and call sites that pass **`label`**.
  */
 export function TicketCategoryTag({ label, className, ...props }: TicketCategoryTagProps) {
   return (
-    <span
-      className={cn(
-        'inline-flex max-w-full min-h-0 items-center justify-center overflow-hidden rounded-full border border-neutral-200 bg-neutral-700 px-1.5 py-1 dark:border-zinc-400 dark:bg-zinc-800',
-        className,
-      )}
-      data-name="Tag"
-      data-node-id="227:3470"
-      {...props}
-    >
-      <span className="truncate py-px text-xs font-medium leading-snug text-white">{label}</span>
-    </span>
+    <CategoryTag className={className} {...props}>
+      {label}
+    </CategoryTag>
   )
 }

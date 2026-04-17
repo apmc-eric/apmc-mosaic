@@ -182,3 +182,13 @@
   line-height: var(--type-mono-micro-leading);
   letter-spacing: var(--type-mono-micro-tracking);
 }
+
+@layer utilities {
+  /* Horizontal ellipsis with overflow-x hidden only; overflow-y visible (not Tailwind truncate). */
+  .truncate-x {
+    overflow-x: hidden;
+    overflow-y: visible;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

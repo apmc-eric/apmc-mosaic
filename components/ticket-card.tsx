@@ -8,6 +8,7 @@ import { ExternalLink, Flag } from 'lucide-react'
 import { ProfileImage } from '@/components/profile-image'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { Badge } from '@/components/ui/badge'
+import { buttonVariants } from '@/components/ui/button'
 import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { formatProfileLabel } from '@/lib/format-profile'
 import { cn } from '@/lib/utils'
@@ -80,12 +81,13 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         data-name="TicketCard"
         data-node-id="199:1222"
         className={cn(
-          'group relative flex h-[280px] w-full cursor-pointer flex-col overflow-clip rounded-[10px] border border-transparent bg-neutral-100 px-5 pt-4 pb-5 text-left transition-[padding,background-color,border-color] duration-200 ease-out motion-reduce:transition-none',
-          'hover:border-neutral-200 hover:bg-neutral-50 hover:pb-14',
-          'dark:bg-zinc-900/55 dark:hover:border-neutral-200 dark:hover:bg-zinc-800/60',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-          'focus-visible:border-neutral-200 focus-visible:bg-neutral-50 focus-visible:pb-14',
-          'dark:focus-visible:border-neutral-200 dark:focus-visible:bg-zinc-800/60',
+          'group relative z-0 flex h-[280px] w-full scale-100 cursor-pointer flex-col overflow-visible rounded-[10px] border-[1.5px] border-transparent bg-neutral-100 px-5 pt-4 pb-5 text-left transition-all duration-150 ease-out motion-reduce:transition-none',
+          'hover:z-[2] hover:scale-[1.025] hover:border-neutral-400 hover:bg-neutral-50',
+          'dark:bg-zinc-900/55 dark:hover:border-zinc-500 dark:hover:bg-zinc-800/60',
+          'focus-visible:z-[2] focus-visible:scale-[1.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+          'focus-visible:border-neutral-400 focus-visible:bg-neutral-50',
+          'dark:focus-visible:border-zinc-500 dark:focus-visible:bg-zinc-800/60',
+          'motion-reduce:hover:scale-100 motion-reduce:focus-visible:scale-100',
           className,
         )}
         {...props}
@@ -106,7 +108,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
 
         <div className="flex min-h-0 flex-1 flex-col justify-between">
           <div
-            className={cn('flex min-w-0 flex-col gap-3', showFlag && 'pr-16')}
+            className={cn('flex w-full min-w-0 flex-col gap-2.5', showFlag && 'pr-16')}
             data-name="Top"
           >
             <p className="font-sans text-sm font-normal leading-5 text-zinc-500 dark:text-zinc-400">
@@ -117,12 +119,12 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
             </p>
             {categoryPills.length > 0 ? (
               <div
-                className="flex max-w-full flex-wrap items-center gap-1.5 self-start"
+                className="pointer-events-none flex max-w-full flex-wrap items-center gap-1.5 self-start"
                 data-name="TagRow"
                 data-node-id="199:1434"
               >
                 {categoryPills.map((label, i) => (
-                  <TicketCategoryTag key={`${i}-${label}`} label={label} />
+                  <TicketCategoryTag key={`${i}-${label}`} label={label} title={label} />
                 ))}
               </div>
             ) : null}
@@ -154,24 +156,30 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
                 </div>
               ) : null}
             </div>
-            <WorkflowPhaseTag phase={phase} className="shrink-0" data-node-id="199:1197" />
-          </div>
-        </div>
 
-        {/* Visual only — whole card is the control (Figma hover **HoverCTA** `199:1903`). */}
-        <div
-          className={cn(
-            'pointer-events-none absolute inset-x-[-1px] bottom-[-1px] z-[5] flex translate-y-full items-center justify-between bg-black px-6 py-3 text-xs font-medium leading-snug text-white transition-transform duration-200 ease-out',
-            'group-hover:translate-y-0 group-focus-visible:translate-y-0',
-            'motion-reduce:transition-none',
-            'dark:bg-foreground dark:text-background',
-          )}
-          aria-hidden
-          data-name="HoverCTA"
-          data-node-id="199:1903"
-        >
-          <span>View Details</span>
-          <ExternalLink className="size-3 shrink-0" strokeWidth={2} aria-hidden />
+            <div
+              className="grid shrink-0 justify-items-end [grid-template-areas:'phase-slot']"
+              data-name="PhaseOrCta"
+              data-node-id="199:1197"
+            >
+              <div
+                className="col-start-1 row-start-1 flex justify-end [grid-area:phase-slot] transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:pointer-events-none group-hover:opacity-0 group-focus-visible:pointer-events-none group-focus-visible:opacity-0"
+              >
+                <WorkflowPhaseTag phase={phase} className="shrink-0" data-node-id="199:1197" />
+              </div>
+              <span
+                className={cn(
+                  buttonVariants({ variant: 'default', size: 'small' }),
+                  'pointer-events-none col-start-1 row-start-1 self-end justify-self-end [grid-area:phase-slot] opacity-0 shadow-none transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:opacity-100 group-focus-visible:opacity-100',
+                )}
+                aria-hidden
+                data-name="HoverCta"
+              >
+                <ExternalLink className="size-3 shrink-0" strokeWidth={2} aria-hidden />
+                View Details
+              </span>
+            </div>
+          </div>
         </div>
       </button>
     )

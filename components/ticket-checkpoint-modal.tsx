@@ -97,6 +97,8 @@ export function TicketCheckpointModal({
   const [slotsDate, setSlotsDate] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
   const [usersWithoutGoogle, setUsersWithoutGoogle] = useState<string[]>([])
+  /** Last API `detail` when **`data.error`** is set (e.g. FreeBusy failure). */
+  const [slotsErrorDetail, setSlotsErrorDetail] = useState<string | null>(null)
   /** Pagination for “Search later”: **`searchFrom`** = anchor + 14×page civil days in **`displayTz`** (API scans 14 weekdays from each **`searchFrom`**). */
   const [searchPage, setSearchPage] = useState(0)
 
@@ -111,6 +113,7 @@ export function TicketCheckpointModal({
     setAvailableSlots([])
     setSlotsDate(null)
     setUsersWithoutGoogle([])
+    setSlotsErrorDetail(null)
     setSearchPage(0)
   }, [open, ticket.checkpoint_date, ticket.phase])
 
@@ -119,6 +122,8 @@ export function TicketCheckpointModal({
     setSelectedSlot(null)
     setAvailableSlots([])
     setSlotsDate(null)
+    setUsersWithoutGoogle([])
+    setSlotsErrorDetail(null)
     setSearchPage(page)
 
     const anchor = slotSearchAnchorYyyyMmDd(manualCheckpointIso, ticket.checkpoint_date, displayTz)
@@ -128,12 +133,18 @@ export function TicketCheckpointModal({
       const res = await fetch('/api/calendar/freebusy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId, searchFrom, workTimeZone: displayTz }),
+        body: JSON.stringify({
+          ticketId,
+          searchFrom,
+          workTimeZone: displayTz,
+          preferredCheckpointIso: manualCheckpointIso,
+        }),
       })
       const data = await res.json()
 
       if (!res.ok || data.error) {
         setSlotsStatus('error')
+        setSlotsErrorDetail(typeof data.detail === 'string' ? data.detail : null)
         return
       }
 
@@ -148,6 +159,7 @@ export function TicketCheckpointModal({
       }
     } catch {
       setSlotsStatus('error')
+      setSlotsErrorDetail('Request failed — check your network and try again.')
     }
   }
 
@@ -273,6 +285,7 @@ export function TicketCheckpointModal({
                   setAvailableSlots([])
                   setSlotsDate(null)
                   setUsersWithoutGoogle([])
+                  setSlotsErrorDetail(null)
                 }}
                 onRequestClose={() => {}}
               />
@@ -283,9 +296,10 @@ export function TicketCheckpointModal({
             <div className="rounded-lg border border-border p-3">
               <Label className="font-medium leading-snug">Find a time on calendars</Label>
               <p className="text-muted-foreground mt-1 text-sm">
-                Uses assignees’ calendars that are linked in Mosaic for availability. When you pick a slot and
-                create the Meet, Google emails everyone on the ticket (by profile email) — including people who
-                haven’t linked Calendar here.
+                Uses assignees’ calendars that are linked in Mosaic for availability. Suggestions use 6 AM–6 PM on
+                each searched day in your timezone (weekdays first, then your selected day if the scan had no
+                matches). When you pick a slot and create the Meet, Google emails everyone on the ticket (by
+                profile email) — including people who haven’t linked Calendar here.
               </p>
               <Button
                 type="button"
@@ -383,6 +397,9 @@ export function TicketCheckpointModal({
                   <p className="text-destructive text-sm">
                     Could not fetch calendar availability. Try again or use the time you already picked.
                   </p>
+                  {slotsErrorDetail ? (
+                    <p className="text-muted-foreground break-all font-mono text-xs leading-snug">{slotsErrorDetail}</p>
+                  ) : null}
                   {manualCheckpointIso ? (
                     <Button
                       type="button"

@@ -24,10 +24,11 @@ export function addCivilDaysYmd(yyyyMmDd: string, days: number, timeZone: string
   return formatInTimeZone(addDays(civilNoonInstant(yyyyMmDd, timeZone), days), timeZone, 'yyyy-MM-dd')
 }
 
+/** Default window **6:00–18:00** wall time (reasonable “working day” for Meet suggestions). */
 export function workWindowForCivilDay(
   yyyyMmDd: string,
   timeZone: string,
-  workStartHour = 9,
+  workStartHour = 6,
   workEndHour = 18,
 ): { windowStart: Date; windowEnd: Date } {
   return {

@@ -11,4 +11,6 @@ alwaysApply: true
 
 3. **Figma MCP** does not always expose Hug/Fill/Fixed or exact pixels—when in doubt, match the doc and any **layer names** the user uses to flag deviations.
 
+4. **Figma component instances:** For any shared frame, follow **`docs/DESIGN_SYSTEM.md` §7** item **4**—read **Inspect** variant axes and property toggles on instances (e.g. Button **Primary/Small**), not layout alone.
+
 This rule complements **`.cursor/rules/figma-tailwind-tokens.mdc`** (variable → Tailwind mappings). Prefer both for Figma-driven work.

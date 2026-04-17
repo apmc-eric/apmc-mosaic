@@ -18,6 +18,7 @@ import {
 import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { ProfileImage } from '@/components/profile-image'
+import { CategoryTag } from '@/components/category-tag'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { formatProfileLabel } from '@/lib/format-profile'
 import type { Profile, TicketAssigneeRow } from '@/lib/types'
@@ -420,12 +421,9 @@ export function WorksTicketPanelMetadata({
                   {displayCategories.length > 0 ? (
                     <span className="flex max-w-full flex-wrap justify-end gap-1.5">
                       {displayCategories.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex max-w-[6.5rem] items-center justify-center truncate rounded-md border border-neutral-300 px-1.5 py-0.5 text-xs font-medium leading-snug text-foreground dark:border-zinc-600"
-                        >
+                        <CategoryTag key={tag} className="max-w-[6.5rem]" title={tag}>
                           {tag}
-                        </span>
+                        </CategoryTag>
                       ))}
                     </span>
                   ) : (
@@ -439,12 +437,9 @@ export function WorksTicketPanelMetadata({
                 >
                   {displayCategories.length > 0 ? (
                     displayCategories.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center justify-center rounded-md border border-neutral-300 px-1.5 py-1 text-xs font-medium leading-snug text-foreground dark:border-zinc-600"
-                      >
+                      <CategoryTag key={tag} title={tag}>
                         {tag}
-                      </span>
+                      </CategoryTag>
                     ))
                   ) : (
                     <span className="text-xs font-semibold text-foreground">—</span>
@@ -480,12 +475,9 @@ export function WorksTicketPanelMetadata({
           <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
             {displayCategories.length > 0 ? (
               displayCategories.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center justify-center rounded-md border border-neutral-300 px-1.5 py-1 text-xs font-medium leading-snug text-foreground dark:border-zinc-600"
-                >
+                <CategoryTag key={tag} title={tag}>
                   {tag}
-                </span>
+                </CategoryTag>
               ))
             ) : (
               <span className="text-xs font-semibold leading-snug text-foreground">—</span>
