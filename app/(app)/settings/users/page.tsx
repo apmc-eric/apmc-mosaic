@@ -10,11 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { MoreHorizontal, UserX } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ClearableInlineInput } from '@/components/clearable-inline-input'
+import { NumberCount } from '@/components/number-count'
+import { MoreHorizontal, UserX, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
 import type { MosaicRole, Profile, Team, UserTeam } from '@/lib/types'
 import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
+import { cn } from '@/lib/utils'
 
 const supabase = createClient()
 
@@ -26,10 +32,111 @@ function normalizeRole(role: string | undefined | null): MosaicRole {
   return 'designer'
 }
 
-function primaryTeamId(p: Profile): string | null {
-  const fromUt = p.user_teams?.[0]?.team_id
-  if (fromUt) return fromUt
-  return p.team_id ?? null
+const USER_TEAMS_CHIP =
+  'inline-flex h-8 max-w-[min(100%,220px)] shrink-0 items-stretch overflow-hidden rounded-lg border border-neutral-200 bg-white text-sm font-medium shadow-none dark:border-zinc-600 dark:bg-zinc-900'
+
+function teamIdsForUser(p: Profile): string[] {
+  const fromUt = p.user_teams?.map((x) => x.team_id) ?? []
+  if (fromUt.length) return fromUt
+  if (p.team_id) return [p.team_id]
+  return []
+}
+
+function toggleId(ids: string[], id: string): string[] {
+  if (ids.includes(id)) return ids.filter((x) => x !== id)
+  return [...ids, id]
+}
+
+function UserTeamsPicker({
+  user,
+  teams,
+  onCommit,
+}: {
+  user: Profile
+  teams: Team[]
+  onCommit: (userId: string, teamIds: string[]) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+
+  const selectedIds = useMemo(() => teamIdsForUser(user), [user])
+
+  const filtered = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return teams
+    return teams.filter((x) => x.name.toLowerCase().includes(t))
+  }, [teams, q])
+
+  const oneName = selectedIds.length === 1 ? (teams.find((t) => t.id === selectedIds[0])?.name ?? 'Team') : ''
+  const empty = selectedIds.length === 0
+
+  return (
+    <div className={cn(USER_TEAMS_CHIP)}>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o)
+          if (!o) setQ('')
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2.5 text-foreground outline-none transition-colors hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-800/60"
+          >
+            {empty ? (
+              <>
+                <span className="shrink-0 text-muted-foreground">No teams</span>
+                <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+              </>
+            ) : selectedIds.length === 1 ? (
+              <span className="min-w-0 truncate">{oneName}</span>
+            ) : (
+              <>
+                <span className="shrink-0">Teams</span>
+                <NumberCount value={selectedIds.length} className="mx-0.5" />
+              </>
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 p-0" align="start" sideOffset={6}>
+          <ClearableInlineInput
+            aria-label="Search teams"
+            placeholder="Search teams…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onClear={() => setQ('')}
+            className="rounded-t-lg rounded-b-none border-b border-neutral-200 bg-white px-2 dark:border-zinc-600 dark:bg-zinc-900"
+          />
+          <ScrollArea className="max-h-56">
+            <div className="flex flex-col gap-0.5 p-1">
+              {filtered.length === 0 ? (
+                <p className="px-2 py-3 text-sm text-muted-foreground">No teams match.</p>
+              ) : (
+                filtered.map((team) => {
+                  const checked = selectedIds.includes(team.id)
+                  return (
+                    <label
+                      key={team.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm leading-4 hover:bg-accent"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() =>
+                          void onCommit(user.id, toggleId(selectedIds, team.id))
+                        }
+                      />
+                      <span className="truncate">{team.name}</span>
+                    </label>
+                  )
+                })
+              )}
+            </div>
+          </ScrollArea>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
 }
 
 export default function UsersSettingsPage() {
@@ -118,41 +225,45 @@ export default function UsersSettingsPage() {
     toast.success('Role updated')
   }
 
-  const handleTeamChange = async (userId: string, teamId: string | null) => {
+  const handleTeamsChange = async (userId: string, teamIds: string[]) => {
+    const uniqueTeamIds = [...new Set(teamIds)]
     const { error: delErr } = await supabase.from('user_teams').delete().eq('user_id', userId)
     if (delErr) {
-      toast.error(delErr.message || 'Failed to clear team assignment')
+      toast.error(delErr.message || 'Failed to clear team assignments')
       return
     }
 
-    if (teamId) {
-      const { error: insErr } = await supabase.from('user_teams').insert({ user_id: userId, team_id: teamId })
+    if (uniqueTeamIds.length > 0) {
+      const { error: insErr } = await supabase
+        .from('user_teams')
+        .insert(uniqueTeamIds.map((team_id) => ({ user_id: userId, team_id })))
       if (insErr) {
-        toast.error(insErr.message || 'Failed to assign team')
+        toast.error(insErr.message || 'Failed to assign teams')
         return
       }
     }
 
-    const { error: profErr } = await supabase.from('profiles').update({ team_id: teamId }).eq('id', userId)
+    const primary = uniqueTeamIds[0] ?? null
+    const { error: profErr } = await supabase.from('profiles').update({ team_id: primary }).eq('id', userId)
     if (profErr) {
       toast.error(profErr.message || 'Failed to sync profile team')
       return
     }
 
-    const team = teamId ? teams.find((t) => t.id === teamId) : undefined
+    const teamObjs = uniqueTeamIds.map((id) => teams.find((t) => t.id === id)).filter(Boolean) as Team[]
+    const ut: UserTeam[] = teamObjs.map((team) => ({ user_id: userId, team_id: team.id, team }))
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id !== userId) return u
-        const ut: UserTeam[] = teamId && team ? [{ user_id: userId, team_id: teamId, team }] : []
         return {
           ...u,
-          team_id: teamId,
+          team_id: primary,
           user_teams: ut,
-          teams: team ? [team] : [],
+          teams: teamObjs,
         }
       }),
     )
-    toast.success('Team updated')
+    toast.success('Teams updated')
   }
 
   const handleRemoveUser = async (userId: string) => {
@@ -180,7 +291,10 @@ export default function UsersSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Users</CardTitle>
-          <CardDescription>Assign roles, teams, and remove accounts. Uses team membership for project access.</CardDescription>
+          <CardDescription>
+            Assign roles, team memberships (users can belong to multiple teams), and remove accounts. Project access
+            follows team membership on each project.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -192,7 +306,7 @@ export default function UsersSettingsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>User</TableHead>
-                  <TableHead>Team</TableHead>
+                  <TableHead>Teams</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead className="w-[50px]" />
@@ -230,22 +344,7 @@ export default function UsersSettingsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Select
-                        value={primaryTeamId(u) ?? 'none'}
-                        onValueChange={(v) => handleTeamChange(u.id, v === 'none' ? null : v)}
-                      >
-                        <SelectTrigger className="h-8 w-[140px]">
-                          <SelectValue placeholder="No team" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No team</SelectItem>
-                          {teams.map((team) => (
-                            <SelectItem key={team.id} value={team.id}>
-                              {team.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <UserTeamsPicker user={u} teams={teams} onCommit={handleTeamsChange} />
                     </TableCell>
                     <TableCell>
                       <Select value={u.role} onValueChange={(v) => void handleRoleChange(u.id, v as MosaicRole)}>

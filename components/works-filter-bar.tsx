@@ -9,7 +9,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { NumberCount } from '@/components/number-count'
 import { ClearableInput } from '@/components/clearable-input'
 import { ClearableInlineInput } from '@/components/clearable-inline-input'
-import { PopoverMenuItem } from '@/components/popover-menu-item'
 import { DesignerProfileRow } from '@/components/designer-profile-row'
 import type { Profile, Project } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -23,8 +22,9 @@ export type WorksFilterBarProps = {
   searchQuery: string
   onSearchChange: (query: string) => void
   projects: Pick<Project, 'id' | 'name'>[]
-  projectFilter: string | 'all'
-  onProjectFilter: (id: string | 'all') => void
+  /** Empty = all projects (no filter). */
+  selectedProjectIds: string[]
+  onProjectsChange: (next: string[]) => void
   phaseOptions: string[]
   selectedPhases: string[]
   onPhasesChange: (next: string[]) => void
@@ -47,14 +47,14 @@ function norm(s: string) {
 
 /**
  * Works board **FilterBar** (Figma **`369:3718`** — specs from Figma MCP **`get_design_context`**).
- * See **`docs/DESIGN_SYSTEM.md` §6**: designers **first** — **`DesignerProfileRow`** (`369:3452`) inline toggles, **no** popover; **`gap-5`** then chips **`gap-2`**; trailing **`ClearableInput`** (`367:2924`).
+ * See **`docs/DESIGN_SYSTEM.md` §6**: designers **first** — **`DesignerProfileRow`** (`369:3452`) inline toggles, **no** popover; **`gap-5`** then chips (**Projects** / **Phases** / **Categories**, multi-select) **`gap-2`**; trailing **`ClearableInput`** (`367:2924`).
  */
 export function WorksFilterBar({
   searchQuery,
   onSearchChange,
   projects,
-  projectFilter,
-  onProjectFilter,
+  selectedProjectIds,
+  onProjectsChange,
   phaseOptions,
   selectedPhases,
   onPhasesChange,
@@ -69,9 +69,11 @@ export function WorksFilterBar({
   const [catQ, setCatQ] = React.useState('')
   const [projectQ, setProjectQ] = React.useState('')
 
-  const selectedProjectName =
-    projectFilter === 'all' ? 'All projects' : projects.find((p) => p.id === projectFilter)?.name ?? 'Project'
-  const projectOpenDefault = projectFilter === 'all'
+  const firstProjectName =
+    selectedProjectIds.length === 1
+      ? (projects.find((p) => p.id === selectedProjectIds[0])?.name ?? 'Project')
+      : ''
+  const projectsEmpty = selectedProjectIds.length === 0
 
   const phasesFiltered = React.useMemo(() => {
     const q = phaseQ.trim().toLowerCase()
@@ -128,7 +130,7 @@ export function WorksFilterBar({
         </div>
 
         <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
-        {/* Project — single-select: chevron only when “All”; selected → label + X only */}
+        {/* Projects — multi (empty = all), same pattern as Phases / Categories */}
         <div className={cn(FILTER_CHIP, 'max-w-[16rem]')}>
           <Popover onOpenChange={(o) => !o && setProjectQ('')}>
             <PopoverTrigger asChild>
@@ -136,8 +138,19 @@ export function WorksFilterBar({
                 type="button"
                 className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2.5 text-foreground outline-none transition-colors hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-800/60"
               >
-                <span className="truncate">{selectedProjectName}</span>
-                {projectOpenDefault ? <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden /> : null}
+                {projectsEmpty ? (
+                  <>
+                    <span className="shrink-0">Projects</span>
+                    <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+                  </>
+                ) : selectedProjectIds.length === 1 ? (
+                  <span className="min-w-0 truncate">{firstProjectName}</span>
+                ) : (
+                  <>
+                    <span className="shrink-0">Projects</span>
+                    <NumberCount value={selectedProjectIds.length} className="mx-0.5" />
+                  </>
+                )}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start" sideOffset={6}>
@@ -151,41 +164,39 @@ export function WorksFilterBar({
               />
               <ScrollArea className="max-h-56">
                 <div className="flex flex-col gap-0.5 p-1">
-                  <PopoverMenuItem
-                    className="cursor-pointer"
-                    onClick={() => {
-                      onProjectFilter('all')
-                      setProjectQ('')
-                    }}
-                    menuStyle="radio"
-                  >
-                    <span className="font-medium">All projects</span>
-                  </PopoverMenuItem>
-                  {projectsFiltered.map((p) => (
-                    <PopoverMenuItem
-                      key={p.id}
-                      className="cursor-pointer"
-                      menuStyle="radio"
-                      onClick={() => {
-                        onProjectFilter(p.id)
-                        setProjectQ('')
-                      }}
-                    >
-                      <span className="truncate">{p.name}</span>
-                    </PopoverMenuItem>
-                  ))}
+                  {projectsFiltered.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-muted-foreground">No projects match.</p>
+                  ) : (
+                    projectsFiltered.map((p) => {
+                      const checked = selectedProjectIds.includes(p.id)
+                      return (
+                        <label
+                          key={p.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm leading-4 hover:bg-accent"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={() =>
+                              onProjectsChange(toggle(selectedProjectIds, p.id, (a, b) => a === b))
+                            }
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </label>
+                      )
+                    })
+                  )}
                 </div>
               </ScrollArea>
             </PopoverContent>
           </Popover>
-          {!projectOpenDefault ? (
+          {!projectsEmpty ? (
             <button
               type="button"
               className="inline-flex w-8 shrink-0 items-center justify-center border-l border-neutral-200 text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
-              aria-label="Clear project filter"
+              aria-label="Clear project filters"
               onClick={(e) => {
                 e.stopPropagation()
-                onProjectFilter('all')
+                onProjectsChange([])
               }}
             >
               <X className="size-3.5" />
@@ -193,7 +204,7 @@ export function WorksFilterBar({
           ) : null}
         </div>
 
-        {/* Status — multi: chevron only when empty; 1 → label + X; 2+ → NumberCount + X */}
+        {/* Phases — multi: chevron only when empty; 1 → label + X; 2+ → label + NumberCount + X */}
         <div className={cn(FILTER_CHIP)}>
           <Popover onOpenChange={(o) => !o && setPhaseQ('')}>
             <PopoverTrigger asChild>
@@ -203,13 +214,16 @@ export function WorksFilterBar({
               >
                 {statusEmpty ? (
                   <>
-                    <span className="shrink-0">Status</span>
+                    <span className="shrink-0">Phases</span>
                     <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
                   </>
                 ) : selectedPhases.length === 1 ? (
                   <span className="min-w-0 truncate">{firstPhaseLabel}</span>
                 ) : (
-                  <NumberCount value={selectedPhases.length} className="mx-0.5" />
+                  <>
+                    <span className="shrink-0">Phases</span>
+                    <NumberCount value={selectedPhases.length} className="mx-0.5" />
+                  </>
                 )}
               </button>
             </PopoverTrigger>
@@ -249,7 +263,7 @@ export function WorksFilterBar({
             <button
               type="button"
               className="inline-flex w-8 shrink-0 items-center justify-center border-l border-neutral-200 text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
-              aria-label="Clear status filters"
+              aria-label="Clear phase filters"
               onClick={() => onPhasesChange([])}
             >
               <X className="size-3.5" />
@@ -273,7 +287,10 @@ export function WorksFilterBar({
                 ) : selectedCategories.length === 1 ? (
                   <span className="min-w-0 truncate">{firstCategoryLabel}</span>
                 ) : (
-                  <NumberCount value={selectedCategories.length} className="mx-0.5" />
+                  <>
+                    <span className="shrink-0">Categories</span>
+                    <NumberCount value={selectedCategories.length} className="mx-0.5" />
+                  </>
                 )}
               </button>
             </PopoverTrigger>

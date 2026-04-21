@@ -110,7 +110,7 @@ export default function WorksPage() {
   const { profile, isAdmin, workspaceSettings } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [projectFilter, setProjectFilter] = useState<string | 'all'>('all')
+  const [filterProjectIds, setFilterProjectIds] = useState<string[]>([])
   const [filterPhases, setFilterPhases] = useState<string[]>([])
   const [filterCategories, setFilterCategories] = useState<string[]>([])
   const [filterDesignerIds, setFilterDesignerIds] = useState<string[]>([])
@@ -636,7 +636,10 @@ export default function WorksPage() {
   }, [])
 
   const prePhaseFiltered = useMemo(() => {
-    let list = projectFilter === 'all' ? tickets.slice() : tickets.filter((t) => t.project_id === projectFilter)
+    let list =
+      filterProjectIds.length === 0
+        ? tickets.slice()
+        : tickets.filter((t) => filterProjectIds.includes(t.project_id))
     if (filterCategories.length > 0) {
       list = list.filter((t) => {
         const cats =
@@ -659,7 +662,7 @@ export default function WorksPage() {
       })
     }
     return list
-  }, [tickets, projectFilter, filterCategories, filterDesignerIds, filterSearch])
+  }, [tickets, filterProjectIds, filterCategories, filterDesignerIds, filterSearch])
 
   const filtered = useMemo(() => {
     let list = prePhaseFiltered
@@ -902,8 +905,8 @@ export default function WorksPage() {
               searchQuery={filterSearch}
               onSearchChange={setFilterSearch}
               projects={projects}
-              projectFilter={projectFilter}
-              onProjectFilter={setProjectFilter}
+              selectedProjectIds={filterProjectIds}
+              onProjectsChange={setFilterProjectIds}
               phaseOptions={boardStatusPhaseOptions}
               selectedPhases={filterPhases}
               onPhasesChange={setFilterPhases}
