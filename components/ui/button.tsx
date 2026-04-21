@@ -5,6 +5,21 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { NumberCount } from '@/components/number-count'
 import { cn } from '@/lib/utils'
 
+/** Radix `Slot` uses `Children.only` — strip whitespace text nodes so callers can format JSX across lines. */
+function getSingleSlotChild(children: React.ReactNode): React.ReactElement {
+  const nodes = React.Children.toArray(children).filter((node) => {
+    if (typeof node === 'string' || typeof node === 'number') {
+      return String(node).trim() !== ''
+    }
+    return true
+  })
+  const only = nodes[0]
+  if (nodes.length !== 1 || !React.isValidElement(only)) {
+    throw new Error('Button with asChild expects a single React element child.')
+  }
+  return only
+}
+
 const buttonVariants = cva(
   "inline-flex items-center justify-center whitespace-nowrap rounded-[6px] font-sans font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
@@ -74,8 +89,14 @@ function Button({
       className={cn(buttonVariants({ variant, size }), className)}
       {...props}
     >
-      {children}
-      {showCounter ? <NumberCount value={counter} className="ml-0.5" /> : null}
+      {asChild ? (
+        getSingleSlotChild(children)
+      ) : (
+        <>
+          {children}
+          {showCounter ? <NumberCount value={counter} className="ml-0.5" /> : null}
+        </>
+      )}
     </Comp>
   )
 }
