@@ -115,7 +115,7 @@ export function LinkCard({
         </div>
 
         <div className="relative flex w-full min-w-0 items-start gap-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5 font-sans text-xs leading-snug text-foreground">
+          <div className="box-content flex min-w-0 w-full flex-1 flex-col gap-0 font-sans text-xs leading-snug text-foreground">
             <p className="min-w-0 max-w-full truncate py-px font-semibold text-foreground">
               {title}
             </p>
