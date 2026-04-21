@@ -9,8 +9,10 @@ alwaysApply: true
 
 2. **Permanent context:** When the user asks to add something to **permanent context** (rules, memories, standing conventions), **update `docs/DESIGN_SYSTEM.md` in the same change**—add a section or a bullet under **§9 Changelog / notes**. Chat-only memory is not enough; this file is the durable record.
 
-3. **Figma MCP** does not always expose Hug/Fill/Fixed or exact pixels—when in doubt, match the doc and any **layer names** the user uses to flag deviations.
+3. **Figma MCP:** When the **Figma** MCP is available, call **`get_design_context`** (`fileKey` + `nodeId`) before guessing tokens; sync results into **`docs/DESIGN_SYSTEM.md` §6** when contracts change. MCP still may omit Hug/Fill—match **§7** item **4** (instance variants) and layer names when something conflicts.
 
 4. **Figma component instances:** For any shared frame, follow **`docs/DESIGN_SYSTEM.md` §7** item **4**—read **Inspect** variant axes and property toggles on instances (e.g. Button **Primary/Small**), not layout alone.
+
+5. **Figma links:** When emitting or normalizing Figma **design** URLs, append **`m=dev`** (Dev Mode)—see **`docs/DESIGN_SYSTEM.md` §7** item **5**.
 
 This rule complements **`.cursor/rules/figma-tailwind-tokens.mdc`** (variable → Tailwind mappings). Prefer both for Figma-driven work.

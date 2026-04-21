@@ -250,7 +250,14 @@ export default function InspirePage() {
             aria-hidden
             data-name="Spacer"
           />
-          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-center md:justify-between">
+          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-center md:gap-3">
+            <Button
+              className="shrink-0 items-center gap-2 self-start md:self-auto"
+              onClick={() => setShowAddModal(true)}
+            >
+              <Plus className="size-4 shrink-0" aria-hidden />
+              Add Inspo
+            </Button>
             <div
               className="flex flex-wrap items-baseline gap-3"
               data-name="FilterControls"
@@ -270,13 +277,6 @@ export default function InspirePage() {
                 />
               ))}
             </div>
-            <Button
-              className="shrink-0 items-center gap-2 self-end md:self-auto"
-              onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="size-4 shrink-0" aria-hidden />
-              Add Inspo
-            </Button>
           </div>
         </div>
 

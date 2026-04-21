@@ -1,28 +1,77 @@
 'use client'
 
 import * as React from 'react'
-import { CalendarCheck, ChevronDown, Layers, Tags, Users } from 'lucide-react'
+import { CalendarCheck, ChevronDown, CircleUser, Layers, Tags, Undo2, Users } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { ProfileImage } from '@/components/profile-image'
 import { CategoryTag } from '@/components/category-tag'
+import { ClearableInput } from '@/components/clearable-input'
+import { PopoverMenuItem } from '@/components/popover-menu-item'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { formatProfileLabel } from '@/lib/format-profile'
 import type { Profile, TicketAssigneeRow } from '@/lib/types'
 import { cn } from '@/lib/utils'
+
+function assignIdSetsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false
+  for (const id of a) if (!b.has(id)) return false
+  return true
+}
+
+/** Lead = first id in **`pickOrder`** that is still in **`assigned`** (check order), not list order. */
+function pickLeadFromPickOrder(pickOrder: string[], assigned: Set<string>): string {
+  for (const id of pickOrder) {
+    if (assigned.has(id)) return id
+  }
+  const [first] = [...assigned]
+  return first ?? ''
+}
+
+function supportIdsFromPickOrder(pickOrder: string[], assigned: Set<string>, leadId: string): string[] {
+  const ordered = pickOrder.filter((id) => assigned.has(id) && id !== leadId)
+  for (const id of assigned) {
+    if (id !== leadId && !ordered.includes(id)) ordered.push(id)
+  }
+  return ordered
+}
+
+function buildInitialAssignState(rows: TicketAssigneeRow[] | undefined): { ids: Set<string>; order: string[] } {
+  const ids = new Set<string>()
+  const order: string[] = []
+  if (!rows?.length) return { ids, order }
+  const lead = rows.find((a) => a.role === 'lead')
+  if (lead) {
+    ids.add(lead.user_id)
+    order.push(lead.user_id)
+  }
+  for (const a of rows) {
+    if (a.role !== 'support') continue
+    if (ids.has(a.user_id)) continue
+    ids.add(a.user_id)
+    order.push(a.user_id)
+  }
+  return { ids, order }
+}
+
+function assignDraftMatchesBaseline(
+  ids: Set<string>,
+  pickOrder: string[],
+  baselineIds: Set<string>,
+  baselineOrder: string[],
+): boolean {
+  if (!assignIdSetsEqual(ids, baselineIds)) return false
+  return (
+    pickLeadFromPickOrder(pickOrder, ids) === pickLeadFromPickOrder(baselineOrder, baselineIds)
+  )
+}
 
 function parseCategoryCsv(raw: string | null): Set<string> {
   const s = new Set<string>()
@@ -48,7 +97,7 @@ export type WorksTicketPanelMetadataProps = {
   designerAssignees?: TicketAssigneeRow[]
   /** Workspace profiles for the designer picker (with **`onAssigneesCommit`**). */
   assigneePickerDesigners?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>[]
-  /** Save lead + support assignees (same semantics as ticket detail page). */
+  /** Save lead + support assignees when the assign popover **closes** if the selection changed; **throws** on failure (popover stays open). */
   onAssigneesCommit?: (leadUserId: string, supportUserIds: string[]) => Promise<void>
   assigneeSaving?: boolean
   /** Hide the **Next Checkpoint** row (checkpoint lives in **TicketCheckpointIndicator**). */
@@ -99,8 +148,14 @@ export function WorksTicketPanelMetadata({
   const [catOpen, setCatOpen] = React.useState(false)
   const [catDraft, setCatDraft] = React.useState(() => parseCategoryCsv(teamCategory))
   const [assignOpen, setAssignOpen] = React.useState(false)
-  const [leadDraft, setLeadDraft] = React.useState('')
-  const [supportDraft, setSupportDraft] = React.useState<Set<string>>(() => new Set())
+  const [assignSearchQ, setAssignSearchQ] = React.useState('')
+  /** Checked designer ids in the assign popover. */
+  const [assignedIds, setAssignedIds] = React.useState<Set<string>>(() => new Set())
+  /** Order the user **checked** designers (first checked = lead). */
+  const [assignPickOrder, setAssignPickOrder] = React.useState<string[]>([])
+  /** Snapshot when the assign popover opens — commit on close only if draft differs. */
+  const assignBaselineIdsRef = React.useRef<Set<string>>(new Set())
+  const assignBaselineOrderRef = React.useRef<string[]>([])
 
   const assigneeSyncKey = React.useMemo(
     () =>
@@ -113,12 +168,84 @@ export function WorksTicketPanelMetadata({
 
   React.useEffect(() => {
     if (!assignOpen) return
-    const lead = designerAssignees?.find((a) => a.role === 'lead')
-    setLeadDraft(lead?.user_id ?? '')
-    setSupportDraft(
-      new Set(designerAssignees?.filter((a) => a.role === 'support').map((a) => a.user_id) ?? []),
-    )
+    const { ids, order } = buildInitialAssignState(designerAssignees)
+    setAssignedIds(ids)
+    setAssignPickOrder(order)
+    assignBaselineIdsRef.current = new Set(ids)
+    assignBaselineOrderRef.current = [...order]
   }, [assignOpen, assigneeSyncKey, designerAssignees])
+
+  React.useEffect(() => {
+    if (!assignOpen) setAssignSearchQ('')
+  }, [assignOpen])
+
+  const assignPickerVisible = React.useMemo(() => {
+    const base = assigneePickerDesigners ?? []
+    const q = assignSearchQ.trim().toLowerCase()
+    if (!q) return base
+    const hit = base.filter((d) => {
+      const label = (formatProfileLabel(d) ?? d.email ?? '').toLowerCase()
+      return label.includes(q) || d.email.toLowerCase().includes(q)
+    })
+    const extras = base.filter((d) => assignedIds.has(d.id) && !hit.some((h) => h.id === d.id))
+    return [...extras, ...hit]
+  }, [assigneePickerDesigners, assignSearchQ, assignedIds])
+
+  const assignLeadId = React.useMemo(
+    () => pickLeadFromPickOrder(assignPickOrder, assignedIds),
+    [assignPickOrder, assignedIds],
+  )
+
+  const restoreAssignDraftFromBaseline = React.useCallback(() => {
+    setAssignedIds(new Set(assignBaselineIdsRef.current))
+    setAssignPickOrder([...assignBaselineOrderRef.current])
+  }, [])
+
+  /** Clear all checkboxes (reassign from scratch); closing with none still restores saved assignees. */
+  const clearAssignSelections = React.useCallback(() => {
+    setAssignedIds(new Set())
+    setAssignPickOrder([])
+  }, [])
+
+  const handleAssignOpenChange = React.useCallback(
+    (next: boolean) => {
+      if (next) {
+        setAssignOpen(true)
+        return
+      }
+      if (!onAssigneesCommit) {
+        setAssignOpen(false)
+        return
+      }
+      if (assignedIds.size === 0) {
+        restoreAssignDraftFromBaseline()
+        setAssignOpen(false)
+        return
+      }
+      const lead = pickLeadFromPickOrder(assignPickOrder, assignedIds)
+      const support = supportIdsFromPickOrder(assignPickOrder, assignedIds, lead)
+      if (
+        assignDraftMatchesBaseline(
+          assignedIds,
+          assignPickOrder,
+          assignBaselineIdsRef.current,
+          assignBaselineOrderRef.current,
+        )
+      ) {
+        setAssignOpen(false)
+        return
+      }
+      void (async () => {
+        try {
+          await onAssigneesCommit(lead, support)
+          setAssignOpen(false)
+        } catch {
+          /* `savePanelAssignees` toasts; keep popover open with draft selection */
+        }
+      })()
+    },
+    [assignPickOrder, assignedIds, onAssigneesCommit, restoreAssignDraftFromBaseline],
+  )
 
   React.useEffect(() => {
     if (catOpen) setCatDraft(parseCategoryCsv(teamCategory))
@@ -143,9 +270,15 @@ export function WorksTicketPanelMetadata({
     return s.size > 0 ? [...s].sort() : []
   }, [teamCategory])
 
+  const driAssignee = React.useMemo(
+    () => designerAssignees?.find((a) => a.role === 'lead'),
+    [designerAssignees],
+  )
+
   return (
     <div className="flex w-full flex-col" data-name="Metadata" data-node-id="227:3402">
       {designerAssignees !== undefined ? (
+        <>
         <div
           className={cn(
             'flex w-full items-center justify-between gap-2 border-t border-slate-200 dark:border-zinc-700',
@@ -157,7 +290,7 @@ export function WorksTicketPanelMetadata({
             <span className={cn('font-medium leading-snug text-neutral-500', labelClass)}>Designer(s)</span>
           </div>
           {canEdit && onAssigneesCommit && assigneePickerDesigners && assigneePickerDesigners.length > 0 ? (
-            <Popover open={assignOpen} onOpenChange={setAssignOpen}>
+            <Popover open={assignOpen} onOpenChange={handleAssignOpenChange}>
               <PopoverTrigger asChild>
                 <button
                   type="button"
@@ -185,68 +318,87 @@ export function WorksTicketPanelMetadata({
                   <ChevronDown className="size-4 shrink-0 text-neutral-500 opacity-70" aria-hidden />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 space-y-3 p-3">
-                <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wide">
-                  Assign designers
-                </p>
-                <div>
-                  <Label className="text-xs">Lead designer</Label>
-                  <Select value={leadDraft} onValueChange={setLeadDraft}>
-                    <SelectTrigger className="mt-1 h-9">
-                      <SelectValue placeholder="Select lead" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {assigneePickerDesigners.map((d) => (
-                        <SelectItem key={d.id} value={d.id}>
-                          {formatProfileLabel(d)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <PopoverContent
+                align="end"
+                sideOffset={6}
+                className="w-[180px] max-w-[180px] overflow-hidden rounded-[10px] border border-neutral-200 bg-white p-0 shadow-md dark:border-zinc-600 dark:bg-zinc-900"
+                data-node-id="369:6867"
+              >
+                <div className="border-b border-neutral-200 px-1 py-0.5 dark:border-zinc-600">
+                  <ClearableInput
+                    variant="ghost"
+                    aria-label="Search designers"
+                    placeholder="Search here..."
+                    value={assignSearchQ}
+                    onChange={(e) => setAssignSearchQ(e.target.value)}
+                    onClear={() => setAssignSearchQ('')}
+                    className="w-full min-w-0 max-w-none"
+                  />
                 </div>
-                <div>
-                  <Label className="text-xs">Support designers</Label>
-                  <ScrollArea className="mt-1 h-32 rounded-md border border-border p-2">
-                    <ul className="space-y-2 pr-2">
-                      {assigneePickerDesigners
-                        .filter((d) => d.id !== leadDraft)
-                        .map((d) => (
-                          <li key={d.id} className="flex items-center gap-2">
+                <ScrollArea className="max-h-64">
+                  <ul className="space-y-0.5 p-1" role="listbox" aria-label="Designers on this ticket">
+                    {assignPickerVisible.map((d) => (
+                      <li key={d.id}>
+                        <label className="flex w-full cursor-pointer items-center gap-3 rounded-sm px-2.5 py-1.5 text-xs font-medium leading-none hover:bg-accent">
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
                             <Checkbox
-                              id={`works-meta-support-${d.id}`}
-                              checked={supportDraft.has(d.id)}
+                              id={`works-meta-assign-${d.id}`}
+                              checked={assignedIds.has(d.id)}
+                              disabled={assigneeSaving}
                               onCheckedChange={(c) => {
-                                setSupportDraft((prev) => {
-                                  const next = new Set(prev)
-                                  if (c === true) next.add(d.id)
-                                  else next.delete(d.id)
-                                  return next
-                                })
+                                if (c === true) {
+                                  setAssignedIds((prev) => new Set(prev).add(d.id))
+                                  setAssignPickOrder((prev) => (prev.includes(d.id) ? prev : [...prev, d.id]))
+                                } else {
+                                  setAssignedIds((prev) => {
+                                    const next = new Set(prev)
+                                    next.delete(d.id)
+                                    return next
+                                  })
+                                  setAssignPickOrder((prev) => prev.filter((id) => id !== d.id))
+                                }
                               }}
                             />
-                            <Label
-                              htmlFor={`works-meta-support-${d.id}`}
-                              className="flex-1 cursor-pointer text-sm font-normal"
-                            >
-                              {formatProfileLabel(d)}
-                            </Label>
-                          </li>
-                        ))}
-                    </ul>
-                  </ScrollArea>
-                </div>
-                <Button
-                  type="button"
-                  size="small"
-                  className="w-full"
-                  disabled={assigneeSaving || !leadDraft}
-                  onClick={() => {
-                    const support = [...supportDraft].filter((id) => id !== leadDraft)
-                    void onAssigneesCommit(leadDraft, support).then(() => setAssignOpen(false))
-                  }}
+                            <span className="min-w-0 flex-1 truncate">{formatProfileLabel(d)}</span>
+                          </span>
+                          {assignedIds.has(d.id) && d.id === assignLeadId ? (
+                            <span className="shrink-0 text-[10px] font-medium leading-none text-neutral-500 dark:text-zinc-400">
+                              Lead
+                            </span>
+                          ) : null}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollArea>
+                <div
+                  className="border-t border-neutral-200 p-1 dark:border-zinc-600"
+                  data-node-id="369:6861"
                 >
-                  {assigneeSaving ? 'Saving…' : 'Save assignees'}
-                </Button>
+                  <PopoverMenuItem
+                    role="button"
+                    tabIndex={0}
+                    menuStyle="default"
+                    className={cn(
+                      'cursor-pointer px-2.5 text-xs font-medium text-neutral-600 hover:text-foreground dark:text-zinc-400',
+                      assigneeSaving && 'pointer-events-none opacity-50',
+                    )}
+                    onClick={() => {
+                      if (assigneeSaving) return
+                      clearAssignSelections()
+                    }}
+                    onKeyDown={(e) => {
+                      if (assigneeSaving) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        clearAssignSelections()
+                      }
+                    }}
+                  >
+                    <Undo2 className="size-3.5 shrink-0 opacity-80" aria-hidden />
+                    <span className="min-w-0 flex-1 text-left">Reset Selections</span>
+                  </PopoverMenuItem>
+                </div>
               </PopoverContent>
             </Popover>
           ) : designerAssignees.length > 0 ? (
@@ -268,6 +420,73 @@ export function WorksTicketPanelMetadata({
             <span className="text-xs font-semibold leading-snug text-foreground">—</span>
           )}
         </div>
+
+        <div
+          className={cn(
+            'flex w-full items-center justify-between gap-2 border-t border-slate-200 dark:border-zinc-700',
+            rowPad,
+          )}
+        >
+          <div className="flex min-h-7 items-center gap-2 py-px">
+            <CircleUser className="size-4 shrink-0 text-neutral-500" aria-hidden />
+            <span className={cn('font-medium leading-snug text-neutral-500', labelClass)}>Directly responsible</span>
+          </div>
+          {canEdit && onAssigneesCommit && assigneePickerDesigners && assigneePickerDesigners.length > 0 ? (
+            <button
+              type="button"
+              className="flex max-w-[min(100%,16rem)] cursor-pointer items-center gap-1.5 rounded-md py-1 pl-1 pr-0.5 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+              aria-label="Edit directly responsible individual"
+              onClick={() => handleAssignOpenChange(true)}
+            >
+              {driAssignee?.profile ? (
+                <>
+                  <ProfileImage
+                    pathname={driAssignee.profile.avatar_url}
+                    alt={formatProfileLabel(driAssignee.profile) ?? 'DRI'}
+                    size="figma-md"
+                    className="size-6 shrink-0 ring-2 ring-white dark:ring-zinc-950"
+                    fallback={
+                      (driAssignee.profile.first_name?.[0] ??
+                        driAssignee.profile.email?.[0] ??
+                        '?').toUpperCase()
+                    }
+                    profile={driAssignee.profile}
+                    viewerTimeZone={displayTimeZone}
+                  />
+                  <span className="truncate text-xs font-semibold leading-snug text-foreground">
+                    {formatProfileLabel(driAssignee.profile)}
+                  </span>
+                  <ChevronDown className="size-4 shrink-0 text-neutral-500 opacity-70" aria-hidden />
+                </>
+              ) : (
+                <>
+                  <span className="text-xs font-semibold leading-snug text-foreground">—</span>
+                  <ChevronDown className="size-4 shrink-0 text-neutral-500 opacity-70" aria-hidden />
+                </>
+              )}
+            </button>
+          ) : driAssignee?.profile ? (
+            <div className="flex min-w-0 items-center gap-1.5 pr-1">
+              <ProfileImage
+                pathname={driAssignee.profile.avatar_url}
+                alt={formatProfileLabel(driAssignee.profile) ?? 'DRI'}
+                size="figma-md"
+                className="size-6 shrink-0"
+                fallback={
+                  (driAssignee.profile.first_name?.[0] ?? driAssignee.profile.email?.[0] ?? '?').toUpperCase()
+                }
+                profile={driAssignee.profile}
+                viewerTimeZone={displayTimeZone}
+              />
+              <span className="truncate text-xs font-semibold leading-snug text-foreground">
+                {formatProfileLabel(driAssignee.profile)}
+              </span>
+            </div>
+          ) : (
+            <span className="text-xs font-semibold leading-snug text-foreground">—</span>
+          )}
+        </div>
+        </>
       ) : null}
 
       {!hideCheckpointRow ? (

@@ -22,6 +22,12 @@ const profileImageVariants = cva(
         lg: 'size-10',
         xl: 'size-12',
         '2xl': 'size-20',
+        /** Figma **ProfileImage** `199:894` — **Small** **20×20**. */
+        'figma-sm': 'size-5',
+        /** Figma **Medium** **24×24**. */
+        'figma-md': 'size-6',
+        /** Figma **Large** **32×32** (same box as legacy **`md`**). */
+        'figma-lg': 'size-8',
       },
     },
     defaultVariants: {
@@ -41,6 +47,9 @@ const profileImageFallbackVariants = cva(
         lg: 'text-sm',
         xl: 'text-base',
         '2xl': 'text-2xl',
+        'figma-sm': 'text-[0.5625rem] font-medium leading-none',
+        'figma-md': 'text-[0.625rem] font-medium leading-none',
+        'figma-lg': 'text-xs font-medium leading-none',
       },
     },
     defaultVariants: {

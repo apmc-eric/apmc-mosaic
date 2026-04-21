@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { isCheckpointJoinWindowActive } from '@/lib/checkpoint-meeting-ui'
+import { isCompletedPhaseLabel } from '@/lib/mosaic-project-phases'
 import { cn } from '@/lib/utils'
 
 export type TicketCheckpointIndicatorStatus = 'MeetingLink' | 'NoMeetingLink'
@@ -29,8 +30,12 @@ export type TicketCheckpointIndicatorProps = {
   onCheckpointCommit: (iso: string | null) => Promise<void>
   /** Opens the existing “Complete checkpoint” modal (schedule / phase). */
   onCompleteCheckpoint: () => void
+  /** Optional — opens **Pause Request** flow (phase → **Paused** + reason). */
+  onPauseRequest?: () => void
   /** IANA zone for labels and the datetime picker (viewer / profile). */
   displayTimeZone?: string | null
+  /** When **Completed**, **Complete Checkpoint** is hidden (that transition is only via the checkpoint modal from **Build**). */
+  phase?: string | null
   className?: string
 }
 
@@ -57,7 +62,9 @@ export function TicketCheckpointIndicator({
   canEdit,
   onCheckpointCommit,
   onCompleteCheckpoint,
+  onPauseRequest,
   displayTimeZone,
+  phase = null,
   className,
 }: TicketCheckpointIndicatorProps) {
   const [pickerOpen, setPickerOpen] = React.useState(false)
@@ -88,6 +95,7 @@ export function TicketCheckpointIndicator({
   }, [meet])
 
   const label = formatTicketCheckpointLabel(checkpointDate, displayTimeZone)
+  const hideCompleteCheckpoint = isCompletedPhaseLabel(phase)
 
   /** No checkpoint scheduled yet — marketing / audit row + schedule only. */
   if (!hasCheckpoint) {
@@ -228,7 +236,7 @@ export function TicketCheckpointIndicator({
             <Video className="size-3.5 shrink-0" aria-hidden />
             Join Meeting
           </Button>
-        ) : (
+        ) : hideCompleteCheckpoint ? null : (
           <Button
             type="button"
             variant="default"
@@ -256,12 +264,19 @@ export function TicketCheckpointIndicator({
           <DropdownMenuContent align="end" className="min-w-[12rem]">
             {status === 'MeetingLink' ? (
               <>
-                <DropdownMenuItem onSelect={() => setTimeout(() => onCompleteCheckpoint(), 0)}>
-                  Complete Checkpoint
-                </DropdownMenuItem>
+                {!hideCompleteCheckpoint ? (
+                  <DropdownMenuItem onSelect={() => setTimeout(() => onCompleteCheckpoint(), 0)}>
+                    Complete Checkpoint
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem onSelect={() => setTimeout(() => openReschedulePicker(), 0)}>
                   Reschedule Checkpoint
                 </DropdownMenuItem>
+                {onPauseRequest ? (
+                  <DropdownMenuItem onSelect={() => setTimeout(() => onPauseRequest(), 0)}>
+                    Pause Request
+                  </DropdownMenuItem>
+                ) : null}
               </>
             ) : (
               <>
@@ -271,6 +286,11 @@ export function TicketCheckpointIndicator({
                 <DropdownMenuItem onSelect={() => setTimeout(() => openReschedulePicker(), 0)}>
                   Reschedule Checkpoint
                 </DropdownMenuItem>
+                {onPauseRequest ? (
+                  <DropdownMenuItem onSelect={() => setTimeout(() => onPauseRequest(), 0)}>
+                    Pause Request
+                  </DropdownMenuItem>
+                ) : null}
               </>
             )}
           </DropdownMenuContent>

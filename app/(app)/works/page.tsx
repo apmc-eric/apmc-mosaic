@@ -14,7 +14,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { FilterBadge } from '@/components/filter-badge'
+import { WorksFilterBar } from '@/components/works-filter-bar'
+import { TicketPauseModal } from '@/components/ticket-pause-modal'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { ContextLink } from '@/components/context-link'
 import { HorizontalScrollFade } from '@/components/horizontal-scroll-fade'
@@ -33,7 +34,15 @@ import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
 import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
 import type { Project, Profile, Ticket, TicketComment } from '@/lib/types'
 import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
-import { phaseOptionsForProject, phaseSelectOptions } from '@/lib/mosaic-project-phases'
+import {
+  COMPLETED_PHASE_LABEL,
+  isCompletedPhaseLabel,
+  isPausedPhaseLabel,
+  orderedPhasesForCheckpointAdvance,
+  PAUSED_PHASE_LABEL,
+  phaseOptionsForProject,
+  phaseSelectOptions,
+} from '@/lib/mosaic-project-phases'
 import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
 import {
   endOfWeekSunday,
@@ -49,6 +58,18 @@ import { toast } from 'sonner'
 const supabase = createClient()
 
 type Bucket = 'this_week' | 'next_week' | 'later' | 'backlog'
+
+/** Checkpoint datetime is strictly before now (deadline passed). */
+function isPassedCheckpoint(checkpoint: string | null): boolean {
+  if (!checkpoint) return false
+  try {
+    const d = parseISO(checkpoint)
+    if (Number.isNaN(d.getTime())) return false
+    return d.getTime() < Date.now()
+  } catch {
+    return false
+  }
+}
 
 function checkpointBucket(checkpoint: string | null): Bucket {
   if (!checkpoint) return 'backlog'
@@ -73,11 +94,29 @@ function isTriagePhase(t: Pick<Ticket, 'phase'>): boolean {
   return t.phase?.trim().toLowerCase() === 'triage'
 }
 
+function normPhase(s: string) {
+  return s.trim().toLowerCase()
+}
+
+/** **Completed** in Status list, before **Paused** (for Works filter bar only). */
+function insertCompletedBeforePausedForStatus(phases: string[]): string[] {
+  if (phases.some((p) => normPhase(p) === normPhase(COMPLETED_PHASE_LABEL))) return phases
+  const pi = phases.findIndex((p) => normPhase(p) === normPhase(PAUSED_PHASE_LABEL))
+  if (pi === -1) return [...phases, COMPLETED_PHASE_LABEL]
+  return [...phases.slice(0, pi), COMPLETED_PHASE_LABEL, ...phases.slice(pi)]
+}
+
 export default function WorksPage() {
   const { profile, isAdmin, workspaceSettings } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [projectFilter, setProjectFilter] = useState<string | 'all'>('all')
+  const [filterPhases, setFilterPhases] = useState<string[]>([])
+  const [filterCategories, setFilterCategories] = useState<string[]>([])
+  const [filterDesignerIds, setFilterDesignerIds] = useState<string[]>([])
+  const [filterSearch, setFilterSearch] = useState('')
+  const [pauseModalOpen, setPauseModalOpen] = useState(false)
+  const [pauseBusy, setPauseBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
   const [panelComments, setPanelComments] = useState<TicketComment[]>([])
@@ -89,7 +128,7 @@ export default function WorksPage() {
   const [panelCommentDraft, setPanelCommentDraft] = useState('')
   const [commentPosting, setCommentPosting] = useState(false)
   const [workspaceDesigners, setWorkspaceDesigners] = useState<
-    Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>[]
+    Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'>[]
   >([])
   const [assigneeSaving, setAssigneeSaving] = useState(false)
   const panelCommentTaRef = useRef<HTMLTextAreaElement>(null)
@@ -155,15 +194,25 @@ export default function WorksPage() {
     void load()
   }, [load])
 
+  /** Default designer filter: self for **designer** role when the list is still empty (first load). */
+  useEffect(() => {
+    if (!profile?.id) return
+    if (profile.role !== 'designer') return
+    setFilterDesignerIds((prev) => (prev.length === 0 ? [profile.id] : prev))
+  }, [profile?.id, profile.role])
+
   useEffect(() => {
     void supabase
       .from('profiles')
-      .select('id, first_name, last_name, name, email, role')
+      .select('id, first_name, last_name, name, email, role, avatar_url')
       .eq('is_active', true)
       .in('role', ['admin', 'designer', 'collaborator', 'guest', 'user', 'member'])
       .order('first_name', { ascending: true })
       .then(({ data }) => {
-        if (data) setWorkspaceDesigners(data as Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role'>[])
+        if (data)
+          setWorkspaceDesigners(
+            data as Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'>[],
+          )
       })
   }, [])
 
@@ -271,6 +320,8 @@ export default function WorksPage() {
                   name: profile.name ?? null,
                   avatar_url: profile.avatar_url,
                   role: profile.role,
+                  email: profile.email,
+                  timezone: profile.timezone ?? null,
                 },
               }
         setPanelComments((c) => [...c, withProfile])
@@ -309,6 +360,31 @@ export default function WorksPage() {
     [panelTicket?.phase]
   )
 
+  const panelCheckpointOrderedPhases = useMemo(
+    () => orderedPhasesForCheckpointAdvance(panelOrderedPhases),
+    [panelOrderedPhases],
+  )
+
+  const boardPhaseOptions = useMemo(
+    () => phaseOptionsForProject(undefined, workspaceSettings?.phase_label_sets ?? {}),
+    [workspaceSettings?.phase_label_sets],
+  )
+
+  /** Status popover: pipeline + **Paused** + **Completed**; **Triage** only for admins. */
+  const boardStatusPhaseOptions = useMemo(() => {
+    let opts = insertCompletedBeforePausedForStatus(boardPhaseOptions)
+    if (!isAdmin) opts = opts.filter((p) => normPhase(p) !== 'triage')
+    return opts
+  }, [boardPhaseOptions, isAdmin])
+
+  useEffect(() => {
+    if (isAdmin) return
+    setFilterPhases((prev) => {
+      const next = prev.filter((p) => normPhase(p) !== 'triage')
+      return next.length === prev.length ? prev : next
+    })
+  }, [isAdmin])
+
   const deletePanelComment = useCallback(
     async (commentId: string) => {
       const { error } = await supabase.from('ticket_comments').delete().eq('id', commentId)
@@ -340,6 +416,61 @@ export default function WorksPage() {
     setTickets((list) => list.map((t) => (t.id === id ? { ...t, ...patch, updated_at: updatedAt } : t)))
     setPanelTicket((p) => (p?.id === id ? { ...p, ...patch, updated_at: updatedAt } : p))
   }, [])
+
+  const submitPauseRequest = useCallback(
+    async (reason: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const body = `Paused — ${reason.trim()}`
+      setPauseBusy(true)
+      try {
+        const prev = panelTicket.phase
+        const { error: upErr } = await supabase
+          .from('tickets')
+          .update({ phase: PAUSED_PHASE_LABEL, updated_at: new Date().toISOString() })
+          .eq('id', panelTicket.id)
+        if (upErr) {
+          toast.error('Could not update phase')
+          return
+        }
+        patchPanelTicket(panelTicket.id, { phase: PAUSED_PHASE_LABEL })
+        await panelLogChange('phase', prev, PAUSED_PHASE_LABEL)
+        const { data: row, error: cErr } = await supabase
+          .from('ticket_comments')
+          .insert({ ticket_id: panelTicket.id, author_id: profile.id, body })
+          .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
+          .single()
+        if (cErr) {
+          console.error(cErr)
+          toast.error('Phase updated but comment failed to save')
+        } else if (row) {
+          const typed = row as TicketComment
+          const withProfile: TicketComment =
+            typed.profile != null
+              ? typed
+              : {
+                  ...typed,
+                  profile: {
+                    id: profile.id,
+                    first_name: profile.first_name,
+                    last_name: profile.last_name,
+                    name: profile.name ?? null,
+                    avatar_url: profile.avatar_url,
+                    role: profile.role,
+                    email: profile.email,
+                    timezone: profile.timezone ?? null,
+                  },
+                }
+          setPanelComments((c) => [...c, withProfile])
+        }
+        toast.success('Ticket moved to Paused')
+        setPauseModalOpen(false)
+        void load()
+      } finally {
+        setPauseBusy(false)
+      }
+    },
+    [profile?.id, panelTicket, panelLogChange, patchPanelTicket, load],
+  )
 
   const savePanelTitle = useCallback(
     async (nextTitle: string) => {
@@ -410,7 +541,7 @@ export default function WorksPage() {
     async (leadUserId: string, supportUserIds: string[]) => {
       if (!profile?.id || !panelTicket?.id || !leadUserId) {
         toast.error('Choose a lead designer')
-        return
+        throw new Error('missing lead')
       }
       setAssigneeSaving(true)
       try {
@@ -418,7 +549,7 @@ export default function WorksPage() {
         if (delErr) {
           console.error(delErr)
           toast.error('Could not update assignees')
-          return
+          throw new Error(delErr.message)
         }
         const support = supportUserIds.filter((uid) => uid !== leadUserId)
         const rows = [
@@ -430,7 +561,7 @@ export default function WorksPage() {
           console.error(insErr)
           toast.error(insErr.message || 'Could not save assignees')
           void load()
-          return
+          throw new Error(insErr.message)
         }
         const prev =
           panelTicket.assignees
@@ -504,31 +635,92 @@ export default function WorksPage() {
     }
   }, [])
 
-  const projectCounts = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const t of tickets) {
-      if (t.project_id) m.set(t.project_id, (m.get(t.project_id) ?? 0) + 1)
+  const prePhaseFiltered = useMemo(() => {
+    let list = projectFilter === 'all' ? tickets.slice() : tickets.filter((t) => t.project_id === projectFilter)
+    if (filterCategories.length > 0) {
+      list = list.filter((t) => {
+        const cats =
+          t.team_category
+            ?.split(/[,;]/)
+            .map((s) => s.trim())
+            .filter(Boolean) ?? []
+        return filterCategories.some((c) => cats.includes(c))
+      })
     }
-    return m
-  }, [tickets])
+    if (filterDesignerIds.length > 0) {
+      list = list.filter((t) => (t.assignees ?? []).some((a) => filterDesignerIds.includes(a.user_id)))
+    }
+    const q = filterSearch.trim().toLowerCase()
+    if (q) {
+      list = list.filter((t) => {
+        const title = (t.title ?? '').toLowerCase()
+        const tid = (t.ticket_id ?? '').toLowerCase()
+        return title.includes(q) || tid.includes(q)
+      })
+    }
+    return list
+  }, [tickets, projectFilter, filterCategories, filterDesignerIds, filterSearch])
 
   const filtered = useMemo(() => {
-    if (projectFilter === 'all') return tickets
-    return tickets.filter((t) => t.project_id === projectFilter)
-  }, [tickets, projectFilter])
+    let list = prePhaseFiltered
+    if (filterPhases.length > 0) {
+      list = list.filter((t) =>
+        filterPhases.some((p) => p.trim().toLowerCase() === (t.phase ?? '').trim().toLowerCase()),
+      )
+    } else {
+      list = list.filter((t) => !isCompletedPhaseLabel(t.phase))
+    }
+    return list
+  }, [prePhaseFiltered, filterPhases])
+
+  /** Week / Needs Update / Paused — never lists **Completed** here (dedicated row when Status includes **Completed**). */
+  const filteredForTimeline = useMemo(
+    () => filtered.filter((t) => !isCompletedPhaseLabel(t.phase)),
+    [filtered],
+  )
+
+  const completedSectionTickets = useMemo(() => {
+    if (!filterPhases.some((p) => isCompletedPhaseLabel(p))) return [] as Ticket[]
+    const list = prePhaseFiltered.filter((t) => isCompletedPhaseLabel(t.phase))
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [filterPhases, prePhaseFiltered])
 
   /** Admins see **Triage** tickets only under **Needs Review**; they are omitted from week/backlog columns to avoid duplicates. */
   const ticketsForTimeBuckets = useMemo(() => {
-    if (!isAdmin) return filtered
-    return filtered.filter((t) => !isTriagePhase(t))
-  }, [isAdmin, filtered])
+    const sansPaused = filteredForTimeline.filter((t) => !isPausedPhaseLabel(t.phase))
+    if (!isAdmin) return sansPaused
+    return sansPaused.filter((t) => !isTriagePhase(t))
+  }, [isAdmin, filteredForTimeline])
 
   const needsReviewSorted = useMemo(() => {
     if (!isAdmin) return [] as Ticket[]
-    const list = filtered.filter(isTriagePhase)
+    const list = filteredForTimeline.filter((t) => isTriagePhase(t) && !isPausedPhaseLabel(t.phase))
     list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     return list
-  }, [isAdmin, filtered])
+  }, [isAdmin, filteredForTimeline])
+
+  const pausedSorted = useMemo(() => {
+    const list = filteredForTimeline.filter((t) => isPausedPhaseLabel(t.phase))
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [filteredForTimeline])
+
+  const ticketsForWeekBuckets = useMemo(
+    () => ticketsForTimeBuckets.filter((t) => !isPassedCheckpoint(t.checkpoint_date)),
+    [ticketsForTimeBuckets],
+  )
+
+  const needsUpdateSorted = useMemo(() => {
+    const list = ticketsForTimeBuckets.filter((t) => isPassedCheckpoint(t.checkpoint_date))
+    list.sort((a, b) => {
+      const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : 0
+      const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : 0
+      if (ta !== tb) return ta - tb
+      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    })
+    return list
+  }, [ticketsForTimeBuckets])
 
   const byBucket = useMemo(() => {
     const b: Record<Bucket, Ticket[]> = {
@@ -537,11 +729,11 @@ export default function WorksPage() {
       later: [],
       backlog: [],
     }
-    for (const t of ticketsForTimeBuckets) {
+    for (const t of ticketsForWeekBuckets) {
       b[checkpointBucket(t.checkpoint_date)].push(t)
     }
     return b
-  }, [ticketsForTimeBuckets])
+  }, [ticketsForWeekBuckets])
 
   const scheduleLabels = useMemo(() => {
     const now = new Date()
@@ -582,6 +774,28 @@ export default function WorksPage() {
     list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     return list
   }, [byBucket])
+
+  const boardShowsNoTicketCards = useMemo(() => {
+    if (
+      needsReviewSorted.length > 0 ||
+      needsUpdateSorted.length > 0 ||
+      pausedSorted.length > 0 ||
+      completedSectionTickets.length > 0
+    ) {
+      return false
+    }
+    return (
+      thisWeekSorted.length + upcomingTickets.length + backlogSorted.length === 0
+    )
+  }, [
+    needsReviewSorted.length,
+    needsUpdateSorted.length,
+    pausedSorted.length,
+    completedSectionTickets.length,
+    thisWeekSorted.length,
+    upcomingTickets.length,
+    backlogSorted.length,
+  ])
 
   const panelUrls = useMemo(
     () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
@@ -673,51 +887,33 @@ export default function WorksPage() {
           data-name="Navigation"
           data-node-id="199:483"
         >
-          <div className="hidden md:col-span-2 md:block" aria-hidden data-name="Spacer" data-node-id="199:484" />
-          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-center md:justify-between">
-            <div
-              className="flex flex-wrap items-baseline gap-3"
-              data-name="FilterControls"
-              data-node-id="199:486"
-              role="tablist"
-              aria-label="Project filter"
-            >
-              <FilterBadge
-                role="tab"
-                aria-selected={projectFilter === 'all'}
-                label="ALL"
-                counter={`(${tickets.length})`}
-                showCounter
-                active={projectFilter === 'all'}
-                className="uppercase"
-                onClick={() => setProjectFilter('all')}
-              />
-              {projects.map((p) => {
-                const c = projectCounts.get(p.id) ?? 0
-                if (c === 0) return null
-                return (
-                  <FilterBadge
-                    key={p.id}
-                    role="tab"
-                    aria-selected={projectFilter === p.id}
-                    label={p.name}
-                    counter={`(${c})`}
-                    showCounter
-                    active={projectFilter === p.id}
-                    className="uppercase"
-                    onClick={() => setProjectFilter(p.id)}
-                  />
-                )
-              })}
-            </div>
+          <div className="col-span-12 flex flex-col gap-2 md:col-span-2" data-name="WorksLaneActions">
             <Button
               type="button"
-              className="shrink-0 items-center gap-2 self-end md:self-auto"
+              className="inline-flex w-fit max-w-full shrink-0 items-center justify-center gap-2 self-start"
               onClick={() => setSubmitOpen(true)}
             >
               <Plus className="size-4 shrink-0" aria-hidden />
               New Ticket
             </Button>
+          </div>
+          <div className="col-span-12 min-w-0 md:col-span-10">
+            <WorksFilterBar
+              searchQuery={filterSearch}
+              onSearchChange={setFilterSearch}
+              projects={projects}
+              projectFilter={projectFilter}
+              onProjectFilter={setProjectFilter}
+              phaseOptions={boardStatusPhaseOptions}
+              selectedPhases={filterPhases}
+              onPhasesChange={setFilterPhases}
+              categoryOptions={workspaceSettings?.team_categories ?? []}
+              selectedCategories={filterCategories}
+              onCategoriesChange={setFilterCategories}
+              designers={workspaceDesigners}
+              selectedDesignerIds={filterDesignerIds}
+              onDesignersChange={setFilterDesignerIds}
+            />
           </div>
         </div>
 
@@ -738,6 +934,38 @@ export default function WorksPage() {
                   <div className="col-span-12 min-w-0 md:col-span-10" data-name="NeedsReviewContent">
                     <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
                       {needsReviewSorted.map(renderCard)}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+              {needsUpdateSorted.length > 0 ? (
+                <section
+                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
+                  data-name="NeedsUpdate"
+                  aria-label="Needs update"
+                >
+                  <div className="col-span-12 md:col-span-2">
+                    <TimelineIndicator heading="Needs Update" dateRange="Passed Checkpoints" />
+                  </div>
+                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="NeedsUpdateContent">
+                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+                      {needsUpdateSorted.map(renderCard)}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+              {completedSectionTickets.length > 0 ? (
+                <section
+                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
+                  data-name="CompletedRail"
+                  aria-label="Completed tickets"
+                >
+                  <div className="col-span-12 md:col-span-2">
+                    <TimelineIndicator heading="Completed" dateRange={null} />
+                  </div>
+                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="CompletedContent">
+                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+                      {completedSectionTickets.map(renderCard)}
                     </div>
                   </div>
                 </section>
@@ -779,13 +1007,29 @@ export default function WorksPage() {
                     </section>
                   )
                 })}
-              {filtered.length === 0 && (
+              {pausedSorted.length > 0 ? (
+                <section
+                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
+                  data-name="Paused"
+                  aria-label="Paused tickets"
+                >
+                  <div className="col-span-12 md:col-span-2">
+                    <TimelineIndicator heading="Paused" dateRange="ON HOLD" />
+                  </div>
+                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="PausedContent">
+                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+                      {pausedSorted.map(renderCard)}
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+              {boardShowsNoTicketCards ? (
                 <p className="py-16 text-center text-muted-foreground">
                   {tickets.length === 0
                     ? 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
                     : 'No tickets in this filter. Try “All” or another project.'}
                 </p>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -798,6 +1042,13 @@ export default function WorksPage() {
           toast.success('Ticket Submitted!')
           void load()
         }}
+      />
+
+      <TicketPauseModal
+        open={pauseModalOpen}
+        onOpenChange={setPauseModalOpen}
+        busy={pauseBusy}
+        onConfirm={(reason) => void submitPauseRequest(reason)}
       />
 
       <Sheet
@@ -862,10 +1113,14 @@ export default function WorksPage() {
                       checkpointDate={panelTicket.checkpoint_date}
                       checkpointMeetLink={panelTicket.checkpoint_meet_link ?? null}
                       requestSubmittedAt={panelTicket.created_at}
+                      phase={panelTicket.phase}
                       displayTimeZone={profile?.timezone ?? null}
                       canEdit={panelCanCompleteCheckpoint}
                       onCheckpointCommit={commitPanelCheckpoint}
                       onCompleteCheckpoint={() => setCheckpointModalOpen(true)}
+                      onPauseRequest={
+                        panelCanCompleteCheckpoint ? () => setPauseModalOpen(true) : undefined
+                      }
                     />
                   </div>
                 </header>
@@ -904,7 +1159,7 @@ export default function WorksPage() {
                         checkpointDate={panelTicket.checkpoint_date}
                         phase={panelTicket.phase}
                         teamCategory={panelTicket.team_category}
-                        phaseOptions={panelOrderedPhases}
+                        phaseOptions={panelPhaseSelectOptions}
                         categoryOptions={workspaceSettings?.team_categories ?? []}
                         canEdit={panelCanCompleteCheckpoint}
                         onCheckpointCommit={commitPanelCheckpoint}
@@ -995,7 +1250,7 @@ export default function WorksPage() {
                 onOpenChange={setCheckpointModalOpen}
                 ticketId={panelTicket.id}
                 ticket={panelTicket}
-                orderedPhases={panelOrderedPhases}
+                orderedPhases={panelCheckpointOrderedPhases}
                 phaseSelectOptionsList={panelPhaseSelectOptions}
                 onSuccess={() => void load()}
                 logChange={panelLogChange}

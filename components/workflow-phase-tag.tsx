@@ -2,7 +2,9 @@
 
 import { cn } from '@/lib/utils'
 import {
+  COMPLETED_PHASE_LABEL,
   DEFAULT_PHASE_PIPELINE,
+  PAUSED_PHASE_LABEL,
   type StandardWorkflowPhase,
 } from '@/lib/mosaic-project-phases'
 
@@ -13,6 +15,8 @@ function norm(s: string) {
 /** Resolves stored phase text to a canonical pipeline label, or `null` if unknown (e.g. legacy custom). */
 export function normalizeToStandardPhase(phase: string): StandardWorkflowPhase | null {
   const n = norm(phase)
+  if (n === PAUSED_PHASE_LABEL.toLowerCase()) return PAUSED_PHASE_LABEL
+  if (n === norm(COMPLETED_PHASE_LABEL)) return COMPLETED_PHASE_LABEL
   for (const p of DEFAULT_PHASE_PIPELINE) {
     if (p.toLowerCase() === n) return p
   }
@@ -23,6 +27,7 @@ type PhaseDotStyle =
   | { kind: 'ring'; className: string }
   | { kind: 'solid'; className: string }
   | { kind: 'triangle' }
+  | { kind: 'pause' }
 
 /**
  * Opinionated visuals per Figma **WorkflowPhaseTag** (node `199:1197`).
@@ -37,6 +42,8 @@ export const WORKFLOW_PHASE_TAG_DOT: Record<StandardWorkflowPhase, PhaseDotStyle
   Concept: { kind: 'solid', className: 'bg-orange-400' },
   Design: { kind: 'solid', className: 'bg-blue-600' },
   Build: { kind: 'solid', className: 'bg-green-600' },
+  [COMPLETED_PHASE_LABEL]: { kind: 'solid', className: 'bg-zinc-500 dark:bg-zinc-400' },
+  [PAUSED_PHASE_LABEL]: { kind: 'pause' },
 }
 
 const FALLBACK_DOT: PhaseDotStyle = {
@@ -53,6 +60,16 @@ function PhaseMarker({ dot }: { dot: PhaseDotStyle }) {
       >
         <svg viewBox="0 0 8 7" className="size-full" fill="currentColor" aria-hidden>
           <path d="M4 0 8 7H0L4 0z" />
+        </svg>
+      </span>
+    )
+  }
+  if (dot.kind === 'pause') {
+    return (
+      <span className="inline-flex size-2 shrink-0 items-center justify-center text-neutral-600 dark:text-neutral-400" aria-hidden>
+        <svg viewBox="0 0 8 8" className="size-full" fill="currentColor" aria-hidden>
+          <rect x="1" y="1.5" width="2" height="5" rx="0.5" />
+          <rect x="5" y="1.5" width="2" height="5" rx="0.5" />
         </svg>
       </span>
     )

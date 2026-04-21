@@ -34,6 +34,7 @@ import type { AuditLogEntry, Profile, Project, Ticket, TicketAssigneeRow, Ticket
 import { formatProfileLabel } from '@/lib/format-profile'
 import {
   DEFAULT_NEW_TICKET_PHASE,
+  orderedPhasesForCheckpointAdvance,
   phaseOptionsForProject,
   phaseSelectOptions,
 } from '@/lib/mosaic-project-phases'
@@ -228,6 +229,11 @@ export default function TicketDetailPage() {
         workspaceSettings?.phase_label_sets ?? {}
       ),
     [ticket?.project, workspaceSettings?.phase_label_sets]
+  )
+
+  const checkpointOrderedPhases = useMemo(
+    () => orderedPhasesForCheckpointAdvance(orderedPhases),
+    [orderedPhases],
   )
 
   const ticketPhaseSelectOptions = useMemo(() => phaseSelectOptions(ticket?.phase), [ticket?.phase])
@@ -578,6 +584,7 @@ export default function TicketDetailPage() {
               checkpointDate={ticket.checkpoint_date}
               checkpointMeetLink={ticket.checkpoint_meet_link ?? null}
               requestSubmittedAt={ticket.created_at}
+              phase={ticket.phase}
               displayTimeZone={profile?.timezone ?? null}
               canEdit
               onCheckpointCommit={commitTicketCheckpoint}
@@ -592,7 +599,7 @@ export default function TicketDetailPage() {
         onOpenChange={setCheckpointModalOpen}
         ticketId={id}
         ticket={ticket}
-        orderedPhases={orderedPhases}
+        orderedPhases={checkpointOrderedPhases}
         phaseSelectOptionsList={ticketPhaseSelectOptions}
         onSuccess={() => void load()}
         logChange={logChange}

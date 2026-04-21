@@ -6,7 +6,8 @@ export type TimelineIndicatorProps = {
    * Omit or pass `null` for older weeks — only **`dateRange`** is shown.
    */
   heading?: string | null
-  dateRange: string
+  /** Second line (mono). Omit, **`null`**, or empty — no sublabel (e.g. Works **Completed** rail). */
+  dateRange?: string | null
   className?: string
 }
 
@@ -16,10 +17,11 @@ export type TimelineIndicatorProps = {
  */
 export function TimelineIndicator({
   heading = null,
-  dateRange,
+  dateRange = '',
   className,
 }: TimelineIndicatorProps) {
   const showHeading = heading != null && heading !== ''
+  const showDateRange = Boolean(dateRange?.trim())
 
   return (
     <div
@@ -40,12 +42,14 @@ export function TimelineIndicator({
             {heading}
           </p>
         ) : null}
-        <p
-          className="w-full min-w-0 font-mono text-mono-micro font-normal uppercase tabular-nums opacity-50"
-          data-node-id="131:315"
-        >
-          {dateRange}
-        </p>
+        {showDateRange ? (
+          <p
+            className="w-full min-w-0 font-mono text-mono-micro font-normal uppercase tabular-nums opacity-50"
+            data-node-id="131:315"
+          >
+            {dateRange}
+          </p>
+        ) : null}
       </div>
     </div>
   )
