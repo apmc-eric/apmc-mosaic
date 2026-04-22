@@ -17,11 +17,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Plus, X, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { defaultProfileTimeZone, PROFILE_TIMEZONE_CHOICES } from '@/lib/timezone-choices'
+import type { MosaicRole, AllowedUserEntry } from '@/lib/types'
+import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
+import { DEFAULT_COMPANY_ALIAS_DOMAINS } from '@/lib/company-email-alias'
 
 const supabase = createClient()
 
-// Default whitelisted domains
-const DEFAULT_DOMAINS = ['aparentmedia.com', 'kidoodle.tv']
+const ASSIGNABLE_ROLES: MosaicRole[] = ['admin', 'designer', 'collaborator', 'guest']
+const DISPLAY_DOMAIN = DEFAULT_COMPANY_ALIAS_DOMAINS[0]
 
 function GoogleIcon() {
   return (
@@ -48,8 +51,11 @@ function GoogleIcon() {
 
 export default function GeneralSettingsPage() {
   const { user, profile, isAdmin, hasGoogleToken, refreshSettings, refreshGoogleConnection, refreshProfile, viewRole, saveDemoViewRole } = useAuth()
-  const [domains, setDomains] = useState<string[]>(DEFAULT_DOMAINS)
-  const [newDomain, setNewDomain] = useState('')
+  const [allowedEmails, setAllowedEmails] = useState<AllowedUserEntry[]>([])
+  const [newFirst, setNewFirst] = useState('')
+  const [newLast, setNewLast] = useState('')
+  const [newUsername, setNewUsername] = useState('')
+  const [newRole, setNewRole] = useState<MosaicRole>('designer')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [connectingGoogle, setConnectingGoogle] = useState(false)
@@ -70,14 +76,13 @@ export default function GeneralSettingsPage() {
     if (profile?.timezone?.trim()) setProfileTimeZone(profile.timezone.trim())
   }, [profile?.timezone])
 
-  // Load settings from key-value store (logo_url remains in DB; not editable in UI)
   useEffect(() => {
     const loadSettings = async () => {
       const { data } = await supabase.from('settings').select('*')
       if (data) {
         data.forEach((row) => {
-          if (row.key === 'allowed_domains' && Array.isArray(row.value)) {
-            setDomains(row.value.length > 0 ? row.value : DEFAULT_DOMAINS)
+          if (row.key === 'allowed_emails' && Array.isArray(row.value)) {
+            setAllowedEmails(row.value)
           }
         })
       }
@@ -86,39 +91,42 @@ export default function GeneralSettingsPage() {
     loadSettings()
   }, [])
 
-  const handleAddDomain = () => {
-    const domain = newDomain.trim().toLowerCase()
-    if (!domain) return
-    if (domains.includes(domain)) {
-      toast.error('Domain already added')
+  const handleAddUser = () => {
+    const username = newUsername.trim().toLowerCase().replace(/@.*/, '')
+    const first = newFirst.trim()
+    const last = newLast.trim()
+    if (!username || !first || !last) {
+      toast.error('First name, last name, and username are required')
       return
     }
-    if (!/^[a-z0-9][a-z0-9-]*\.[a-z]{2,}$/i.test(domain)) {
-      toast.error('Invalid domain format')
+    if (allowedEmails.some((e) => e.username === username)) {
+      toast.error('Username already added')
       return
     }
-    setDomains([...domains, domain])
-    setNewDomain('')
+    setAllowedEmails([...allowedEmails, { username, first_name: first, last_name: last, role: newRole }])
+    setNewFirst('')
+    setNewLast('')
+    setNewUsername('')
+    setNewRole('designer')
   }
 
-  const handleRemoveDomain = (domain: string) => {
-    setDomains(domains.filter((d) => d !== domain))
+  const handleRemoveUser = (username: string) => {
+    setAllowedEmails(allowedEmails.filter((e) => e.username !== username))
+  }
+
+  const handleUpdateRole = (username: string, role: MosaicRole) => {
+    setAllowedEmails(allowedEmails.map((e) => (e.username === username ? { ...e, role } : e)))
   }
 
   const handleSave = async () => {
-    if (domains.length === 0) {
-      toast.error('At least one domain is required')
-      return
-    }
-
     setIsSaving(true)
 
     const { error } = await supabase
       .from('settings')
       .upsert(
         {
-          key: 'allowed_domains',
-          value: domains,
+          key: 'allowed_emails',
+          value: allowedEmails,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'key' },
@@ -153,7 +161,6 @@ export default function GeneralSettingsPage() {
       toast.error('Could not connect Google Calendar', { description: error.message })
       setConnectingGoogle(false)
     }
-    // On success browser navigates away
   }
 
   const handleSaveTimeZone = async () => {
@@ -188,57 +195,108 @@ export default function GeneralSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Allowed Email Domains</CardTitle>
-          <CardDescription>Only users with these email domains can sign up</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
-            </div>
-          ) : (
-            <>
-              <div className="flex gap-2">
-                <Input
-                  value={newDomain}
-                  onChange={(e) => setNewDomain(e.target.value)}
-                  placeholder="example.com"
-                  onKeyDown={(e) =>
-                    e.key === 'Enter' && (e.preventDefault(), handleAddDomain())
-                  }
-                />
-                <Button onClick={handleAddDomain} variant="outline">
-                  <Plus />
-                  Add
-                </Button>
+      {isAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Allowed Users</CardTitle>
+            <CardDescription>
+              Only these users can sign in. Both @{DISPLAY_DOMAIN} and @{DEFAULT_COMPANY_ALIAS_DOMAINS[1]} are accepted for each username. Role and name are applied automatically at first sign-in.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
               </div>
-
-              <div className="flex flex-wrap gap-2">
-                {domains.map((domain) => (
-                  <div
-                    key={domain}
-                    className="flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-sm"
-                  >
-                    {domain}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleRemoveDomain(domain)}
-                      className="ml-1 text-muted-foreground hover:text-destructive"
-                      aria-label={`Remove ${domain}`}
-                    >
-                      <X className="!size-3" />
-                    </Button>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+                  <Input
+                    value={newFirst}
+                    onChange={(e) => setNewFirst(e.target.value)}
+                    placeholder="First name"
+                  />
+                  <Input
+                    value={newLast}
+                    onChange={(e) => setNewLast(e.target.value)}
+                    placeholder="Last name"
+                  />
+                  <div className="flex items-center rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                    <input
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value.replace(/@.*/, '').toLowerCase())}
+                      placeholder="username"
+                      className="h-9 min-w-0 flex-1 bg-transparent pl-3 text-sm outline-none placeholder:text-muted-foreground"
+                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddUser())}
+                    />
+                    <span className="select-none whitespace-nowrap pr-3 text-sm text-muted-foreground">
+                      @{DISPLAY_DOMAIN}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                  <Select value={newRole} onValueChange={(v) => setNewRole(v as MosaicRole)}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ASSIGNABLE_ROLES.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {mosaicRoleLabel(r)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleAddUser} variant="outline">
+                    <Plus className="mr-1 size-4" />
+                    Add
+                  </Button>
+                </div>
+
+                {allowedEmails.length > 0 ? (
+                  <div className="divide-y divide-border rounded-md border">
+                    {allowedEmails.map(({ username, first_name, last_name, role }) => (
+                      <div key={username} className="flex items-center gap-3 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{first_name} {last_name}</p>
+                          <p className="truncate text-xs text-muted-foreground">{username}@{DISPLAY_DOMAIN}</p>
+                        </div>
+                        <Select
+                          value={role}
+                          onValueChange={(v) => handleUpdateRole(username, v as MosaicRole)}
+                        >
+                          <SelectTrigger className="h-7 w-32 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ASSIGNABLE_ROLES.map((r) => (
+                              <SelectItem key={r} value={r} className="text-xs">
+                                {mosaicRoleLabel(r)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => handleRemoveUser(username)}
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove ${username}`}
+                        >
+                          <X className="!size-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No users added yet. Fill in the form above to grant access.
+                  </p>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {user ? (
         <Card>
@@ -352,11 +410,13 @@ export default function GeneralSettingsPage() {
         </Card>
       ) : null}
 
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={isSaving || isLoading}>
-          {isSaving ? 'Saving...' : 'Save Changes'}
-        </Button>
-      </div>
+      {isAdmin ? (
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={isSaving || isLoading}>
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }

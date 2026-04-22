@@ -17,7 +17,7 @@ import {
 import { ProfileImage } from '@/components/profile-image'
 import { User, Upload } from 'lucide-react'
 import { toast } from 'sonner'
-import type { Team } from '@/lib/types'
+import type { Team, Profile } from '@/lib/types'
 import { defaultProfileTimeZone, PROFILE_TIMEZONE_CHOICES } from '@/lib/timezone-choices'
 
 const supabase = createClient()
@@ -25,10 +25,11 @@ const supabase = createClient()
 interface OnboardingModalProps {
   open: boolean
   teams: Team[]
+  profile: Profile | null
   onComplete: () => void
 }
 
-export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProps) {
+export function OnboardingModal({ open, teams, profile, onComplete }: OnboardingModalProps) {
   const timeZoneChoices = useMemo(() => {
     const b = defaultProfileTimeZone()
     const list = [...PROFILE_TIMEZONE_CHOICES]
@@ -38,8 +39,8 @@ export function OnboardingModal({ open, teams, onComplete }: OnboardingModalProp
     return list
   }, [])
 
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
+  const [firstName, setFirstName] = useState(profile?.first_name ?? '')
+  const [lastName, setLastName] = useState(profile?.last_name ?? '')
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([])
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [timeZone, setTimeZone] = useState(() => defaultProfileTimeZone())

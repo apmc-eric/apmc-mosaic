@@ -10,10 +10,19 @@ export interface WorkspaceSettings {
   updated_at: string
 }
 
+export interface AllowedUserEntry {
+  /** Local part of the email (before @). Both company domains are accepted. */
+  username: string
+  first_name: string
+  last_name: string
+  role: MosaicRole
+}
+
 export interface Settings {
   id: string
   logo_url: string | null
   allowed_domains: string[]
+  allowed_emails: AllowedUserEntry[]
   created_at: string
   updated_at: string
 }

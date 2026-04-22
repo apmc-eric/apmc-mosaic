@@ -34,19 +34,29 @@ function AuthCallbackContent() {
     const run = async () => {
       const supabase = createClient()
 
-      const mergeAliasIfSession = async () => {
+      // Returns false if the email is not in the allowlist (user has been signed out).
+      const checkAndMerge = async (): Promise<boolean> => {
         const {
           data: { session },
         } = await supabase.auth.getSession()
-        if (!session?.access_token) return
-        await fetch('/api/auth/merge-company-email-alias', {
+        if (!session?.access_token) return true
+
+        const res = await fetch('/api/auth/merge-company-email-alias', {
           method: 'POST',
           headers: { Authorization: `Bearer ${session.access_token}` },
-        }).catch(() => {})
+        }).catch(() => null)
+
+        if (res?.status === 403) {
+          await supabase.auth.signOut().catch(() => {})
+          router.replace('/login?error=unauthorized')
+          return false
+        }
+        return true
       }
 
       const finishSignedIn = async () => {
-        await mergeAliasIfSession()
+        const allowed = await checkAndMerge()
+        if (!allowed) return
         router.replace(next)
       }
 
@@ -56,7 +66,6 @@ function AuthCallbackContent() {
         const {
           data: { session: already },
         } = await supabase.auth.getSession()
-        // One-time `code` must not be exchanged twice (React Strict Mode remount / duplicate effect).
         if (already?.user) {
           await finishSignedIn()
           return
@@ -113,11 +122,9 @@ function AuthCallbackContent() {
             ...(token_type && { token_type: token_type as 'bearer' }),
           })
           if (!error) {
-            await fetch('/api/auth/merge-company-email-alias', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${access_token}` },
-            }).catch(() => {})
+            const allowed = await checkAndMerge()
             window.history.replaceState(null, '', window.location.pathname + window.location.search)
+            if (!allowed) return
             router.replace(next)
             return
           }

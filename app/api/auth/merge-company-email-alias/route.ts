@@ -14,6 +14,15 @@ type ProfileRow = {
   created_at: string
 }
 
+type AllowedUserEntry = { username: string; first_name: string; last_name: string; role: string }
+
+async function loadAllowedUsers(admin: ReturnType<typeof createAdminClient>): Promise<AllowedUserEntry[]> {
+  const { data } = await admin.from('settings').select('value').eq('key', 'allowed_emails').maybeSingle()
+  const v = data?.value as unknown
+  if (Array.isArray(v)) return v as AllowedUserEntry[]
+  return []
+}
+
 async function loadAllowedDomains(admin: ReturnType<typeof createAdminClient>): Promise<string[]> {
   const { data } = await admin.from('settings').select('value').eq('key', 'allowed_domains').maybeSingle()
   const v = data?.value as unknown
@@ -24,9 +33,9 @@ async function loadAllowedDomains(admin: ReturnType<typeof createAdminClient>): 
 }
 
 /**
- * After sign-in: if this auth user duplicates an existing profile under another
- * allowed company domain (same local part), merge the older duplicate(s) into
- * the current session user and remove the duplicate auth users.
+ * After sign-in:
+ * 1. Check the user's email is in the allowed_emails list. If not, delete the auth user and return 403.
+ * 2. Merge duplicate profiles across company alias domains (same local part, both domains allowed).
  */
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get('authorization')
@@ -61,6 +70,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
   }
 
+  // --- Email allowlist check (matches by local part; both company domains accepted) ---
+  const allowedUsers = await loadAllowedUsers(admin)
+  const localPart = user.email.split('@')[0].toLowerCase().trim()
+
+  if (allowedUsers.length > 0) {
+    const isAllowed = allowedUsers.some((e) => e.username.toLowerCase().trim() === localPart)
+    if (!isAllowed) {
+      // Remove the auth user so they can't retry later
+      await admin.auth.admin.deleteUser(user.id).catch(() => {})
+      return NextResponse.json({ error: 'Email not authorized', allowed: false }, { status: 403 })
+    }
+  }
+
+  // --- Company alias merge ---
   const domains = await loadAllowedDomains(admin)
 
   const { data: allProfiles, error: listErr } = await admin.from('profiles').select('id, email, role, created_at')
