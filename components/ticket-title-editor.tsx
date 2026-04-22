@@ -41,6 +41,9 @@ export function TicketTitleEditor({
   const [titleEmpty, setTitleEmpty] = React.useState(!title.trim())
   const pending = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSaved = React.useRef(title)
+  const onSaveRef = React.useRef(onSave)
+  React.useLayoutEffect(() => { onSaveRef.current = onSave })
+  const pendingContent = React.useRef<string | null>(null)
 
   React.useLayoutEffect(() => {
     if (compose) return
@@ -74,9 +77,11 @@ export function TicketTitleEditor({
     onChange?.(next)
     if (next === lastSaved.current) return
     lastSaved.current = next
+    pendingContent.current = next
     if (pending.current) clearTimeout(pending.current)
     pending.current = setTimeout(() => {
       pending.current = null
+      pendingContent.current = null
       onSave(next)
     }, DEBOUNCE_MS)
   }, [canEdit, onChange, onSave])
@@ -106,7 +111,11 @@ export function TicketTitleEditor({
 
   React.useEffect(
     () => () => {
-      if (pending.current) clearTimeout(pending.current)
+      if (pending.current) { clearTimeout(pending.current); pending.current = null }
+      if (pendingContent.current !== null) {
+        onSaveRef.current(pendingContent.current)
+        pendingContent.current = null
+      }
     },
     [],
   )

@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
-import type { Profile, Team, Settings, WorkspaceSettings } from '@/lib/types'
+import type { MosaicRole, Profile, Team, Settings, WorkspaceSettings } from '@/lib/types'
 import { isDesignerLikeRole, isGuestRole } from '@/lib/mosaic-roles'
 
 function mapWorkspaceRow(row: Record<string, unknown>): WorkspaceSettings {
@@ -20,6 +20,16 @@ function mapWorkspaceRow(row: Record<string, unknown>): WorkspaceSettings {
   }
 }
 
+const DEMO_VIEW_ROLE_KEY = 'mosaic_demo_view_role'
+const VALID_DEMO_ROLES: MosaicRole[] = ['admin', 'designer', 'collaborator', 'guest']
+
+function readDemoViewRole(): MosaicRole | null {
+  if (typeof window === 'undefined') return null
+  const stored = localStorage.getItem(DEMO_VIEW_ROLE_KEY)
+  if (stored && (VALID_DEMO_ROLES as string[]).includes(stored)) return stored as MosaicRole
+  return null
+}
+
 interface AuthContextType {
   user: User | null
   profile: Profile | null
@@ -31,6 +41,9 @@ interface AuthContextType {
   isGuest: boolean
   isDesignerLike: boolean
   hasGoogleToken: boolean
+  /** The effective view role. Admins can override via demo mode; others always use their real role. */
+  viewRole: MosaicRole | null
+  saveDemoViewRole: (role: MosaicRole | null) => void
   refreshProfile: () => Promise<void>
   refreshSettings: () => Promise<void>
   refreshWorkspaceSettings: () => Promise<void>
@@ -52,6 +65,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [teams, setTeams] = useState<Team[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [hasGoogleToken, setHasGoogleToken] = useState(false)
+  const [demoViewRole, setDemoViewRole] = useState<MosaicRole | null>(() => readDemoViewRole())
+
+  const saveDemoViewRole = (role: MosaicRole | null) => {
+    if (role) {
+      localStorage.setItem(DEMO_VIEW_ROLE_KEY, role)
+    } else {
+      localStorage.removeItem(DEMO_VIEW_ROLE_KEY)
+    }
+    setDemoViewRole(role)
+  }
 
   const refreshProfile = async () => {
     const { data: { user: currentUser } } = await supabase.auth.getUser()
@@ -245,6 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = profile?.role === 'admin'
   const isGuest = isGuestRole(profile?.role)
   const isDesignerLike = isDesignerLikeRole(profile?.role)
+  const viewRole: MosaicRole | null = isAdmin && demoViewRole ? demoViewRole : (profile?.role ?? null)
 
   return (
     <AuthContext.Provider value={{
@@ -258,6 +282,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isGuest,
       isDesignerLike,
       hasGoogleToken,
+      viewRole,
+      saveDemoViewRole,
       refreshProfile,
       refreshSettings,
       refreshWorkspaceSettings,

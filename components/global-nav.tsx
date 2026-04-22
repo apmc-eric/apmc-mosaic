@@ -87,7 +87,7 @@ export function GlobalNav({ variant, profile, isAdmin, signOut }: GlobalNavProps
             Profile
           </Link>
         </DropdownMenuItem>
-        {variant === 'designer' && isAdmin && (
+        {isAdmin && (
           <DropdownMenuItem asChild>
             <Link href="/settings" className="cursor-pointer">
               <Settings className="mr-2 size-4" />

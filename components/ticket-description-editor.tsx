@@ -45,6 +45,11 @@ export function TicketDescriptionEditor({
   const [editing, setEditing] = React.useState(compose)
   const pending = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSerialized = React.useRef('')
+  // Always-current ref so the unmount flush calls the latest onSave
+  const onSaveRef = React.useRef(onSave)
+  React.useLayoutEffect(() => { onSaveRef.current = onSave })
+  // Tracks content that has been scheduled but not yet persisted
+  const pendingContent = React.useRef<string | null>(null)
 
   React.useLayoutEffect(() => {
     if (compose) return
@@ -93,12 +98,26 @@ export function TicketDescriptionEditor({
     }
     if (clean === lastSerialized.current) return
     lastSerialized.current = clean
+    pendingContent.current = clean
     if (pending.current) clearTimeout(pending.current)
     pending.current = setTimeout(() => {
       pending.current = null
+      pendingContent.current = null
       onSave(clean)
     }, DEBOUNCE_MS)
   }, [canEdit, compose, onChange, onSave])
+
+  const flushSave = React.useCallback(() => {
+    const el = ref.current
+    if (!el || !canEdit) return
+    const raw = el.innerHTML
+    const clean = sanitizeDescriptionHtml(raw)
+    if (clean === lastSerialized.current) return
+    if (pending.current) { clearTimeout(pending.current); pending.current = null }
+    lastSerialized.current = clean
+    pendingContent.current = null
+    onSave(clean)
+  }, [canEdit, onSave])
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (compose || !canEdit || editing) return
@@ -112,12 +131,18 @@ export function TicketDescriptionEditor({
       return
     }
     setEditing(false)
-    scheduleSave()
+    // Flush immediately on blur so closing the panel never discards changes
+    flushSave()
   }
 
+  // On unmount: flush any content that was scheduled but not yet saved
   React.useEffect(
     () => () => {
-      if (pending.current) clearTimeout(pending.current)
+      if (pending.current) { clearTimeout(pending.current); pending.current = null }
+      if (pendingContent.current !== null) {
+        onSaveRef.current(pendingContent.current)
+        pendingContent.current = null
+      }
     },
     [],
   )
