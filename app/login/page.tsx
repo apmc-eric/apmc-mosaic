@@ -36,7 +36,7 @@ function GoogleIcon() {
   )
 }
 
-type AllowedEmailEntry = { email: string; role: string }
+type AllowedUserEntry = { username: string; first_name: string; last_name: string; role: string }
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -44,7 +44,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [devLoginLoading, setDevLoginLoading] = useState(false)
-  const [allowedEmails, setAllowedEmails] = useState<AllowedEmailEntry[]>([])
+  const [allowedUsers, setAllowedUsers] = useState<AllowedUserEntry[]>([])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -62,15 +62,16 @@ export default function LoginPage() {
     const loadSettings = async () => {
       const { data } = await supabase.from('settings').select('key, value').eq('key', 'allowed_emails').maybeSingle()
       if (data && Array.isArray(data.value) && data.value.length > 0) {
-        setAllowedEmails(data.value as AllowedEmailEntry[])
+        setAllowedUsers(data.value as AllowedUserEntry[])
       }
     }
     loadSettings()
   }, [])
 
   const isEmailAllowed = (inputEmail: string) => {
-    const normalized = inputEmail.trim().toLowerCase()
-    return allowedEmails.some((e) => e.email.toLowerCase() === normalized)
+    if (allowedUsers.length === 0) return false
+    const localPart = inputEmail.trim().toLowerCase().split('@')[0]
+    return allowedUsers.some((e) => e.username.toLowerCase() === localPart)
   }
 
   const handleSendMagicLink = async (e: React.FormEvent) => {

@@ -17,14 +17,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Plus, X, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { defaultProfileTimeZone, PROFILE_TIMEZONE_CHOICES } from '@/lib/timezone-choices'
-import type { MosaicRole } from '@/lib/types'
+import type { MosaicRole, AllowedUserEntry } from '@/lib/types'
 import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
+import { DEFAULT_COMPANY_ALIAS_DOMAINS } from '@/lib/company-email-alias'
 
 const supabase = createClient()
 
 const ASSIGNABLE_ROLES: MosaicRole[] = ['admin', 'designer', 'collaborator', 'guest']
-
-type AllowedEmailEntry = { email: string; role: MosaicRole }
+const DISPLAY_DOMAIN = DEFAULT_COMPANY_ALIAS_DOMAINS[0]
 
 function GoogleIcon() {
   return (
@@ -51,8 +51,10 @@ function GoogleIcon() {
 
 export default function GeneralSettingsPage() {
   const { user, profile, isAdmin, hasGoogleToken, refreshSettings, refreshGoogleConnection, refreshProfile, viewRole, saveDemoViewRole } = useAuth()
-  const [allowedEmails, setAllowedEmails] = useState<AllowedEmailEntry[]>([])
-  const [newEmail, setNewEmail] = useState('')
+  const [allowedEmails, setAllowedEmails] = useState<AllowedUserEntry[]>([])
+  const [newFirst, setNewFirst] = useState('')
+  const [newLast, setNewLast] = useState('')
+  const [newUsername, setNewUsername] = useState('')
   const [newRole, setNewRole] = useState<MosaicRole>('designer')
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -89,28 +91,31 @@ export default function GeneralSettingsPage() {
     loadSettings()
   }, [])
 
-  const handleAddEmail = () => {
-    const email = newEmail.trim().toLowerCase()
-    if (!email) return
-    if (allowedEmails.some((e) => e.email === email)) {
-      toast.error('Email already added')
+  const handleAddUser = () => {
+    const username = newUsername.trim().toLowerCase().replace(/@.*/, '')
+    const first = newFirst.trim()
+    const last = newLast.trim()
+    if (!username || !first || !last) {
+      toast.error('First name, last name, and username are required')
       return
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      toast.error('Invalid email address')
+    if (allowedEmails.some((e) => e.username === username)) {
+      toast.error('Username already added')
       return
     }
-    setAllowedEmails([...allowedEmails, { email, role: newRole }])
-    setNewEmail('')
+    setAllowedEmails([...allowedEmails, { username, first_name: first, last_name: last, role: newRole }])
+    setNewFirst('')
+    setNewLast('')
+    setNewUsername('')
     setNewRole('designer')
   }
 
-  const handleRemoveEmail = (email: string) => {
-    setAllowedEmails(allowedEmails.filter((e) => e.email !== email))
+  const handleRemoveUser = (username: string) => {
+    setAllowedEmails(allowedEmails.filter((e) => e.username !== username))
   }
 
-  const handleUpdateRole = (email: string, role: MosaicRole) => {
-    setAllowedEmails(allowedEmails.map((e) => (e.email === email ? { ...e, role } : e)))
+  const handleUpdateRole = (username: string, role: MosaicRole) => {
+    setAllowedEmails(allowedEmails.map((e) => (e.username === username ? { ...e, role } : e)))
   }
 
   const handleSave = async () => {
@@ -195,7 +200,7 @@ export default function GeneralSettingsPage() {
           <CardHeader>
             <CardTitle>Allowed Users</CardTitle>
             <CardDescription>
-              Only these email addresses can sign in. Roles are assigned automatically at signup — users won&apos;t need to configure this themselves.
+              Only these users can sign in. Both @{DISPLAY_DOMAIN} and @{DEFAULT_COMPANY_ALIAS_DOMAINS[1]} are accepted for each username. Role and name are applied automatically at first sign-in.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -205,17 +210,29 @@ export default function GeneralSettingsPage() {
               </div>
             ) : (
               <>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
                   <Input
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="name@example.com"
-                    className="flex-1"
-                    onKeyDown={(e) =>
-                      e.key === 'Enter' && (e.preventDefault(), handleAddEmail())
-                    }
+                    value={newFirst}
+                    onChange={(e) => setNewFirst(e.target.value)}
+                    placeholder="First name"
                   />
+                  <Input
+                    value={newLast}
+                    onChange={(e) => setNewLast(e.target.value)}
+                    placeholder="Last name"
+                  />
+                  <div className="flex items-center rounded-md border border-input bg-background ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                    <input
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value.replace(/@.*/, '').toLowerCase())}
+                      placeholder="username"
+                      className="h-9 min-w-0 flex-1 bg-transparent pl-3 text-sm outline-none placeholder:text-muted-foreground"
+                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddUser())}
+                    />
+                    <span className="select-none whitespace-nowrap pr-3 text-sm text-muted-foreground">
+                      @{DISPLAY_DOMAIN}
+                    </span>
+                  </div>
                   <Select value={newRole} onValueChange={(v) => setNewRole(v as MosaicRole)}>
                     <SelectTrigger className="w-36">
                       <SelectValue />
@@ -228,7 +245,7 @@ export default function GeneralSettingsPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button onClick={handleAddEmail} variant="outline">
+                  <Button onClick={handleAddUser} variant="outline">
                     <Plus className="mr-1 size-4" />
                     Add
                   </Button>
@@ -236,12 +253,15 @@ export default function GeneralSettingsPage() {
 
                 {allowedEmails.length > 0 ? (
                   <div className="divide-y divide-border rounded-md border">
-                    {allowedEmails.map(({ email, role }) => (
-                      <div key={email} className="flex items-center gap-3 px-3 py-2">
-                        <span className="min-w-0 flex-1 truncate text-sm">{email}</span>
+                    {allowedEmails.map(({ username, first_name, last_name, role }) => (
+                      <div key={username} className="flex items-center gap-3 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{first_name} {last_name}</p>
+                          <p className="truncate text-xs text-muted-foreground">{username}@{DISPLAY_DOMAIN}</p>
+                        </div>
                         <Select
                           value={role}
-                          onValueChange={(v) => handleUpdateRole(email, v as MosaicRole)}
+                          onValueChange={(v) => handleUpdateRole(username, v as MosaicRole)}
                         >
                           <SelectTrigger className="h-7 w-32 text-xs">
                             <SelectValue />
@@ -258,9 +278,9 @@ export default function GeneralSettingsPage() {
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          onClick={() => handleRemoveEmail(email)}
+                          onClick={() => handleRemoveUser(username)}
                           className="shrink-0 text-muted-foreground hover:text-destructive"
-                          aria-label={`Remove ${email}`}
+                          aria-label={`Remove ${username}`}
                         >
                           <X className="!size-3.5" />
                         </Button>
@@ -269,7 +289,7 @@ export default function GeneralSettingsPage() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No users added yet. Add an email above to grant access.
+                    No users added yet. Fill in the form above to grant access.
                   </p>
                 )}
               </>

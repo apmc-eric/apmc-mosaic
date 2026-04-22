@@ -14,12 +14,12 @@ type ProfileRow = {
   created_at: string
 }
 
-type AllowedEmailEntry = { email: string; role: string }
+type AllowedUserEntry = { username: string; first_name: string; last_name: string; role: string }
 
-async function loadAllowedEmails(admin: ReturnType<typeof createAdminClient>): Promise<AllowedEmailEntry[]> {
+async function loadAllowedUsers(admin: ReturnType<typeof createAdminClient>): Promise<AllowedUserEntry[]> {
   const { data } = await admin.from('settings').select('value').eq('key', 'allowed_emails').maybeSingle()
   const v = data?.value as unknown
-  if (Array.isArray(v)) return v as AllowedEmailEntry[]
+  if (Array.isArray(v)) return v as AllowedUserEntry[]
   return []
 }
 
@@ -70,14 +70,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
   }
 
-  // --- Email allowlist check ---
-  const allowedEmails = await loadAllowedEmails(admin)
-  const normalizedEmail = user.email.toLowerCase().trim()
+  // --- Email allowlist check (matches by local part; both company domains accepted) ---
+  const allowedUsers = await loadAllowedUsers(admin)
+  const localPart = user.email.split('@')[0].toLowerCase().trim()
 
-  if (allowedEmails.length > 0) {
-    const isAllowed = allowedEmails.some((e) => e.email.toLowerCase().trim() === normalizedEmail)
+  if (allowedUsers.length > 0) {
+    const isAllowed = allowedUsers.some((e) => e.username.toLowerCase().trim() === localPart)
     if (!isAllowed) {
-      // Remove the auth user so they can't sign in later
+      // Remove the auth user so they can't retry later
       await admin.auth.admin.deleteUser(user.id).catch(() => {})
       return NextResponse.json({ error: 'Email not authorized', allowed: false }, { status: 403 })
     }

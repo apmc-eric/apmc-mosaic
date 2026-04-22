@@ -58,6 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <OnboardingModal
           open={showOnboarding}
           teams={teams}
+          profile={profile}
           onComplete={handleOnboardingComplete}
         />
       )}
