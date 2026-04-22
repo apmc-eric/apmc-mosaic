@@ -926,7 +926,15 @@ export default function WorksPage() {
                     </div>
                   </header>
                   <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-6">
-                    <WorksTicketPanelMetadata
+                    <div className="flex flex-col gap-7">
+                      <TicketDescriptionEditor
+                        key={panelTicket.id}
+                        ticketId={panelTicket.id}
+                        description={panelTicket.description}
+                        canEdit={false}
+                        className="w-full [&_p]:mb-0"
+                      />
+                      <WorksTicketPanelMetadata
                       checkpointDate={panelTicket.checkpoint_date}
                       phase={panelTicket.phase}
                       teamCategory={panelTicket.team_category}
@@ -943,6 +951,7 @@ export default function WorksPage() {
                       displayTimeZone={profile.timezone ?? null}
                       hideCheckpointRow
                     />
+                    </div>
                   </div>
                 </div>
               </>

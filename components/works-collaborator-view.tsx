@@ -222,18 +222,18 @@ export function WorksCollaboratorView({
           <button
             type="button"
             onClick={() => setTab('upcoming')}
-            className={`flex items-baseline gap-1 text-4xl font-semibold tracking-tight transition-opacity ${tab === 'upcoming' ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
+            className={`flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity ${tab === 'upcoming' ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
           >
             Upcoming
-            <span className="text-sm font-medium">{upcomingCount}</span>
+            <span className="mt-1 text-sm font-medium">{upcomingCount}</span>
           </button>
           <button
             type="button"
             onClick={() => setTab('submitted')}
-            className={`flex items-baseline gap-1 text-4xl font-semibold tracking-tight transition-opacity ${tab === 'submitted' ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
+            className={`flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity ${tab === 'submitted' ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
           >
             Submitted
-            <span className="text-sm font-medium">{submittedCount}</span>
+            <span className="mt-1 text-sm font-medium">{submittedCount}</span>
           </button>
         </div>
         <Button type="button" onClick={onCreateTicket} className="shrink-0">
