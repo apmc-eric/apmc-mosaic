@@ -28,16 +28,18 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}))
-  const { ticketId, searchFrom, workTimeZone, preferredCheckpointIso } = body as {
+  const { ticketId, assigneeProfileIds, searchFrom, workTimeZone, preferredCheckpointIso } = body as {
     ticketId?: string
+    /** Profile IDs to check availability for (used in ticket creation flow before a ticket exists). */
+    assigneeProfileIds?: string[]
     searchFrom?: string
     workTimeZone?: string
     /** Picker value — used to validate the selected civil day (including weekends) when the weekday scan finds nothing. */
     preferredCheckpointIso?: string | null
   }
 
-  if (!ticketId) {
-    return NextResponse.json({ error: 'ticketId required' }, { status: 400 })
+  if (!ticketId && (!assigneeProfileIds || assigneeProfileIds.length === 0)) {
+    return NextResponse.json({ error: 'ticketId or assigneeProfileIds required' }, { status: 400 })
   }
 
   const admin = createAdminClient()
@@ -104,17 +106,11 @@ export async function POST(req: NextRequest) {
       .eq('user_id', user.id)
   }
 
-  // Get ticket assignees
-  const { data: assignees } = await admin
-    .from('ticket_assignees')
-    .select('user_id, profile:profiles(email, first_name, last_name)')
-    .eq('ticket_id', ticketId)
-
   // Calendars to query: **only** users who linked Google in Mosaic. Unlinked assignees still get invite emails
   // later, but must **not** be sent as FreeBusy `items` — Google often treats inaccessible calendars as fully
   // busy, which would block every slot for the organizer who *is* linked.
   //
-  // Always use **`primary`** for the OAuth user’s calendar — Supabase **`user.email`** can be missing or differ
+  // Always use **`primary`** for the OAuth user's calendar — Supabase **`user.email`** can be missing or differ
   // from the Google account that granted the token; `primary` always matches the access token.
   const calendarIds: string[] = []
   const usersWithoutGoogle: string[] = []
@@ -133,31 +129,64 @@ export async function POST(req: NextRequest) {
 
   const organizerEmail = user.email?.trim().toLowerCase() ?? ''
 
-  for (const assignee of assignees ?? []) {
-    const profile = unwrapJoinProfile(
-      assignee.profile as {
-        email: string
-        first_name: string | null
-        last_name: string | null
-      } | null,
-    )
-    if (!profile?.email) continue
-    if (organizerEmail && profile.email.trim().toLowerCase() === organizerEmail) continue
+  if (ticketId) {
+    // Get ticket assignees via ticket_assignees join
+    const { data: assignees } = await admin
+      .from('ticket_assignees')
+      .select('user_id, profile:profiles(email, first_name, last_name)')
+      .eq('ticket_id', ticketId)
 
-    const { data: theirToken } = await admin
-      .from('user_google_tokens')
-      .select('id')
-      .eq('user_id', assignee.user_id)
-      .maybeSingle()
+    for (const assignee of assignees ?? []) {
+      const profile = unwrapJoinProfile(
+        assignee.profile as {
+          email: string
+          first_name: string | null
+          last_name: string | null
+        } | null,
+      )
+      if (!profile?.email) continue
+      if (organizerEmail && profile.email.trim().toLowerCase() === organizerEmail) continue
 
-    if (!theirToken) {
-      const name =
-        [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email
-      usersWithoutGoogle.push(name)
-      continue
+      const { data: theirToken } = await admin
+        .from('user_google_tokens')
+        .select('id')
+        .eq('user_id', assignee.user_id)
+        .maybeSingle()
+
+      if (!theirToken) {
+        const name =
+          [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.email
+        usersWithoutGoogle.push(name)
+        continue
+      }
+
+      pushCalendarId(profile.email)
     }
+  } else if (assigneeProfileIds && assigneeProfileIds.length > 0) {
+    // Creation flow: look up profiles directly by ID
+    const { data: assigneeProfiles } = await admin
+      .from('profiles')
+      .select('id, email, first_name, last_name')
+      .in('id', assigneeProfileIds)
 
-    pushCalendarId(profile.email)
+    for (const p of assigneeProfiles ?? []) {
+      if (!p.email) continue
+      if (organizerEmail && p.email.trim().toLowerCase() === organizerEmail) continue
+
+      const { data: theirToken } = await admin
+        .from('user_google_tokens')
+        .select('id')
+        .eq('user_id', p.id)
+        .maybeSingle()
+
+      if (!theirToken) {
+        const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || p.email
+        usersWithoutGoogle.push(name)
+        continue
+      }
+
+      pushCalendarId(p.email)
+    }
   }
 
   /** If Google returns 401 (revoked / skewed DB expiry), refresh once and retry the same window. */
@@ -245,7 +274,7 @@ export async function POST(req: NextRequest) {
     dayYmd = addCivilDaysYmd(dayYmd, 1, userTz)
   }
 
-  /** If the weekday scan found nothing, still check the **picker’s civil day** (weekends too) at **6a–6p** in **`userTz`**. */
+  /** If the weekday scan found nothing, still check the **picker's civil day** (weekends too) at **6a–6p** in **`userTz`**. */
   if (slots.length === 0 && typeof preferredCheckpointIso === 'string' && preferredCheckpointIso.trim()) {
     try {
       const pref = parseISO(preferredCheckpointIso.trim())
