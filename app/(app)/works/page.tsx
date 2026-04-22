@@ -51,6 +51,7 @@ import {
 } from '@/lib/week-buckets'
 import { TicketCard } from '@/components/ticket-card'
 import { TimelineIndicator } from '@/components/timeline-indicator'
+import { WorksCollaboratorView } from '@/components/works-collaborator-view'
 import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -107,7 +108,7 @@ function insertCompletedBeforePausedForStatus(phases: string[]): string[] {
 }
 
 export default function WorksPage() {
-  const { profile, isAdmin, workspaceSettings } = useAuth()
+  const { profile, isAdmin, viewRole, workspaceSettings } = useAuth()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [filterProjectIds, setFilterProjectIds] = useState<string[]>([])
@@ -877,6 +878,78 @@ export default function WorksPage() {
         displayTimeZone={profile?.timezone ?? null}
         onClick={() => setPanelTicket(t)}
       />
+    )
+  }
+
+  if (viewRole === 'collaborator' && profile) {
+    return (
+      <>
+        <WorksCollaboratorView
+          tickets={tickets}
+          profile={profile}
+          displayTimeZone={profile.timezone ?? null}
+          onCreateTicket={() => setSubmitOpen(true)}
+          onTicketClick={(t) => setPanelTicket(t)}
+        />
+        <TicketSubmitModal
+          open={submitOpen}
+          onOpenChange={setSubmitOpen}
+          onCreated={() => {
+            toast.success('Ticket Submitted!')
+            void load()
+          }}
+        />
+        <Sheet
+          open={!!panelTicket}
+          onOpenChange={(o) => {
+            if (!o) {
+              setPanelTicket(null)
+              setCheckpointModalOpen(false)
+            }
+          }}
+        >
+          <SheetContent
+            className="flex h-full max-h-[100dvh] w-full flex-col gap-0 overflow-hidden border-l bg-background p-0 sm:max-w-[540px]"
+          >
+            {panelTicket && (
+              <>
+                <SheetTitle className="sr-only">
+                  Ticket {panelTicket.ticket_id}: {panelTicket.title}
+                </SheetTitle>
+                <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+                  <header className="bg-background flex w-full min-w-0 shrink-0 flex-col justify-start gap-4 px-6 pt-6 pb-4">
+                    <div className="flex w-full min-w-0 flex-col gap-2">
+                      <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
+                        {panelTicket.ticket_id}
+                      </p>
+                      <p className="text-base font-semibold">{panelTicket.title}</p>
+                    </div>
+                  </header>
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-6">
+                    <WorksTicketPanelMetadata
+                      checkpointDate={panelTicket.checkpoint_date}
+                      phase={panelTicket.phase}
+                      teamCategory={panelTicket.team_category}
+                      phaseOptions={panelPhaseSelectOptions}
+                      categoryOptions={workspaceSettings?.team_categories ?? []}
+                      canEdit={false}
+                      onCheckpointCommit={commitPanelCheckpoint}
+                      onPhaseCommit={commitPanelPhase}
+                      onCategoriesCommit={commitPanelCategories}
+                      designerAssignees={panelTicket.assignees ?? []}
+                      assigneePickerDesigners={workspaceDesigners}
+                      onAssigneesCommit={(lead, support) => savePanelAssignees(lead, support)}
+                      assigneeSaving={assigneeSaving}
+                      displayTimeZone={profile.timezone ?? null}
+                      hideCheckpointRow
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </SheetContent>
+        </Sheet>
+      </>
     )
   }
 

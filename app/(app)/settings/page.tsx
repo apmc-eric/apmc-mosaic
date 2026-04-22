@@ -47,7 +47,7 @@ function GoogleIcon() {
 }
 
 export default function GeneralSettingsPage() {
-  const { user, profile, hasGoogleToken, refreshSettings, refreshGoogleConnection, refreshProfile } = useAuth()
+  const { user, profile, isAdmin, hasGoogleToken, refreshSettings, refreshGoogleConnection, refreshProfile, viewRole, saveDemoViewRole } = useAuth()
   const [domains, setDomains] = useState<string[]>(DEFAULT_DOMAINS)
   const [newDomain, setNewDomain] = useState('')
   const [isSaving, setIsSaving] = useState(false)
@@ -310,6 +310,47 @@ export default function GeneralSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>View as User Type</CardTitle>
+            <CardDescription>
+              Preview the Works page as a different role. Only you see this — no data is changed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor="settings-view-role">Viewing as</Label>
+                <Select
+                  value={viewRole ?? 'admin'}
+                  onValueChange={(v) => saveDemoViewRole(v === 'admin' ? null : (v as 'designer' | 'collaborator' | 'guest'))}
+                >
+                  <SelectTrigger id="settings-view-role" className="w-full max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Admin (default)</SelectItem>
+                    <SelectItem value="designer">Designer</SelectItem>
+                    <SelectItem value="collaborator">Collaborator</SelectItem>
+                    <SelectItem value="guest">Guest</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {viewRole && viewRole !== 'admin' ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => saveDemoViewRole(null)}
+                >
+                  Reset to Admin
+                </Button>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={isSaving || isLoading}>
