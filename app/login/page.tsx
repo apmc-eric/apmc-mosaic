@@ -11,9 +11,6 @@ import { toast } from 'sonner'
 
 const supabase = createClient()
 
-// Default domains as fallback
-const DEFAULT_DOMAINS = ['aparentmedia.com', 'kidoodle.tv']
-
 const ALLOW_DEV_LOGIN = process.env.NEXT_PUBLIC_ALLOW_DEV_LOGIN === 'true'
 
 function GoogleIcon() {
@@ -39,45 +36,49 @@ function GoogleIcon() {
   )
 }
 
+type AllowedEmailEntry = { email: string; role: string }
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [step, setStep] = useState<'email' | 'sent'>('email')
   const [isLoading, setIsLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [devLoginLoading, setDevLoginLoading] = useState(false)
-  const [allowedDomains, setAllowedDomains] = useState<string[]>(DEFAULT_DOMAINS)
+  const [allowedEmails, setAllowedEmails] = useState<AllowedEmailEntry[]>([])
 
-  // Load settings (logo_url kept in DB for future use; login always uses AppLogo)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('error') === 'unauthorized') {
+        toast.error('Email not authorized', {
+          description: 'Contact your administrator to request access.',
+        })
+        window.history.replaceState(null, '', window.location.pathname)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     const loadSettings = async () => {
-      const { data } = await supabase.from('settings').select('*')
-
-      if (data) {
-        data.forEach((row) => {
-          if (
-            row.key === 'allowed_domains' &&
-            Array.isArray(row.value) &&
-            row.value.length > 0
-          ) {
-            setAllowedDomains(row.value)
-          }
-        })
+      const { data } = await supabase.from('settings').select('key, value').eq('key', 'allowed_emails').maybeSingle()
+      if (data && Array.isArray(data.value) && data.value.length > 0) {
+        setAllowedEmails(data.value as AllowedEmailEntry[])
       }
     }
     loadSettings()
   }, [])
 
-  const validateDomain = (email: string) => {
-    const domain = email.split('@')[1]?.toLowerCase()
-    return allowedDomains.includes(domain)
+  const isEmailAllowed = (inputEmail: string) => {
+    const normalized = inputEmail.trim().toLowerCase()
+    return allowedEmails.some((e) => e.email.toLowerCase() === normalized)
   }
 
   const handleSendMagicLink = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!validateDomain(email)) {
-      toast.error('Email domain not allowed', {
-        description: 'Please use an email from an approved domain.'
+    if (!isEmailAllowed(email)) {
+      toast.error('Email not authorized', {
+        description: 'Contact your administrator to request access.',
       })
       return
     }
@@ -124,7 +125,6 @@ export default function LoginPage() {
       toast.error('Google sign-in failed', { description: error.message })
       setGoogleLoading(false)
     }
-    // On success the browser navigates away — no need to reset loading
   }
 
   const handleDevLogin = async (e?: React.FormEvent | React.MouseEvent) => {

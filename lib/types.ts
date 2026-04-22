@@ -10,10 +10,16 @@ export interface WorkspaceSettings {
   updated_at: string
 }
 
+export interface AllowedEmailEntry {
+  email: string
+  role: MosaicRole
+}
+
 export interface Settings {
   id: string
   logo_url: string | null
   allowed_domains: string[]
+  allowed_emails: AllowedEmailEntry[]
   created_at: string
   updated_at: string
 }
