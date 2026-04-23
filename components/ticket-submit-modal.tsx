@@ -21,7 +21,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ProfileImage } from '@/components/profile-image'
 import { TicketTitleEditor } from '@/components/ticket-title-editor'
 import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
-import { WorksTicketPanelMetadata } from '@/components/works-ticket-panel-metadata'
 import { ContextLink } from '@/components/context-link'
 import { HorizontalScrollFade } from '@/components/horizontal-scroll-fade'
 import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
@@ -39,7 +38,7 @@ import { addCivilDaysYmd } from '@/lib/calendar-civil-date'
 import { parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { toast } from 'sonner'
-import { CalendarSearch, ChevronDown, Folder, Loader2, Search, Users, X } from 'lucide-react'
+import { CalendarSearch, ChevronDown, Folder, Loader2, Search, Tag, Users, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const supabase = createClient()
@@ -98,12 +97,8 @@ function slotSearchAnchorYmd(iso: string | null, displayTz: string): string {
   if (raw) {
     try {
       const p = parseISO(raw)
-      if (!Number.isNaN(p.getTime())) {
-        return formatInTimeZone(p, displayTz, 'yyyy-MM-dd')
-      }
-    } catch {
-      /* use today */
-    }
+      if (!Number.isNaN(p.getTime())) return formatInTimeZone(p, displayTz, 'yyyy-MM-dd')
+    } catch { /* use today */ }
   }
   return formatInTimeZone(new Date(), displayTz, 'yyyy-MM-dd')
 }
@@ -118,15 +113,17 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
   const [descriptionHtml, setDescriptionHtml] = useState('')
   const [projectId, setProjectId] = useState('')
   const [checkpointIso, setCheckpointIso] = useState<string | null>(null)
-  const [teamCategoryCsv, setTeamCategoryCsv] = useState<string | null>(null)
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [designers, setDesigners] = useState<AssignableProfile[]>([])
   const [assigneeIds, setAssigneeIds] = useState<string[]>([])
   const [baselineAssigneeKey, setBaselineAssigneeKey] = useState('')
+
+  const [projectPopoverOpen, setProjectPopoverOpen] = useState(false)
+  const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false)
   const [designerPopoverOpen, setDesignerPopoverOpen] = useState(false)
   const [designerSearch, setDesignerSearch] = useState('')
-  const [projectPopoverOpen, setProjectPopoverOpen] = useState(false)
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
 
   // Step 3 state
@@ -139,10 +136,10 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
   const [slotsErrorDetail, setSlotsErrorDetail] = useState<string | null>(null)
   const [searchPage, setSearchPage] = useState(0)
 
-  const selectedProject = useMemo(
-    () => projects.find((p) => p.id === projectId),
-    [projects, projectId],
-  )
+  const categoryOptions = workspaceSettings?.team_categories ?? []
+  const teamCategoryCsv = selectedCategories.length > 0 ? selectedCategories.join(',') : null
+
+  const selectedProject = useMemo(() => projects.find((p) => p.id === projectId), [projects, projectId])
 
   const previewUrls = useMemo(() => {
     const clean = sanitizeDescriptionHtml(descriptionHtml)
@@ -159,8 +156,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     const q = designerSearch.trim().toLowerCase()
     if (!q) return designers
     return designers.filter((d) =>
-      formatProfileLabel(d).toLowerCase().includes(q) ||
-      (d.email ?? '').toLowerCase().includes(q),
+      formatProfileLabel(d).toLowerCase().includes(q) || (d.email ?? '').toLowerCase().includes(q),
     )
   }, [designers, designerSearch])
 
@@ -168,31 +164,18 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
 
   const isDirty = useMemo(() => {
     const desc = sanitizeDescriptionHtml(descriptionHtml).trim()
-    const cats = teamCategoryCsv?.trim() ?? ''
     if (step >= 2) return true
     if (title.trim() !== '') return true
     if (desc !== '') return true
     if (projectId !== '') return true
     if (checkpointIso != null) return true
-    if (cats !== '') return true
+    if (selectedCategories.length > 0) return true
     if (assigneeKey(assigneeIds) !== baselineAssigneeKey) return true
     return false
-  }, [
-    step,
-    title,
-    descriptionHtml,
-    projectId,
-    checkpointIso,
-    teamCategoryCsv,
-    assigneeIds,
-    baselineAssigneeKey,
-  ])
+  }, [step, title, descriptionHtml, projectId, checkpointIso, selectedCategories, assigneeIds, baselineAssigneeKey])
 
   const requestClose = useCallback(() => {
-    if (!isDirty) {
-      onOpenChange(false)
-      return
-    }
+    if (!isDirty) { onOpenChange(false); return }
     setExitConfirmOpen(true)
   }, [isDirty, onOpenChange])
 
@@ -202,28 +185,16 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
   }, [onOpenChange])
 
   const handleDialogOpenChange = useCallback(
-    (next: boolean) => {
-      if (next) return
-      requestClose()
-    },
+    (next: boolean) => { if (next) return; requestClose() },
     [requestClose],
   )
 
   useEffect(() => {
     if (!open) return
-    void supabase
-      .from('projects')
-      .select('*')
-      .order('name')
-      .then(({ data, error }) => {
-        if (error) {
-          console.error(error)
-          toast.error('Could not load projects')
-          return
-        }
-        if (data) setProjects(data as Project[])
-      })
-
+    void supabase.from('projects').select('*').order('name').then(({ data, error }) => {
+      if (error) { console.error(error); toast.error('Could not load projects'); return }
+      if (data) setProjects(data as Project[])
+    })
     void supabase
       .from('profiles')
       .select('id, first_name, last_name, name, email, role, avatar_url, timezone')
@@ -231,11 +202,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       .in('role', ['admin', 'designer', 'collaborator', 'guest', 'user', 'member'])
       .order('first_name', { ascending: true })
       .then(({ data, error }) => {
-        if (error) {
-          console.error(error)
-          toast.error('Could not load designers')
-          return
-        }
+        if (error) { console.error(error); toast.error('Could not load designers'); return }
         if (data) setDesigners(data as AssignableProfile[])
       })
   }, [open])
@@ -248,10 +215,11 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     setDescriptionHtml('')
     setProjectId('')
     setCheckpointIso(null)
-    setTeamCategoryCsv(null)
+    setSelectedCategories([])
+    setProjectPopoverOpen(false)
+    setCategoryPopoverOpen(false)
     setDesignerPopoverOpen(false)
     setDesignerSearch('')
-    setProjectPopoverOpen(false)
     setExitConfirmOpen(false)
     setSendCalendarInvite(true)
     setSlotsStatus('idle')
@@ -266,26 +234,23 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     setBaselineAssigneeKey(assigneeKey(initialIds))
   }, [open, profile?.id])
 
+  const toggleCategory = (cat: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat],
+    )
+  }
+
   const toggleAssignee = (id: string) => {
-    setAssigneeIds((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id)
-      return [...prev, id]
-    })
+    setAssigneeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
   }
 
   const goStep2 = () => {
-    if (!title.trim()) {
-      toast.error('Add a title to continue')
-      return
-    }
+    if (!title.trim()) { toast.error('Add a title to continue'); return }
     setStep(2)
   }
 
   const goStep3 = () => {
-    if (!projectId) {
-      toast.error('Select a project to continue')
-      return
-    }
+    if (!projectId) { toast.error('Select a project to continue'); return }
     setSlotsStatus('idle')
     setAvailableSlots([])
     setSlotsDate(null)
@@ -320,15 +285,12 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
         }),
       })
       const data = await res.json()
-
       if (!res.ok || data.error) {
         setSlotsStatus('error')
         setSlotsErrorDetail(typeof data.detail === 'string' ? data.detail : null)
         return
       }
-
       setUsersWithoutGoogle(data.usersWithoutGoogle ?? [])
-
       if (data.slots?.length > 0) {
         setAvailableSlots(data.slots)
         setSlotsDate(data.slotsDate)
@@ -348,16 +310,12 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       return
     }
     const proj = projects.find((p) => p.id === projectId)
-    if (!proj) {
-      toast.error('Invalid project')
-      return
-    }
+    if (!proj) { toast.error('Invalid project'); return }
 
     const finalCheckpointIso = selectedSlot ? selectedSlot.start : checkpointIso
     const support = assigneeIds.slice(1).filter((id) => id !== leadId)
     const cleanDesc = sanitizeDescriptionHtml(descriptionHtml).trim()
     const fromLinks = extractUrlsFromDescriptionHtml(cleanDesc)
-    const p_urls = fromLinks.length > 0 ? fromLinks : null
 
     setSubmitting(true)
     try {
@@ -368,7 +326,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
         body: JSON.stringify({
           p_title: title.trim(),
           p_description: cleanDesc || null,
-          p_urls: p_urls,
+          p_urls: fromLinks.length > 0 ? fromLinks : null,
           p_team_category: teamCategoryCsv,
           p_project_id: projectId,
           p_phase: CREATE_PHASE,
@@ -384,9 +342,8 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       if (!res.ok) {
         console.error('create_ticket', res.status, result)
         toast.error(
-          result.error ||
-            result.details ||
-            (res.status === 401 ? 'Sign in again to create a ticket.' : 'Could not create ticket'),
+          result.error || result.details ||
+          (res.status === 401 ? 'Sign in again to create a ticket.' : 'Could not create ticket'),
         )
         return
       }
@@ -396,11 +353,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
         const eventRes = await fetch('/api/calendar/event', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ticketId: newTicketId,
-            ticketTitle: title.trim(),
-            slot: selectedSlot,
-          }),
+          body: JSON.stringify({ ticketId: newTicketId, ticketTitle: title.trim(), slot: selectedSlot }),
         })
         if (!eventRes.ok) {
           toast.warning('Ticket created — calendar invite could not be sent')
@@ -422,7 +375,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     }
   }
 
-  // Checkpoint preview data for Step 3 Tab 1
+  // Checkpoint preview for Step 3 Tab 1
   const checkpointPreviewIso = selectedSlot?.start ?? checkpointIso
   const checkpointPreview = useMemo(() => {
     if (!checkpointPreviewIso) return null
@@ -432,11 +385,9 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       return {
         month: formatInTimeZone(inst, displayTz, 'MMMM').toUpperCase(),
         day: formatInTimeZone(inst, displayTz, 'd'),
-        label: formatInTimeZone(inst, displayTz, "EEEE, h:mm a"),
+        label: formatInTimeZone(inst, displayTz, 'EEEE, h:mm a'),
       }
-    } catch {
-      return null
-    }
+    } catch { return null }
   }, [checkpointPreviewIso, displayTz])
 
   return (
@@ -445,7 +396,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
         <DialogContent
           showCloseButton={false}
           className={cn(
-            'fixed inset-0 top-0 left-0 z-50 flex h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:max-w-none',
+            'fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none sm:max-w-none dark:bg-zinc-950',
             'data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100',
           )}
           data-name="Ticket Creation"
@@ -454,11 +405,8 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
           <DialogTitle className="sr-only">Create ticket</DialogTitle>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <header
-              className="flex shrink-0 items-center justify-end gap-3 overflow-hidden p-2 pt-2.5 pr-1 pl-4 sm:pl-6"
-              data-name="Top"
-              data-node-id="294:6449"
-            >
+            {/* Top bar — X button only */}
+            <header className="flex shrink-0 items-center justify-end p-2" data-node-id="294:6449">
               <Button
                 type="button"
                 variant="ghost"
@@ -471,106 +419,101 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
               </Button>
             </header>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 sm:px-6">
-              <div className="mx-auto my-auto flex w-full max-w-[480px] shrink-0 flex-col pb-6">
+            {/* Scrollable content */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+              <div className="mx-auto flex w-full max-w-[480px] flex-col gap-10 px-6 pb-10 pt-3">
 
                 {/* ── Step 1 ── */}
-                {step === 1 ? (
-                  <div
-                    className="flex flex-col gap-5"
-                    data-name="Ticket Creation Flow"
-                    data-node-id="290:3985"
-                  >
-                    <div className="flex flex-col gap-1 pt-2">
-                      <p className="text-xs font-medium text-muted-foreground tracking-wide">Step 1 of 3</p>
-                      <h2 className="font-serif text-2xl tracking-tight">Let&apos;s create your design request.</h2>
+                {step === 1 && (
+                  <div className="flex flex-col gap-8">
+                    {/* Step header */}
+                    <div className="flex flex-col gap-3.5">
+                      <p className="text-xs font-medium leading-none text-neutral-400">Step 1 of 3</p>
+                      <h2 className="text-4xl font-semibold leading-[1.1] tracking-[-0.015em] text-neutral-900">
+                        Let&apos;s create your design request.
+                      </h2>
+                      <p className="text-sm leading-snug text-neutral-500">
+                        The more detail, the better! Your title should be self-explanatory, and details can be shared in the description—along with links &amp; images.
+                      </p>
                     </div>
 
-                    <div
-                      className="flex min-h-[5.25rem] flex-col gap-2"
-                      data-name="Header"
-                      data-node-id="290:3874"
-                    >
-                      <TicketTitleEditor
-                        key={`title-${draftSession}`}
-                        ticketId="create-draft"
-                        resetKey={draftSession}
-                        title={title}
-                        canEdit
-                        compose
-                        autoFocus
-                        placeholder="New Design Request"
-                        onChange={setTitle}
-                        onSave={() => {}}
-                        className="min-h-[1.75rem]"
-                      />
-                    </div>
+                    {/* Form fields */}
+                    <div className="flex flex-col gap-8">
+                      <div className="flex flex-col gap-2">
+                        <p className="text-xs font-medium text-neutral-400">Title</p>
+                        <TicketTitleEditor
+                          key={`title-${draftSession}`}
+                          ticketId="create-draft"
+                          resetKey={draftSession}
+                          title={title}
+                          canEdit
+                          compose
+                          autoFocus
+                          placeholder="A short, descriptive title"
+                          onChange={setTitle}
+                          onSave={() => {}}
+                          className="text-xl font-semibold"
+                        />
+                      </div>
 
-                    <div
-                      className="flex min-h-[240px] flex-col gap-0"
-                      data-name="Description Area"
-                      data-node-id="290:3881"
-                    >
-                      <TicketDescriptionEditor
-                        key={`desc-${draftSession}`}
-                        ticketId="create-draft"
-                        resetKey={draftSession}
-                        description={descriptionHtml}
-                        canEdit
-                        compose
-                        placeholder="Please share some context around your request."
-                        onChange={setDescriptionHtml}
-                        onSave={() => {}}
-                        className="min-h-[240px]"
-                      />
-                    </div>
+                      <div className="flex flex-col gap-2.5">
+                        <p className="text-xs font-medium text-neutral-400">Description</p>
+                        <TicketDescriptionEditor
+                          key={`desc-${draftSession}`}
+                          ticketId="create-draft"
+                          resetKey={draftSession}
+                          description={descriptionHtml}
+                          canEdit
+                          compose
+                          placeholder="Please share as much context around your request."
+                          onChange={setDescriptionHtml}
+                          onSave={() => {}}
+                          className="min-h-[200px]"
+                        />
+                      </div>
 
-                    {previewUrls.length > 0 ? (
-                      <HorizontalScrollFade data-name="Links" data-node-id="243:3677">
-                        {previewUrls.map((u) => (
-                          <ContextLink key={u} href={u} title={contextLinkTitleFromUrl(u)} />
-                        ))}
-                      </HorizontalScrollFade>
-                    ) : null}
+                      {previewUrls.length > 0 && (
+                        <HorizontalScrollFade>
+                          {previewUrls.map((u) => (
+                            <ContextLink key={u} href={u} title={contextLinkTitleFromUrl(u)} />
+                          ))}
+                        </HorizontalScrollFade>
+                      )}
+                    </div>
                   </div>
-                ) : null}
+                )}
 
                 {/* ── Step 2 ── */}
-                {step === 2 ? (
-                  <div className="flex flex-col gap-9" data-name="Ticket Creation Step 2" data-node-id="294:6249">
-                    <div className="flex flex-col gap-1 pt-2">
-                      <p className="text-xs font-medium text-muted-foreground tracking-wide">Step 2 of 3</p>
-                      <h2 className="font-serif text-2xl tracking-tight">What type of request is this?</h2>
+                {step === 2 && (
+                  <div className="flex flex-col gap-8" data-node-id="294:6249">
+                    {/* Step header */}
+                    <div className="flex flex-col gap-3.5" data-node-id="369:6317">
+                      <p className="text-xs font-medium leading-none text-neutral-400">Step 2 of 3</p>
+                      <h2 className="text-4xl font-semibold leading-[1.1] tracking-[-0.015em] text-neutral-900">
+                        What type of request is this?
+                      </h2>
+                      <p className="text-sm leading-snug text-neutral-500">
+                        Help us define what type of project this is (ie. Product Design, Marketing, Framer website, etc.) and your requested designer(s).
+                      </p>
                     </div>
 
-                    <div className="flex w-full flex-col" data-name="Metadata" data-node-id="294:6306">
-                      {/* Project Type row */}
-                      <div
-                        className="flex w-full items-center justify-between py-4"
-                        data-name="Row"
-                        data-node-id="294:6307"
-                      >
+                    {/* Metadata rows */}
+                    <div className="flex flex-col" data-node-id="369:6335">
+                      {/* Project Type */}
+                      <div className="flex items-center justify-between py-4" data-node-id="369:6336">
                         <div className="flex h-7 items-center gap-2">
                           <Folder className="size-4 shrink-0 text-neutral-500" aria-hidden />
                           <span className="text-sm font-medium leading-none text-neutral-500">Project Type</span>
                         </div>
                         <Popover open={projectPopoverOpen} onOpenChange={setProjectPopoverOpen}>
                           <PopoverTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              className="max-w-[14rem] shrink-0 truncate font-normal"
-                            >
-                              {selectedProject
-                                ? `${selectedProject.name} (${selectedProject.abbreviation})`
-                                : 'Select Project'}
+                            <Button type="button" variant="secondary" size="small" className="max-w-[14rem] shrink-0 truncate font-normal">
+                              {selectedProject ? `${selectedProject.name} (${selectedProject.abbreviation})` : 'Select Project'}
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent align="end" className="w-72 p-1">
                             {projects.length === 0 ? (
-                              <p className="text-muted-foreground px-2 py-2 text-sm">
-                                No projects — create one in Admin.
-                              </p>
+                              <p className="text-muted-foreground px-2 py-2 text-sm">No projects — create one in Admin.</p>
                             ) : (
                               <ul className="max-h-64 overflow-y-auto py-1">
                                 {projects.map((p) => (
@@ -578,10 +521,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                     <button
                                       type="button"
                                       className="hover:bg-muted/80 w-full rounded-md px-2 py-1.5 text-left text-sm"
-                                      onClick={() => {
-                                        setProjectId(p.id)
-                                        setProjectPopoverOpen(false)
-                                      }}
+                                      onClick={() => { setProjectId(p.id); setProjectPopoverOpen(false) }}
                                     >
                                       <span className="font-medium">{p.name}</span>
                                       <span className="text-muted-foreground ml-1 text-xs">({p.abbreviation})</span>
@@ -594,41 +534,62 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                         </Popover>
                       </div>
 
-                      {/* Categories row */}
-                      <WorksTicketPanelMetadata
-                        checkpointDate={null}
-                        phase={CREATE_PHASE}
-                        teamCategory={teamCategoryCsv}
-                        phaseOptions={[]}
-                        categoryOptions={workspaceSettings?.team_categories ?? []}
-                        canEdit
-                        actionStyle="create"
-                        metadataLayout="wizard"
-                        hidePhaseRow
-                        hideCheckpointRow
-                        displayTimeZone={profile?.timezone ?? null}
-                        onCheckpointCommit={async () => {}}
-                        onPhaseCommit={async () => {}}
-                        onCategoriesCommit={async (csv) => {
-                          setTeamCategoryCsv(csv)
-                        }}
-                      />
+                      {/* Categories */}
+                      <div className="flex items-center justify-between border-t border-slate-200 py-4" data-node-id="369:6346">
+                        <div className="flex h-7 items-center gap-2">
+                          <Tag className="size-4 shrink-0 text-neutral-500" aria-hidden />
+                          <span className="text-sm font-medium leading-none text-neutral-500">Categories</span>
+                        </div>
+                        <Popover open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
+                          <PopoverTrigger asChild>
+                            <Button type="button" variant="secondary" size="small" className="max-w-[14rem] shrink-0 gap-1.5 font-normal">
+                              {selectedCategories.length === 0
+                                ? 'Select Categories'
+                                : selectedCategories.length === 1
+                                  ? selectedCategories[0]
+                                  : `${selectedCategories.length} selected`}
+                              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent align="end" className="w-60 p-1">
+                            {categoryOptions.length === 0 ? (
+                              <p className="text-muted-foreground px-2 py-2 text-sm">No categories configured.</p>
+                            ) : (
+                              <ul className="py-1">
+                                {categoryOptions.map((cat) => (
+                                  <li key={cat}>
+                                    <button
+                                      type="button"
+                                      className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left hover:bg-muted/80"
+                                      onClick={() => toggleCategory(cat)}
+                                    >
+                                      <Checkbox
+                                        checked={selectedCategories.includes(cat)}
+                                        className="pointer-events-none shrink-0"
+                                        aria-hidden
+                                        tabIndex={-1}
+                                      />
+                                      <span className="text-sm">{cat}</span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                      </div>
 
-                      {/* Designer(s) row */}
-                      <div className="flex w-full items-center justify-between py-4 border-t border-border/60">
+                      {/* Designer(s) */}
+                      <div className="flex items-center justify-between border-t border-slate-200 py-4" data-node-id="369:6479">
                         <div className="flex h-7 items-center gap-2">
                           <Users className="size-4 shrink-0 text-neutral-500" aria-hidden />
                           <span className="text-sm font-medium leading-none text-neutral-500">Designer(s)</span>
                         </div>
                         <Popover open={designerPopoverOpen} onOpenChange={(v) => { setDesignerPopoverOpen(v); if (!v) setDesignerSearch('') }}>
                           <PopoverTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              className="max-w-[14rem] shrink-0 gap-1.5 font-normal"
-                            >
+                            <Button type="button" variant="secondary" size="small" className="max-w-[14rem] shrink-0 gap-1.5 font-normal">
                               {assigneeIds.length === 0
-                                ? 'Assign Designers'
+                                ? 'Select Designer(s)'
                                 : assigneeIds.length === 1
                                   ? (designerById.get(assigneeIds[0]) ? formatProfileLabel(designerById.get(assigneeIds[0])!) : 'Assigned')
                                   : `${assigneeIds.length} designers`}
@@ -663,7 +624,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                       >
                                         <Checkbox
                                           checked={checked}
-                                          onCheckedChange={() => toggleAssignee(d.id)}
                                           className="pointer-events-none shrink-0"
                                           aria-hidden
                                           tabIndex={-1}
@@ -677,12 +637,10 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                           viewerTimeZone={profile?.timezone ?? null}
                                           className="shrink-0"
                                         />
-                                        <span className="min-w-0 flex-1 truncate text-sm">
-                                          {formatProfileLabel(d)}
-                                        </span>
-                                        {isLead ? (
+                                        <span className="min-w-0 flex-1 truncate text-sm">{formatProfileLabel(d)}</span>
+                                        {isLead && checked && (
                                           <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.6rem] font-medium leading-none text-primary">Lead</span>
-                                        ) : null}
+                                        )}
                                       </button>
                                     </li>
                                   )
@@ -694,55 +652,55 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                       </div>
                     </div>
                   </div>
-                ) : null}
+                )}
 
                 {/* ── Step 3 ── */}
-                {step === 3 ? (
-                  <div className="flex flex-col gap-6">
-                    <div className="flex flex-col gap-1 pt-2">
-                      <p className="text-xs font-medium text-muted-foreground tracking-wide">Step 3 of 3</p>
-                      <h2 className="font-serif text-2xl tracking-tight">Let&apos;s set an initial checkpoint.</h2>
+                {step === 3 && (
+                  <div className="flex flex-col gap-8">
+                    <div className="flex flex-col gap-3.5">
+                      <p className="text-xs font-medium leading-none text-neutral-400">Step 3 of 3</p>
+                      <h2 className="text-4xl font-semibold leading-[1.1] tracking-[-0.015em] text-neutral-900">
+                        Let&apos;s set an initial checkpoint.
+                      </h2>
+                      <p className="text-sm leading-snug text-neutral-500">
+                        Set a date and time for the first review of this request. You can always reschedule later.
+                      </p>
                     </div>
 
                     <Tabs defaultValue="pick" className="w-full">
                       <TabsList className="w-full">
                         <TabsTrigger value="pick" className="flex-1">Pick a date &amp; time</TabsTrigger>
-                        {hasGoogleToken ? (
+                        {hasGoogleToken && (
                           <TabsTrigger value="recommend" className="flex-1">Recommend a time</TabsTrigger>
-                        ) : null}
+                        )}
                       </TabsList>
 
-                      {/* Tab 1: Pick a date & time */}
-                      <TabsContent value="pick" className="mt-4 space-y-4">
+                      {/* Tab 1 */}
+                      <TabsContent value="pick" className="mt-5 space-y-4">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                           <div className="overflow-hidden rounded-lg border border-border">
                             <CheckpointDatetimePickerBody
                               open={step === 3}
                               checkpointDate={checkpointIso}
                               timeZone={profile?.timezone ?? null}
-                              onCommit={async (iso) => {
-                                setCheckpointIso(iso)
-                                setSelectedSlot(null)
-                              }}
+                              onCommit={async (iso) => { setCheckpointIso(iso); setSelectedSlot(null) }}
                               onRequestClose={() => {}}
                             />
                           </div>
-
-                          {checkpointPreview ? (
+                          {checkpointPreview && (
                             <div className="flex shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-muted/40 px-6 py-5 text-center sm:w-40">
                               <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
                                 {checkpointPreview.month}
                               </p>
-                              <p className="font-serif text-5xl font-light leading-none tabular-nums">
+                              <p className="text-5xl font-light leading-none tabular-nums">
                                 {checkpointPreview.day}
                               </p>
-                              <p className="mt-1 text-xs text-muted-foreground leading-snug">
+                              <p className="mt-1 text-xs leading-snug text-muted-foreground">
                                 {checkpointPreview.label}
                               </p>
                             </div>
-                          ) : null}
+                          )}
                         </div>
-
                         <div className="flex items-start gap-2.5 pt-1">
                           <Checkbox
                             id="cp-invite"
@@ -753,23 +711,19 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                           />
                           <Label
                             htmlFor="cp-invite"
-                            className={cn(
-                              'cursor-pointer text-sm leading-snug',
-                              (!checkpointIso && !selectedSlot) && 'text-muted-foreground',
-                            )}
+                            className={cn('cursor-pointer text-sm leading-snug', (!checkpointIso && !selectedSlot) && 'text-muted-foreground')}
                           >
                             Send calendar invite to all collaborators
                           </Label>
                         </div>
                       </TabsContent>
 
-                      {/* Tab 2: Recommend a time (Google Calendar) */}
-                      {hasGoogleToken ? (
-                        <TabsContent value="recommend" className="mt-4 space-y-4">
+                      {/* Tab 2 */}
+                      {hasGoogleToken && (
+                        <TabsContent value="recommend" className="mt-5 space-y-4">
                           <p className="text-sm text-muted-foreground">
                             Finds available 30-minute slots across all assigned designers&apos; linked Google Calendars (weekdays, 6&nbsp;AM–6&nbsp;PM in your timezone).
                           </p>
-
                           <Button
                             type="button"
                             variant="outline"
@@ -778,27 +732,20 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                             disabled={slotsStatus === 'loading'}
                           >
                             {slotsStatus === 'loading' ? (
-                              <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Searching Calendars…
-                              </>
+                              <><Loader2 className="h-4 w-4 animate-spin" />Searching Calendars…</>
                             ) : (
-                              <>
-                                <CalendarSearch className="h-4 w-4" />
-                                Find Available Times
-                              </>
+                              <><CalendarSearch className="h-4 w-4" />Find Available Times</>
                             )}
                           </Button>
 
-                          {usersWithoutGoogle.length > 0 ? (
+                          {usersWithoutGoogle.length > 0 && (
                             <p className="text-xs text-muted-foreground">
                               Note: {usersWithoutGoogle.join(', ')}{' '}
-                              {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} linked Google Calendar — their
-                              availability isn&apos;t factored in, but they&apos;ll still receive a calendar invite.
+                              {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} linked Google Calendar — availability not factored in, but they&apos;ll still get a calendar invite.
                             </p>
-                          ) : null}
+                          )}
 
-                          {slotsStatus === 'found' && slotsDate ? (
+                          {slotsStatus === 'found' && slotsDate && (
                             <div className="space-y-3">
                               <p className="text-sm font-medium">{formatSlotDateLabel(slotsDate, displayTz)}</p>
                               <div className="flex flex-wrap gap-2">
@@ -806,10 +753,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                   <button
                                     key={slot.start}
                                     type="button"
-                                    onClick={() => {
-                                      setSelectedSlot(slot)
-                                      setCheckpointIso(slot.start)
-                                    }}
+                                    onClick={() => { setSelectedSlot(slot); setCheckpointIso(slot.start) }}
                                     className={cn(
                                       'rounded-md border px-3 py-1.5 text-sm transition-colors',
                                       selectedSlot?.start === slot.start
@@ -828,7 +772,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                               >
                                 Search later →
                               </button>
-
                               <div className="flex items-start gap-2.5 pt-1">
                                 <Checkbox
                                   id="cp-invite-slot"
@@ -839,78 +782,60 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                 />
                                 <Label
                                   htmlFor="cp-invite-slot"
-                                  className={cn(
-                                    'cursor-pointer text-sm leading-snug',
-                                    !selectedSlot && 'text-muted-foreground',
-                                  )}
+                                  className={cn('cursor-pointer text-sm leading-snug', !selectedSlot && 'text-muted-foreground')}
                                 >
                                   Send calendar invite to all collaborators
                                 </Label>
                               </div>
                             </div>
-                          ) : null}
+                          )}
 
-                          {slotsStatus === 'none' ? (
+                          {slotsStatus === 'none' && (
                             <div className="space-y-2">
                               <p className="text-sm text-muted-foreground">No available slots found in the next 14 weekdays.</p>
-                              <button
-                                type="button"
-                                className="text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => void findAvailableTimesPage(searchPage + 1)}
-                              >
+                              <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => void findAvailableTimesPage(searchPage + 1)}>
                                 Search further out →
                               </button>
                             </div>
-                          ) : null}
+                          )}
 
-                          {slotsStatus === 'error' ? (
+                          {slotsStatus === 'error' && (
                             <div className="space-y-2">
                               <p className="text-sm text-destructive">
                                 Could not fetch calendar availability. Try again or use the &quot;Pick a date&quot; tab.
                               </p>
-                              {slotsErrorDetail ? (
+                              {slotsErrorDetail && (
                                 <p className="break-all font-mono text-xs leading-snug text-muted-foreground">{slotsErrorDetail}</p>
-                              ) : null}
+                              )}
                             </div>
-                          ) : null}
+                          )}
                         </TabsContent>
-                      ) : null}
+                      )}
                     </Tabs>
                   </div>
-                ) : null}
+                )}
 
               </div>
             </div>
 
-            <footer
-              className="w-full shrink-0 border-t border-slate-100 px-4 py-4 dark:border-zinc-800 sm:px-6"
-              data-name="CTA"
-              data-node-id="294:6376"
-            >
+            {/* Footer */}
+            <footer className="w-full shrink-0 border-t border-slate-100 px-6 py-6 dark:border-zinc-800" data-node-id="294:6376">
               <div className="flex w-full items-center justify-between gap-3">
                 {step === 1 ? (
                   <>
                     <Button type="button" variant="ghost" disabled={submitting} onClick={requestClose}>
                       Cancel &amp; Exit
                     </Button>
-                    <Button type="button" disabled={submitting} onClick={goStep2}>
-                      Next
-                    </Button>
+                    <Button type="button" disabled={submitting} onClick={goStep2}>Next</Button>
                   </>
                 ) : step === 2 ? (
                   <>
-                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(1)}>
-                      Previous
-                    </Button>
-                    <Button type="button" disabled={submitting} onClick={goStep3}>
-                      Next
-                    </Button>
+                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(1)}>Previous</Button>
+                    <Button type="button" disabled={submitting} onClick={goStep3}>Next</Button>
                   </>
                 ) : (
                   <>
-                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(2)}>
-                      Previous
-                    </Button>
+                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(2)}>Previous</Button>
                     <Button
                       type="button"
                       disabled={submitting || !projectId || !title.trim()}
@@ -931,8 +856,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
           <AlertDialogHeader>
             <AlertDialogTitle>Discard this ticket?</AlertDialogTitle>
             <AlertDialogDescription>
-              You have started this request but have not finished submitting it. If you leave now, everything you
-              entered will be lost.
+              You have started this request but have not finished submitting it. If you leave now, everything you entered will be lost.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
