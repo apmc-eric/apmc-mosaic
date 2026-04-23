@@ -30,18 +30,25 @@ export async function middleware(request: NextRequest) {
   const publicPaths = ['/login', '/auth', '/api']
   const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path))
 
-  // If user is not logged in and trying to access protected routes
-  if (!user && !isPublicPath) {
+  // Helper: redirect while preserving any session cookies that getUser() may have refreshed.
+  // Per Supabase SSR docs, you MUST copy supabaseResponse cookies onto any redirect response,
+  // otherwise a mid-flight token refresh is lost and the user appears logged out on the next request.
+  const redirectWithSession = (destination: string) => {
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    url.pathname = destination
+    const res = NextResponse.redirect(url)
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      res.cookies.set(cookie.name, cookie.value, cookie)
+    })
+    return res
   }
 
-  // If user is logged in and trying to access login page → app home (role routing on client)
+  if (!user && !isPublicPath) {
+    return redirectWithSession('/login')
+  }
+
   if (user && request.nextUrl.pathname === '/login') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/works'
-    return NextResponse.redirect(url)
+    return redirectWithSession('/works')
   }
 
   return supabaseResponse
