@@ -456,7 +456,7 @@ export function PostDetailPanel({
       {/* Header: title + posted by (left), Save / Visit / Delete / Close (right) */}
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border p-4">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-serif text-lg font-medium">{post.title}</h2>
+          <h2 className="truncate font-sans text-lg font-medium">{post.title}</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             posted by{' '}
             {post.profile ? (

@@ -48,7 +48,7 @@ export default function SubmitterPortalPage() {
 
   return (
     <div className="pb-28 max-w-3xl mx-auto px-4 sm:px-6 py-8">
-      <h1 className="text-2xl font-serif mb-1">Hi, {name}</h1>
+      <h1 className="text-2xl font-sans mb-1">Hi, {name}</h1>
       <p className="text-muted-foreground text-sm mb-8">Your submitted tickets</p>
 
       {loading ? (

@@ -36,7 +36,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-serif">Settings</h1>
+        <h1 className="text-3xl font-sans">Settings</h1>
         <p className="text-muted-foreground mt-1">Manage your Mosaic workspace</p>
       </div>
 

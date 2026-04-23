@@ -259,7 +259,7 @@ export function TicketCheckpointModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(90dvh,52rem)] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-serif text-xl tracking-tight">Complete Checkpoint</DialogTitle>
+          <DialogTitle className="font-sans text-xl tracking-tight">Complete Checkpoint</DialogTitle>
           <DialogDescription>
             Set the next checkpoint date and time, optionally find a shared slot on Google Calendar, and move the
             ticket to the next phase in the same step if you want.

@@ -84,7 +84,7 @@ export default function TeamDirectoryPage() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
-      <h1 className="text-2xl font-serif mb-6">Team Directory</h1>
+      <h1 className="text-2xl font-sans mb-6">Team Directory</h1>
       
       <div className="space-y-3">
         {members.map(member => (

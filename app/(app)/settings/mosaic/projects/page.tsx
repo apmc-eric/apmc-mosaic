@@ -64,7 +64,7 @@ export default function MosaicProjectsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-serif">Projects</h2>
+        <h2 className="text-xl font-sans">Projects</h2>
         <p className="text-sm text-muted-foreground mt-1">
           Abbreviation is used for ticket IDs (e.g. MOS-0001). Team access scopes visibility.
         </p>

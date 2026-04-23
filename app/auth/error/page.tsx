@@ -13,7 +13,7 @@ export default function AuthErrorPage() {
               <AlertCircle className="w-6 h-6 text-destructive" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-serif">Authentication Error</CardTitle>
+          <CardTitle className="text-2xl font-sans">Authentication Error</CardTitle>
           <CardDescription>
             Something went wrong during sign in. The link may have expired or already been used.
           </CardDescription>

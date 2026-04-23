@@ -143,7 +143,7 @@ export function OnboardingModal({ open, teams, profile, onComplete }: Onboarding
     <Dialog open={open}>
       <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle className="text-2xl font-serif">Welcome to Mosaic</DialogTitle>
+          <DialogTitle className="text-2xl font-sans">Welcome to Mosaic</DialogTitle>
           <DialogDescription>
             Let&apos;s set up your profile to get started.
           </DialogDescription>

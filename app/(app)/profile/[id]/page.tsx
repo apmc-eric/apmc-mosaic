@@ -125,7 +125,7 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
               viewerTimeZone={currentProfile?.timezone ?? null}
             />
             <div>
-              <h1 className="text-3xl font-serif">
+              <h1 className="text-3xl font-sans">
                 {profileData.first_name} {profileData.last_name}
               </h1>
               <div className="flex flex-wrap gap-2 mt-1">
