@@ -34,6 +34,8 @@ export type WorksFilterBarProps = {
   designers: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'>[]
   selectedDesignerIds: string[]
   onDesignersChange: (next: string[]) => void
+  /** When true, omits the inline designer profile row (designer filter lives in the left column instead). */
+  hideDesigners?: boolean
 }
 
 function toggle<T>(list: T[], v: T, eq: (a: T, b: T) => boolean): T[] {
@@ -64,6 +66,7 @@ export function WorksFilterBar({
   designers,
   selectedDesignerIds,
   onDesignersChange,
+  hideDesigners = false,
 }: WorksFilterBarProps) {
   const [phaseQ, setPhaseQ] = React.useState('')
   const [catQ, setCatQ] = React.useState('')
@@ -105,29 +108,30 @@ export function WorksFilterBar({
       data-node-id="369:3718"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-5">
-        {/* Designers — **ProfileRow** `369:3452`: all designers, horizontal scroll if needed; click to toggle. */}
-        <div
-          className="flex h-8 min-w-0 flex-1 items-center overflow-visible"
-          role="group"
-          aria-label="Filter by designer"
-        >
-          {designers.length === 0 ? (
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-neutral-300 text-xs text-muted-foreground dark:border-zinc-600">
-              —
-            </span>
-          ) : (
-            <div className="min-w-0 flex-1 overflow-x-auto overflow-y-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <DesignerProfileRow
-                className="inline-flex w-max min-w-0"
-                designers={designers}
-                selectedIds={selectedDesignerIds}
-                onFaceClick={(id) =>
-                  onDesignersChange(toggle(selectedDesignerIds, id, (a, b) => a === b))
-                }
-              />
-            </div>
-          )}
-        </div>
+        {!hideDesigners && (
+          <div
+            className="flex h-8 min-w-0 flex-1 items-center overflow-visible"
+            role="group"
+            aria-label="Filter by designer"
+          >
+            {designers.length === 0 ? (
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-neutral-300 text-xs text-muted-foreground dark:border-zinc-600">
+                —
+              </span>
+            ) : (
+              <div className="min-w-0 flex-1 overflow-x-auto overflow-y-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <DesignerProfileRow
+                  className="inline-flex w-max min-w-0"
+                  designers={designers}
+                  selectedIds={selectedDesignerIds}
+                  onFaceClick={(id) =>
+                    onDesignersChange(toggle(selectedDesignerIds, id, (a, b) => a === b))
+                  }
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
         {/* Projects — multi (empty = all), same pattern as Phases / Categories */}

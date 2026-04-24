@@ -17,7 +17,6 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ProfileImage } from '@/components/profile-image'
 import { TicketTitleEditor } from '@/components/ticket-title-editor'
 import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
@@ -127,6 +126,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
 
   // Step 3 state
+  const [step3Tab, setStep3Tab] = useState<'pick' | 'recommend'>('pick')
   const [sendCalendarInvite, setSendCalendarInvite] = useState(true)
   const [slotsStatus, setSlotsStatus] = useState<SlotsStatus>('idle')
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
@@ -258,6 +258,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     setUsersWithoutGoogle([])
     setSlotsErrorDetail(null)
     setSearchPage(0)
+    setStep3Tab('pick')
     setStep(3)
   }
 
@@ -663,66 +664,92 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                         Let&apos;s set an initial checkpoint.
                       </h2>
                       <p className="text-sm leading-snug text-neutral-500">
-                        Set a date and time for the first review of this request. You can always reschedule later.
+                        While not required, doing this will allow us to prioritize your request.<br />
+                        It is highly recommended to ensure timely follow-up.
                       </p>
                     </div>
 
-                    <Tabs defaultValue="pick" className="w-full">
-                      <TabsList className="w-full">
-                        <TabsTrigger value="pick" className="flex-1">Pick a date &amp; time</TabsTrigger>
+                    {/* Underline tab bar */}
+                    <div className="flex flex-col gap-5">
+                      <div className="flex gap-6 border-b border-neutral-200">
+                        <button
+                          type="button"
+                          onClick={() => setStep3Tab('pick')}
+                          className={cn(
+                            'py-4 text-sm font-medium leading-none whitespace-nowrap transition-colors',
+                            step3Tab === 'pick'
+                              ? 'border-b-2 border-black text-black -mb-px'
+                              : 'text-neutral-400',
+                          )}
+                        >
+                          Pick a date &amp; time
+                        </button>
                         {hasGoogleToken && (
-                          <TabsTrigger value="recommend" className="flex-1">Recommend a time</TabsTrigger>
+                          <button
+                            type="button"
+                            onClick={() => setStep3Tab('recommend')}
+                            className={cn(
+                              'py-4 text-sm font-medium leading-none whitespace-nowrap transition-colors',
+                              step3Tab === 'recommend'
+                                ? 'border-b-2 border-black text-black -mb-px'
+                                : 'text-neutral-400',
+                            )}
+                          >
+                            Recommend a time
+                          </button>
                         )}
-                      </TabsList>
+                      </div>
 
-                      {/* Tab 1 */}
-                      <TabsContent value="pick" className="mt-5 space-y-4">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                          <div className="overflow-hidden rounded-lg border border-border">
-                            <CheckpointDatetimePickerBody
-                              open={step === 3}
-                              checkpointDate={checkpointIso}
-                              timeZone={profile?.timezone ?? null}
-                              onCommit={async (iso) => { setCheckpointIso(iso); setSelectedSlot(null) }}
-                              onRequestClose={() => {}}
-                            />
+                      {/* Tab 1: Pick a date & time */}
+                      {step3Tab === 'pick' && (
+                        <div className="flex flex-col gap-5">
+                          <div className="flex gap-6 items-start">
+                            <div className="overflow-hidden rounded-lg border border-border shrink-0">
+                              <CheckpointDatetimePickerBody
+                                open={step === 3}
+                                checkpointDate={checkpointIso}
+                                timeZone={profile?.timezone ?? null}
+                                onCommit={async (iso) => { setCheckpointIso(iso); setSelectedSlot(null) }}
+                                onRequestClose={() => {}}
+                              />
+                            </div>
+                            {checkpointPreview && (
+                              <div className="flex shrink-0 flex-col gap-3 rounded-md border border-neutral-200 px-6 py-5 w-[216px]">
+                                <div className="flex flex-col gap-1.5">
+                                  <p className="text-xs font-semibold leading-none uppercase text-neutral-600">
+                                    {checkpointPreview.month}
+                                  </p>
+                                  <p className="text-[64px] font-normal leading-none tracking-[-0.015em] text-black tabular-nums">
+                                    {checkpointPreview.day}
+                                  </p>
+                                </div>
+                                <p className="text-xs font-semibold leading-none text-neutral-600">
+                                  {checkpointPreview.label}
+                                </p>
+                              </div>
+                            )}
                           </div>
-                          {checkpointPreview && (
-                            <div className="flex shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-muted/40 px-6 py-5 text-center sm:w-40">
-                              <p className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
-                                {checkpointPreview.month}
-                              </p>
-                              <p className="text-5xl font-light leading-none tabular-nums">
-                                {checkpointPreview.day}
-                              </p>
-                              <p className="mt-1 text-xs leading-snug text-muted-foreground">
-                                {checkpointPreview.label}
-                              </p>
+                          {(checkpointIso ?? selectedSlot) && (
+                            <div className="flex items-center gap-2.5">
+                              <Checkbox
+                                id="cp-invite"
+                                checked={sendCalendarInvite}
+                                onCheckedChange={(c) => setSendCalendarInvite(c === true)}
+                                className="shrink-0"
+                              />
+                              <Label htmlFor="cp-invite" className="cursor-pointer text-xs font-medium leading-none text-black">
+                                Send Calendar invite to all collaborators
+                              </Label>
                             </div>
                           )}
                         </div>
-                        <div className="flex items-start gap-2.5 pt-1">
-                          <Checkbox
-                            id="cp-invite"
-                            checked={sendCalendarInvite}
-                            onCheckedChange={(c) => setSendCalendarInvite(c === true)}
-                            disabled={!checkpointIso && !selectedSlot}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <Label
-                            htmlFor="cp-invite"
-                            className={cn('cursor-pointer text-sm leading-snug', (!checkpointIso && !selectedSlot) && 'text-muted-foreground')}
-                          >
-                            Send calendar invite to all collaborators
-                          </Label>
-                        </div>
-                      </TabsContent>
+                      )}
 
-                      {/* Tab 2 */}
-                      {hasGoogleToken && (
-                        <TabsContent value="recommend" className="mt-5 space-y-4">
-                          <p className="text-sm text-muted-foreground">
-                            Finds available 30-minute slots across all assigned designers&apos; linked Google Calendars (weekdays, 6&nbsp;AM–6&nbsp;PM in your timezone).
+                      {/* Tab 2: Recommend a time */}
+                      {hasGoogleToken && step3Tab === 'recommend' && (
+                        <div className="flex flex-col gap-5">
+                          <p className="text-sm leading-snug text-black">
+                            Uses assignees&apos; calendars that are linked in Mosaic for availability. Suggestions use 6&nbsp;AM–6&nbsp;PM on each searched day in your timezone (weekdays first, then your selected day if the scan had no matches).
                           </p>
                           <Button
                             type="button"
@@ -741,66 +768,67 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                           {usersWithoutGoogle.length > 0 && (
                             <p className="text-xs text-muted-foreground">
                               Note: {usersWithoutGoogle.join(', ')}{' '}
-                              {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} linked Google Calendar — availability not factored in, but they&apos;ll still get a calendar invite.
+                              {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} linked Google Calendar — availability not factored in.
                             </p>
                           )}
 
                           {slotsStatus === 'found' && slotsDate && (
-                            <div className="space-y-3">
-                              <p className="text-sm font-medium">{formatSlotDateLabel(slotsDate, displayTz)}</p>
+                            <div className="flex flex-col gap-3">
+                              <p className="text-xs font-medium text-neutral-500">{formatSlotDateLabel(slotsDate, displayTz)}</p>
                               <div className="flex flex-wrap gap-2">
-                                {availableSlots.map((slot) => (
-                                  <button
-                                    key={slot.start}
-                                    type="button"
-                                    onClick={() => { setSelectedSlot(slot); setCheckpointIso(slot.start) }}
-                                    className={cn(
-                                      'rounded-md border px-3 py-1.5 text-sm transition-colors',
-                                      selectedSlot?.start === slot.start
-                                        ? 'border-primary bg-primary text-primary-foreground'
-                                        : 'border-border bg-background hover:border-foreground/50',
-                                    )}
-                                  >
-                                    {formatTime(slot.start, displayTz)}
-                                  </button>
-                                ))}
+                                {availableSlots.map((slot) => {
+                                  const isSelected = selectedSlot?.start === slot.start
+                                  return (
+                                    <button
+                                      key={slot.start}
+                                      type="button"
+                                      onClick={() => { setSelectedSlot(slot); setCheckpointIso(slot.start) }}
+                                      className={cn(
+                                        'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
+                                        isSelected
+                                          ? 'border-black bg-black text-white'
+                                          : 'border-border bg-background hover:border-foreground/50',
+                                      )}
+                                    >
+                                      {formatTime(slot.start, displayTz)} — {formatTime(slot.end, displayTz)}
+                                    </button>
+                                  )
+                                })}
                               </div>
                               <button
                                 type="button"
-                                className="text-xs text-muted-foreground hover:text-foreground"
+                                className="text-xs text-muted-foreground hover:text-foreground self-start"
                                 onClick={() => void findAvailableTimesPage(searchPage + 1)}
                               >
                                 Search later →
                               </button>
-                              <div className="flex items-start gap-2.5 pt-1">
-                                <Checkbox
-                                  id="cp-invite-slot"
-                                  checked={sendCalendarInvite}
-                                  onCheckedChange={(c) => setSendCalendarInvite(c === true)}
-                                  disabled={!selectedSlot}
-                                  className="mt-0.5 shrink-0"
-                                />
-                                <Label
-                                  htmlFor="cp-invite-slot"
-                                  className={cn('cursor-pointer text-sm leading-snug', !selectedSlot && 'text-muted-foreground')}
-                                >
-                                  Send calendar invite to all collaborators
-                                </Label>
-                              </div>
+                              {selectedSlot && (
+                                <div className="flex items-center gap-2.5">
+                                  <Checkbox
+                                    id="cp-invite-slot"
+                                    checked={sendCalendarInvite}
+                                    onCheckedChange={(c) => setSendCalendarInvite(c === true)}
+                                    className="shrink-0"
+                                  />
+                                  <Label htmlFor="cp-invite-slot" className="cursor-pointer text-xs font-medium leading-none text-black">
+                                    Send Calendar invite to all collaborators
+                                  </Label>
+                                </div>
+                              )}
                             </div>
                           )}
 
                           {slotsStatus === 'none' && (
-                            <div className="space-y-2">
+                            <div className="flex flex-col gap-2">
                               <p className="text-sm text-muted-foreground">No available slots found in the next 14 weekdays.</p>
-                              <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => void findAvailableTimesPage(searchPage + 1)}>
+                              <button type="button" className="text-xs text-muted-foreground hover:text-foreground self-start" onClick={() => void findAvailableTimesPage(searchPage + 1)}>
                                 Search further out →
                               </button>
                             </div>
                           )}
 
                           {slotsStatus === 'error' && (
-                            <div className="space-y-2">
+                            <div className="flex flex-col gap-2">
                               <p className="text-sm text-destructive">
                                 Could not fetch calendar availability. Try again or use the &quot;Pick a date&quot; tab.
                               </p>
@@ -809,9 +837,9 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                               )}
                             </div>
                           )}
-                        </TabsContent>
+                        </div>
                       )}
-                    </Tabs>
+                    </div>
                   </div>
                 )}
 

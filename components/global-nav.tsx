@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 
 const DESIGNER_NAV = [
   { href: '/works', label: 'Work' },
-  { href: '/inspire', label: 'Inspiration' },
+  { href: '/inspire', label: 'Library' },
   { href: '/team', label: 'Directory' },
 ] as const
 

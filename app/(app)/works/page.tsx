@@ -53,7 +53,9 @@ import { TicketCard } from '@/components/ticket-card'
 import { TimelineIndicator } from '@/components/timeline-indicator'
 import { WorksCollaboratorView } from '@/components/works-collaborator-view'
 import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { Plus, Trash2 } from 'lucide-react'
+import { DesignerProfileRow } from '@/components/designer-profile-row'
 import { toast } from 'sonner'
 
 const supabase = createClient()
@@ -107,8 +109,51 @@ function insertCompletedBeforePausedForStatus(phases: string[]): string[] {
   return [...phases.slice(0, pi), COMPLETED_PHASE_LABEL, ...phases.slice(pi)]
 }
 
+type WorksTab = 'current' | 'upcoming' | 'backlog'
+
+type MonthGroup = {
+  key: string
+  monthLabel: string
+  dateRange: string
+  tickets: Ticket[]
+}
+
+function groupTicketsByMonthTz(
+  tickets: Ticket[],
+  getDateIso: (t: Ticket) => string | null,
+  tz: string,
+): MonthGroup[] {
+  const groups = new Map<string, { monthLabel: string; tickets: Ticket[]; minMs: number; maxMs: number; minIso: string; maxIso: string }>()
+  for (const t of tickets) {
+    const iso = getDateIso(t)
+    if (!iso) continue
+    try {
+      const d = parseISO(iso)
+      if (isNaN(d.getTime())) continue
+      const key = formatInTimeZone(d, tz, 'yyyy-MM')
+      const ms = d.getTime()
+      if (!groups.has(key)) {
+        groups.set(key, { monthLabel: formatInTimeZone(d, tz, 'MMMM'), tickets: [], minMs: ms, maxMs: ms, minIso: iso, maxIso: iso })
+      }
+      const g = groups.get(key)!
+      g.tickets.push(t)
+      if (ms < g.minMs) { g.minMs = ms; g.minIso = iso }
+      if (ms > g.maxMs) { g.maxMs = ms; g.maxIso = iso }
+    } catch { continue }
+  }
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, g]) => ({
+      key,
+      monthLabel: g.monthLabel,
+      dateRange: formatInTimeZone(parseISO(g.minIso), tz, 'MM.dd') + '—' + formatInTimeZone(parseISO(g.maxIso), tz, 'MM.dd'),
+      tickets: g.tickets,
+    }))
+}
+
 export default function WorksPage() {
   const { profile, isAdmin, viewRole, workspaceSettings } = useAuth()
+  const displayTz = profile?.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [filterProjectIds, setFilterProjectIds] = useState<string[]>([])
@@ -141,6 +186,7 @@ export default function WorksPage() {
     title: string
   } | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [worksTab, setWorksTab] = useState<WorksTab>('current')
 
   const load = useCallback(async () => {
     if (!profile?.id) {
@@ -744,23 +790,36 @@ export default function WorksPage() {
     const thisMon = startOfWeekMonday(now)
     const thisSun = endOfWeekSunday(thisMon)
     const nextMon = addWeeks(thisMon, 1)
-    const upcomingEndSun = endOfWeekSunday(addWeeks(nextMon, 1))
+    const nextSun = endOfWeekSunday(nextMon)
     return {
       thisWeek: formatWeekRange(thisMon, thisSun),
-      upcoming: formatWeekRange(nextMon, upcomingEndSun),
+      nextWeek: formatWeekRange(nextMon, nextSun),
     }
   }, [])
 
-  const upcomingTickets = useMemo(() => {
-    const merged = [...byBucket.next_week, ...byBucket.later]
-    merged.sort((a, b) => {
+  // Current tab: next_week bucket (sorted by checkpoint asc)
+  const nextWeekSorted = useMemo(() => {
+    const list = [...byBucket.next_week]
+    list.sort((a, b) => {
       const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
       const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
       if (ta !== tb) return ta - tb
       return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     })
-    return merged
+    return list
   }, [byBucket])
+
+  // Upcoming tab: tickets beyond 2 weeks, sorted by checkpoint asc
+  const upcomingTabTickets = useMemo(() => {
+    const list = [...byBucket.later]
+    list.sort((a, b) => {
+      const ta = a.checkpoint_date ? parseISO(a.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      const tb = b.checkpoint_date ? parseISO(b.checkpoint_date).getTime() : Number.MAX_SAFE_INTEGER
+      return ta - tb
+    })
+    return list
+  }, [byBucket])
+
 
   const thisWeekSorted = useMemo(() => {
     const list = [...byBucket.this_week]
@@ -779,27 +838,22 @@ export default function WorksPage() {
     return list
   }, [byBucket])
 
-  const boardShowsNoTicketCards = useMemo(() => {
-    if (
-      needsReviewSorted.length > 0 ||
-      needsUpdateSorted.length > 0 ||
-      pausedSorted.length > 0 ||
-      completedSectionTickets.length > 0
-    ) {
-      return false
-    }
-    return (
-      thisWeekSorted.length + upcomingTickets.length + backlogSorted.length === 0
-    )
-  }, [
-    needsReviewSorted.length,
-    needsUpdateSorted.length,
-    pausedSorted.length,
-    completedSectionTickets.length,
-    thisWeekSorted.length,
-    upcomingTickets.length,
-    backlogSorted.length,
-  ])
+  // Upcoming tab: grouped by checkpoint month
+  const upcomingByMonth = useMemo(
+    () => groupTicketsByMonthTz(upcomingTabTickets, (t) => t.checkpoint_date, displayTz),
+    [upcomingTabTickets, displayTz],
+  )
+
+  // Backlog tab: grouped by updated_at month (most recent months first)
+  const backlogByMonth = useMemo(
+    () => groupTicketsByMonthTz([...backlogSorted].reverse(), (t) => t.updated_at, displayTz).reverse(),
+    [backlogSorted, displayTz],
+  )
+
+  // Tab counts
+  const currentCount = needsReviewSorted.length + needsUpdateSorted.length + thisWeekSorted.length + nextWeekSorted.length
+  const upcomingCount = upcomingTabTickets.length
+  const backlogCount = backlogSorted.length + pausedSorted.length
 
   const panelUrls = useMemo(
     () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
@@ -819,40 +873,6 @@ export default function WorksPage() {
   const panelShowActivityTimeline = useMemo(
     () => worksActivityShowTimeline(panelActivityItems, panelComments.length),
     [panelActivityItems, panelComments.length],
-  )
-
-  const workSections = useMemo(
-    () =>
-      [
-        {
-          key: 'this_week' as const,
-          title: 'This Week',
-          rangeLabel: scheduleLabels.thisWeek,
-          tickets: thisWeekSorted,
-          nodeId: '199:491',
-          contentAreaId: '199:493',
-          cardGridId: '199:494',
-        },
-        {
-          key: 'upcoming' as const,
-          title: 'Upcoming',
-          rangeLabel: scheduleLabels.upcoming,
-          tickets: upcomingTickets,
-          nodeId: '199:500',
-          contentAreaId: '199:502',
-          cardGridId: '199:1273',
-        },
-        {
-          key: 'backlog' as const,
-          title: 'Backlog',
-          rangeLabel: 'ALL TICKETS',
-          tickets: backlogSorted,
-          nodeId: '199:1350',
-          contentAreaId: '199:1352',
-          cardGridId: '199:1354',
-        },
-      ] as const,
-    [scheduleLabels, thisWeekSorted, upcomingTickets, backlogSorted],
   )
 
   const renderCard = (t: Ticket) => {
@@ -962,25 +982,70 @@ export default function WorksPage() {
     )
   }
 
-  return (
-    <div className="pb-28">
-      <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="199:481">
-        <h1 className="sr-only">Work</h1>
+  const cardGrid = (list: Ticket[]) => (
+    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+      {list.map(renderCard)}
+    </div>
+  )
 
-        <div
-          className="grid w-full grid-cols-12 gap-x-8 gap-y-4 pb-6"
-          data-name="Navigation"
-          data-node-id="199:483"
-        >
-          <div className="col-span-12 flex flex-col gap-2 md:col-span-2" data-name="WorksLaneActions">
-            <Button
+  const sectionRow = (heading: string, rangeLabel: string | null, list: Ticket[], ariaLabel?: string) => {
+    if (list.length === 0) return null
+    return (
+      <section className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start" aria-label={ariaLabel}>
+        <div className="col-span-12 md:col-span-2">
+          <TimelineIndicator heading={heading} dateRange={rangeLabel} />
+        </div>
+        <div className="col-span-12 min-w-0 md:col-span-10">
+          {cardGrid(list)}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <div className="pb-28" data-name="Feed" data-node-id="199:481">
+      <h1 className="sr-only">Work</h1>
+
+      {/* Tab header + Create button — same pattern as collaborator view */}
+      <div className="flex items-start justify-between px-6 pb-7 pt-12">
+        <div className="flex items-baseline gap-8">
+          {(
+            [
+              { key: 'current', label: 'Current', count: currentCount },
+              { key: 'upcoming', label: 'Upcoming', count: upcomingCount },
+              { key: 'backlog', label: 'Backlog', count: backlogCount },
+            ] as const
+          ).map(({ key, label, count }) => (
+            <button
+              key={key}
               type="button"
-              className="inline-flex w-fit max-w-full shrink-0 items-center justify-center gap-2 self-start"
-              onClick={() => setSubmitOpen(true)}
+              onClick={() => setWorksTab(key)}
+              className={`flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity ${worksTab === key ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
             >
-              <Plus className="size-4 shrink-0" aria-hidden />
-              New Ticket
-            </Button>
+              {label}
+              <span className="mt-1 text-sm font-medium">{count}</span>
+            </button>
+          ))}
+        </div>
+        <Button type="button" onClick={() => setSubmitOpen(true)} className="shrink-0">
+          <Plus className="size-4" aria-hidden />
+          Create Ticket
+        </Button>
+      </div>
+
+      <div className="w-full px-6 pb-16">
+        {/* Filter row: designer avatars (left col) + filter chips (right) */}
+        <div className="grid w-full grid-cols-12 gap-x-8 pb-6">
+          <div className="col-span-12 md:col-span-2">
+            <DesignerProfileRow
+              designers={workspaceDesigners}
+              selectedIds={filterDesignerIds}
+              onFaceClick={(id) =>
+                setFilterDesignerIds((prev) =>
+                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+                )
+              }
+            />
           </div>
           <div className="col-span-12 min-w-0 md:col-span-10">
             <WorksFilterBar
@@ -998,6 +1063,7 @@ export default function WorksPage() {
               designers={workspaceDesigners}
               selectedDesignerIds={filterDesignerIds}
               onDesignersChange={setFilterDesignerIds}
+              hideDesigners
             />
           </div>
         </div>
@@ -1007,114 +1073,64 @@ export default function WorksPage() {
             <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading tickets…</div>
           ) : (
             <>
-              {needsReviewSorted.length > 0 ? (
-                <section
-                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
-                  data-name="NeedsReview"
-                  aria-label="Needs review"
-                >
-                  <div className="col-span-12 md:col-span-2">
-                    <TimelineIndicator heading="Needs Review" dateRange="TRIAGE" />
-                  </div>
-                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="NeedsReviewContent">
-                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
-                      {needsReviewSorted.map(renderCard)}
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-              {needsUpdateSorted.length > 0 ? (
-                <section
-                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
-                  data-name="NeedsUpdate"
-                  aria-label="Needs update"
-                >
-                  <div className="col-span-12 md:col-span-2">
-                    <TimelineIndicator heading="Needs Update" dateRange="Passed Checkpoints" />
-                  </div>
-                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="NeedsUpdateContent">
-                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
-                      {needsUpdateSorted.map(renderCard)}
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-              {completedSectionTickets.length > 0 ? (
-                <section
-                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
-                  data-name="CompletedRail"
-                  aria-label="Completed tickets"
-                >
-                  <div className="col-span-12 md:col-span-2">
-                    <TimelineIndicator heading="Completed" dateRange={null} />
-                  </div>
-                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="CompletedContent">
-                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
-                      {completedSectionTickets.map(renderCard)}
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-              {workSections.map(
-                ({
-                  key,
-                  title,
-                  rangeLabel,
-                  tickets,
-                  nodeId,
-                  contentAreaId,
-                  cardGridId,
-                }) => {
-                  if (tickets.length === 0) return null
-                  return (
-                    <section
-                      key={key}
-                      className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
-                      data-name="ContentWrapper"
-                      data-node-id={nodeId}
-                    >
+              {/* ── Current tab ── */}
+              {worksTab === 'current' && (
+                <>
+                  {sectionRow('Needs Review', 'TRIAGE', needsReviewSorted, 'Needs review')}
+                  {sectionRow('Needs Update', 'Passed Checkpoints', needsUpdateSorted, 'Needs update')}
+                  {sectionRow('This Week', scheduleLabels.thisWeek, thisWeekSorted)}
+                  {sectionRow('Next Week', scheduleLabels.nextWeek, nextWeekSorted)}
+                  {currentCount === 0 && (
+                    <p className="py-16 text-center text-muted-foreground">
+                      {tickets.length === 0
+                        ? 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
+                        : 'No active tickets in this filter.'}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* ── Upcoming tab ── */}
+              {worksTab === 'upcoming' && (
+                <>
+                  {upcomingByMonth.map(({ key, monthLabel, dateRange, tickets: grpTickets }) => (
+                    <section key={key} className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start">
                       <div className="col-span-12 md:col-span-2">
-                        <TimelineIndicator heading={title} dateRange={rangeLabel} />
+                        <TimelineIndicator heading={monthLabel} dateRange={dateRange} />
                       </div>
-                      <div
-                        className="col-span-12 min-w-0 md:col-span-10"
-                        data-name="ContentArea"
-                        data-node-id={contentAreaId}
-                      >
-                        <div
-                          className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4"
-                          data-name="CardGrid"
-                          data-node-id={cardGridId}
-                        >
-                          {tickets.map(renderCard)}
-                        </div>
+                      <div className="col-span-12 min-w-0 md:col-span-10">
+                        {cardGrid(grpTickets)}
                       </div>
                     </section>
-                  )
-                })}
-              {pausedSorted.length > 0 ? (
-                <section
-                  className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start"
-                  data-name="Paused"
-                  aria-label="Paused tickets"
-                >
-                  <div className="col-span-12 md:col-span-2">
-                    <TimelineIndicator heading="Paused" dateRange="ON HOLD" />
-                  </div>
-                  <div className="col-span-12 min-w-0 md:col-span-10" data-name="PausedContent">
-                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
-                      {pausedSorted.map(renderCard)}
-                    </div>
-                  </div>
-                </section>
-              ) : null}
-              {boardShowsNoTicketCards ? (
-                <p className="py-16 text-center text-muted-foreground">
-                  {tickets.length === 0
-                    ? 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
-                    : 'No tickets in this filter. Try “All” or another project.'}
-                </p>
-              ) : null}
+                  ))}
+                  {upcomingCount === 0 && (
+                    <p className="py-16 text-center text-muted-foreground">No upcoming tickets beyond the next two weeks.</p>
+                  )}
+                </>
+              )}
+
+              {/* ── Backlog tab ── */}
+              {worksTab === 'backlog' && (
+                <>
+                  {sectionRow('Paused', 'ON HOLD', pausedSorted, 'Paused tickets')}
+                  {backlogByMonth.map(({ key, monthLabel, dateRange, tickets: grpTickets }) => (
+                    <section key={key} className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start">
+                      <div className="col-span-12 md:col-span-2">
+                        <TimelineIndicator heading={monthLabel} dateRange={dateRange} />
+                      </div>
+                      <div className="col-span-12 min-w-0 md:col-span-10">
+                        {cardGrid(grpTickets)}
+                      </div>
+                    </section>
+                  ))}
+                  {completedSectionTickets.length > 0 && (
+                    sectionRow('Completed', null, completedSectionTickets, 'Completed tickets')
+                  )}
+                  {backlogCount === 0 && completedSectionTickets.length === 0 && (
+                    <p className="py-16 text-center text-muted-foreground">No backlog tickets.</p>
+                  )}
+                </>
+              )}
             </>
           )}
         </div>
