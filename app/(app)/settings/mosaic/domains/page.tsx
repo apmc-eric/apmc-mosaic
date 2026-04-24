@@ -58,7 +58,7 @@ export default function MosaicDomainsPage() {
 
   return (
     <div className="space-y-6 max-w-md">
-      <h2 className="text-xl font-serif">Whitelisted domains</h2>
+      <h2 className="text-xl font-sans">Whitelisted domains</h2>
       <p className="text-sm text-muted-foreground">
         New signups with an email on these domains are provisioned as guests (see DB trigger after migration 009).
       </p>

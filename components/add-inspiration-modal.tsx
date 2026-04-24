@@ -327,7 +327,7 @@ export function AddInspirationModal({ open, onOpenChange, tags, onSubmit }: AddI
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl font-serif">Add Inspiration</DialogTitle>
+          <DialogTitle className="text-xl font-sans">Add Inspiration</DialogTitle>
           <DialogDescription>
             {step === 'input' 
               ? 'Share a link, image, or video with your team.' 

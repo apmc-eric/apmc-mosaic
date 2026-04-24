@@ -195,7 +195,7 @@ export default function PostPage({ params }: { params: Promise<{ id: string }> }
         )}
 
         <div>
-          <h1 className="text-2xl font-serif">{post.title}</h1>
+          <h1 className="text-2xl font-sans">{post.title}</h1>
           {post.description && (
             <p className="text-muted-foreground mt-2">{post.description}</p>
           )}

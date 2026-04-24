@@ -85,7 +85,7 @@ export default function FavoritesPage() {
           <div className="flex-1 overflow-auto min-w-0">
             <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
               <div className="mb-6">
-                <h1 className="text-3xl font-serif">Saved</h1>
+                <h1 className="text-3xl font-sans">Saved</h1>
                 <p className="text-muted-foreground mt-1">
                   {posts.length} saved {posts.length === 1 ? 'item' : 'items'}
                 </p>
@@ -112,7 +112,7 @@ export default function FavoritesPage() {
         <div className="pb-24">
           <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-6">
             <div className="mb-6">
-              <h1 className="text-3xl font-serif">Saved</h1>
+              <h1 className="text-3xl font-sans">Saved</h1>
               <p className="text-muted-foreground mt-1">
                 {posts.length} saved {posts.length === 1 ? 'item' : 'items'}
               </p>

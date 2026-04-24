@@ -55,7 +55,7 @@ export default function MosaicPhasesPage() {
 
   return (
     <div className="space-y-6 max-w-lg">
-      <h2 className="text-xl font-serif">Phase labels</h2>
+      <h2 className="text-xl font-sans">Phase labels</h2>
       <p className="text-sm text-muted-foreground">Ordered phases per team (JSON map team_id → string[]).</p>
       <div>
         <Label>Team</Label>

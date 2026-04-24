@@ -74,7 +74,7 @@ export default function MosaicCategoriesPage() {
 
   return (
     <div className="space-y-6 max-w-md">
-      <h2 className="text-xl font-serif">Team categories</h2>
+      <h2 className="text-xl font-sans">Team categories</h2>
       <p className="text-sm text-muted-foreground">Labels used in the ticket submission flow.</p>
       <div className="flex gap-2">
         <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="New category" />
