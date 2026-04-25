@@ -106,6 +106,8 @@ export function extractUrlsFromDescriptionHtml(html: string): string[] {
 export function looksLikeUrl(s: string): boolean {
   const t = s.trim()
   if (!t) return false
+  // Real URLs are single tokens — bail out if the text contains whitespace or newlines
+  if (/\s/.test(t)) return false
   try {
     if (/^https?:\/\/.+/i.test(t)) return true
     const u = new URL(t.includes('://') ? t : `https://${t}`)
