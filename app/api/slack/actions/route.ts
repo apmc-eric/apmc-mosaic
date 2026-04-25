@@ -103,6 +103,63 @@ async function handleBlockActions(payload: SlackBlockActionsPayload): Promise<Re
   return new Response(null, { status: 200 })
 }
 
+async function processTicketCreation(
+  metadata: SlackPrivateMetadata,
+  params: {
+    title: string
+    description: string
+    projectId: string
+    leadId: string | null
+    supportIds: string[]
+    checkpointDate: string | null
+  },
+) {
+  const admin = createAdminClient()
+  const { data: ticketId, error } = await admin.rpc('create_ticket_from_slack', {
+    p_title: params.title,
+    p_description: params.description,
+    p_urls: null,
+    p_team_category: null,
+    p_project_id: params.projectId,
+    p_phase: 'Triage',
+    p_checkpoint_date: params.checkpointDate,
+    p_availability_date: null,
+    p_flag: 'standard',
+    p_created_by: metadata.submitter_id,
+    p_lead_id: params.leadId,
+    p_support_ids: params.supportIds.length > 0 ? params.supportIds : null,
+  })
+
+  if (error) {
+    console.error('[slack/actions] create_ticket_from_slack error:', error.message)
+    // Notify via response_url (stored from the original slash command)
+    await fetch(metadata.response_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        response_type: 'ephemeral',
+        text: 'Something went wrong submitting your Mosaic request. Please try again.',
+      }),
+    }).catch((e) => console.error('[slack/actions] response_url notify failed:', e))
+    return
+  }
+
+  console.log('[slack/actions] Ticket created:', ticketId)
+
+  await fetch('https://slack.com/api/chat.postEphemeral', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${BOT_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      channel: metadata.channel_id,
+      user: metadata.slack_user_id,
+      text: 'Your request has been submitted to Mosaic. The design team will follow up with you soon.',
+    }),
+  }).catch((err) => console.error('[slack/actions] postEphemeral failed:', err))
+}
+
 async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promise<Response> {
   const values = payload.view.state.values
   const metadata: SlackPrivateMetadata = JSON.parse(payload.view.private_metadata)
@@ -117,62 +174,29 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const availDate = values.availability_date_block?.availability_date?.selected_date
   const availTime = values.availability_time_block?.availability_time?.selected_time
 
-  // Validation
+  // Validate synchronously before responding
   const errors: Record<string, string> = {}
   if (!title) errors.title_block = 'Title is required'
   if (!description) errors.description_block = 'Description is required'
-  // project_id is NOT NULL in the schema — require it even though the UI marks it optional
   if (!projectId) errors.project_type_block = 'Project Type is required to create a ticket'
 
   if (Object.keys(errors).length > 0) {
     return NextResponse.json({ response_action: 'errors', errors })
   }
 
-  const tz = metadata.timezone
-  const checkpointDate = combineDateTime(availDate, availTime, tz)
-
+  const checkpointDate = combineDateTime(availDate, availTime, metadata.timezone)
   const leadId = designerIds[0] ?? null
   const supportIds = designerIds.slice(1)
 
-  const admin = createAdminClient()
-  const { data: ticketId, error } = await admin.rpc('create_ticket_from_slack', {
-    p_title: title,
-    p_description: description,
-    p_urls: null,
-    p_team_category: null,
-    p_project_id: projectId,
-    p_phase: 'Triage',
-    p_checkpoint_date: checkpointDate,
-    p_availability_date: null,
-    p_flag: 'standard',
-    p_created_by: metadata.submitter_id,
-    p_lead_id: leadId,
-    p_support_ids: supportIds.length > 0 ? supportIds : null,
+  // Respond to Slack immediately (within the 3-second window), then create ticket async
+  void processTicketCreation(metadata, {
+    title,
+    description,
+    projectId: projectId!,
+    leadId,
+    supportIds,
+    checkpointDate,
   })
-
-  if (error) {
-    console.error('[slack/actions] create_ticket_from_slack error:', error.message)
-    return NextResponse.json({
-      response_action: 'errors',
-      errors: { title_block: 'Failed to submit your request. Please try again.' },
-    })
-  }
-
-  console.log('[slack/actions] Ticket created:', ticketId)
-
-  // Fire-and-forget ephemeral confirmation
-  fetch('https://slack.com/api/chat.postEphemeral', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${BOT_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      channel: metadata.channel_id,
-      user: metadata.slack_user_id,
-      text: 'Your request has been submitted to Mosaic. The design team will follow up with you soon.',
-    }),
-  }).catch((err) => console.error('[slack/actions] postEphemeral failed:', err))
 
   return NextResponse.json({ response_action: 'clear' })
 }
