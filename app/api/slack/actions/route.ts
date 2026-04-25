@@ -114,8 +114,6 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const designerIds =
     values.designers_block?.designers_select?.selected_options?.map((o) => o.value).filter(Boolean) ?? []
 
-  const checkinDate = values.checkin_date_block?.checkin_date?.selected_date
-  const checkinTime = values.checkin_time_block?.checkin_time?.selected_time
   const availDate = values.availability_date_block?.availability_date?.selected_date
   const availTime = values.availability_time_block?.availability_time?.selected_time
 
@@ -131,8 +129,7 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   }
 
   const tz = metadata.timezone
-  const checkpointDate = combineDateTime(checkinDate, checkinTime, tz)
-  const availabilityDate = combineDateTime(availDate, availTime, tz)
+  const checkpointDate = combineDateTime(availDate, availTime, tz)
 
   const leadId = designerIds[0] ?? null
   const supportIds = designerIds.slice(1)
@@ -146,7 +143,7 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
     p_project_id: projectId,
     p_phase: 'Triage',
     p_checkpoint_date: checkpointDate,
-    p_availability_date: availabilityDate,
+    p_availability_date: null,
     p_flag: 'standard',
     p_created_by: metadata.submitter_id,
     p_lead_id: leadId,

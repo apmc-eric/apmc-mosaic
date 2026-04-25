@@ -21,8 +21,6 @@ export function buildMosaicModal(params: {
 
   const titleValue = v.title_block?.title_input?.value ?? undefined
   const descValue = v.description_block?.description_input?.value ?? undefined
-  const checkinDate = v.checkin_date_block?.checkin_date?.selected_date ?? undefined
-  const checkinTime = v.checkin_time_block?.checkin_time?.selected_time ?? undefined
   const availDate = v.availability_date_block?.availability_date?.selected_date ?? undefined
   const availTime = v.availability_time_block?.availability_time?.selected_time ?? undefined
 
@@ -111,33 +109,6 @@ export function buildMosaicModal(params: {
       },
     },
     designersBlock,
-    {
-      type: 'input',
-      block_id: 'checkin_date_block',
-      label: {
-        type: 'plain_text',
-        text: 'When would you like to check in on this request?',
-      },
-      optional: true,
-      element: {
-        type: 'datepicker',
-        action_id: 'checkin_date',
-        placeholder: { type: 'plain_text', text: 'Select date' },
-        ...(checkinDate ? { initial_date: checkinDate } : {}),
-      },
-    },
-    {
-      type: 'input',
-      block_id: 'checkin_time_block',
-      label: { type: 'plain_text', text: 'Check-in Time' },
-      optional: true,
-      element: {
-        type: 'timepicker',
-        action_id: 'checkin_time',
-        placeholder: { type: 'plain_text', text: 'Select time' },
-        ...(checkinTime ? { initial_time: checkinTime } : {}),
-      },
-    },
     {
       type: 'input',
       block_id: 'availability_date_block',
