@@ -3,6 +3,11 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackSignature } from '@/lib/slack/verify'
 import { buildMosaicModal } from '@/lib/slack/modal'
 import type { SlackPrivateMetadata } from '@/lib/slack/types'
+import {
+  DEFAULT_COMPANY_ALIAS_DOMAINS,
+  emailLocalPart,
+  emailDomain,
+} from '@/lib/company-email-alias'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,10 +54,20 @@ export async function POST(req: Request) {
 
   const admin = createAdminClient()
 
+  // Build candidate emails — try both @aparentmedia.com and @kidoodle.tv variants
+  const candidateEmails = [email]
+  const local = emailLocalPart(email)
+  const domain = emailDomain(email)
+  if ((DEFAULT_COMPANY_ALIAS_DOMAINS as readonly string[]).includes(domain)) {
+    for (const d of DEFAULT_COMPANY_ALIAS_DOMAINS) {
+      if (d !== domain) candidateEmails.push(`${local}@${d}`)
+    }
+  }
+
   const { data: profile } = await admin
     .from('profiles')
     .select('id, timezone')
-    .eq('email', email)
+    .in('email', candidateEmails)
     .eq('is_active', true)
     .maybeSingle()
 
