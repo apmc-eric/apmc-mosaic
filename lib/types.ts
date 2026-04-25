@@ -163,6 +163,8 @@ export interface Ticket {
   checkpoint_date: string | null
   /** Meet or Calendar URL from Google event (set when scheduling with a slot + Calendar). */
   checkpoint_meet_link?: string | null
+  /** "When are you available for a 15–30 min follow-up?" — set by Slack submissions. */
+  availability_date?: string | null
   flag: string
   created_by: string
   created_at: string
