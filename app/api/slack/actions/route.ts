@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { fromZonedTime } from 'date-fns-tz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackSignature } from '@/lib/slack/verify'
@@ -135,15 +136,14 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const leadId = designerIds[0] ?? null
   const supportIds = designerIds.slice(1)
 
-  // Fire-and-forget — Edge runtime keeps promises alive after the response is sent
-  void processTicketCreation(metadata, {
+  waitUntil(processTicketCreation(metadata, {
     title,
     description,
     projectId: projectId!,
     leadId,
     supportIds,
     checkpointDate,
-  })
+  }))
 
   return NextResponse.json({ response_action: 'clear' })
 }
