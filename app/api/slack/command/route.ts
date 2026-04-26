@@ -9,6 +9,7 @@ import {
   emailDomain,
 } from '@/lib/company-email-alias'
 
+export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
 
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   const timestamp = req.headers.get('x-slack-request-timestamp') ?? ''
   const signature = req.headers.get('x-slack-signature') ?? ''
 
-  if (!verifySlackSignature(SIGNING_SECRET, timestamp, rawBody, signature)) {
+  if (!(await verifySlackSignature(SIGNING_SECRET, timestamp, rawBody, signature))) {
     return new Response('Unauthorized', { status: 401 })
   }
 

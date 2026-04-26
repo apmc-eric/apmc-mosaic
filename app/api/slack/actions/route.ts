@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { fromZonedTime } from 'date-fns-tz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackSignature } from '@/lib/slack/verify'
@@ -9,6 +9,7 @@ import type {
   SlackPrivateMetadata,
 } from '@/lib/slack/types'
 
+export const runtime = 'edge'
 export const dynamic = 'force-dynamic'
 
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
@@ -132,7 +133,6 @@ async function processTicketCreation(
 
   if (error) {
     console.error('[slack/actions] create_ticket_from_slack error:', error.message)
-    // Notify via response_url (stored from the original slash command)
     await fetch(metadata.response_url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -169,7 +169,9 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const projectId =
     values.project_type_block?.project_type_select?.selected_option?.value ?? null
   const designerIds =
-    values.designers_block?.designers_select?.selected_options?.map((o) => o.value).filter(Boolean) ?? []
+    values.designers_block?.designers_select?.selected_options
+      ?.map((o) => o.value)
+      .filter(Boolean) ?? []
 
   const availDate = values.availability_date_block?.availability_date?.selected_date
   const availTime = values.availability_time_block?.availability_time?.selected_time
@@ -188,15 +190,17 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const leadId = designerIds[0] ?? null
   const supportIds = designerIds.slice(1)
 
-  // Respond to Slack immediately (within the 3-second window), then create ticket async
-  void processTicketCreation(metadata, {
-    title,
-    description,
-    projectId: projectId!,
-    leadId,
-    supportIds,
-    checkpointDate,
-  })
+  // Schedule ticket creation after the response is sent so Slack gets an instant reply
+  after(
+    processTicketCreation(metadata, {
+      title,
+      description,
+      projectId: projectId!,
+      leadId,
+      supportIds,
+      checkpointDate,
+    }),
+  )
 
   return NextResponse.json({ response_action: 'clear' })
 }
@@ -211,7 +215,7 @@ export async function POST(req: Request) {
   const timestamp = req.headers.get('x-slack-request-timestamp') ?? ''
   const signature = req.headers.get('x-slack-signature') ?? ''
 
-  if (!verifySlackSignature(SIGNING_SECRET, timestamp, rawBody, signature)) {
+  if (!(await verifySlackSignature(SIGNING_SECRET, timestamp, rawBody, signature))) {
     return new Response('Unauthorized', { status: 401 })
   }
 
@@ -225,17 +229,11 @@ export async function POST(req: Request) {
     return new Response('Bad Request', { status: 400 })
   }
 
-  try {
-    if (parsed?.type === 'block_actions') {
-      return await handleBlockActions(parsed as unknown as SlackBlockActionsPayload)
-    }
-    if (parsed?.type === 'view_submission') {
-      return await handleViewSubmission(parsed as unknown as SlackViewSubmissionPayload)
-    }
-  } catch (err) {
-    console.error('[slack/actions] Unhandled exception:', err)
-    // Return 200 so Slack doesn't show "We had some trouble connecting"
-    return new Response(null, { status: 200 })
+  if (parsed?.type === 'block_actions') {
+    return handleBlockActions(parsed as unknown as SlackBlockActionsPayload)
+  }
+  if (parsed?.type === 'view_submission') {
+    return handleViewSubmission(parsed as unknown as SlackViewSubmissionPayload)
   }
 
   return new Response(null, { status: 200 })
