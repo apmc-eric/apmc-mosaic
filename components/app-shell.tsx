@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { AppHeader } from '@/components/app-header'
 import { OnboardingModal } from '@/components/onboarding-modal'
@@ -11,13 +11,15 @@ import { Spinner } from '@/components/ui/spinner'
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, profile, teams, isLoading, refreshProfile } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
+  const isPublicTicketPath = pathname?.startsWith('/tickets/')
   const [showOnboarding, setShowOnboarding] = useState(false)
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (!isLoading && !user && !isPublicTicketPath) {
       router.push('/login')
     }
-  }, [user, isLoading, router])
+  }, [user, isLoading, router, isPublicTicketPath])
 
   useEffect(() => {
     if (profile && !profile.onboarding_complete) {
@@ -37,6 +39,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Spinner className="w-8 h-8" />
       </div>
     )
+  }
+
+  // For public ticket paths, render children directly without the app shell
+  if (!user && isPublicTicketPath) {
+    return <>{children}</>
   }
 
   // Redirect handled by useEffect, show nothing while redirecting
