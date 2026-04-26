@@ -32,75 +32,9 @@ function combineDateTime(
   return new Date(localISO + 'Z').toISOString()
 }
 
-async function handleBlockActions(payload: SlackBlockActionsPayload): Promise<Response> {
-  const action = payload.actions[0]
-  if (action?.action_id !== 'project_type_select') return new Response(null, { status: 200 })
-
-  const projectId = action.selected_option?.value
-  const admin = createAdminClient()
-
-  const [{ data: projects }] = await Promise.all([
-    admin.from('projects').select('id, name').order('name'),
-  ])
-
-  let designers: Array<{
-    id: string
-    name: string | null
-    first_name: string | null
-    last_name: string | null
-  }> = []
-
-  if (projectId) {
-    const { data: project } = await admin
-      .from('projects')
-      .select('team_access')
-      .eq('id', projectId)
-      .single()
-
-    const teamAccess: string[] = (project as { team_access?: string[] } | null)?.team_access ?? []
-
-    if (teamAccess.length > 0) {
-      const { data: userTeams } = await admin
-        .from('user_teams')
-        .select('user_id')
-        .in('team_id', teamAccess)
-
-      const userIds = (userTeams as Array<{ user_id: string }> | null)?.map((r) => r.user_id) ?? []
-
-      if (userIds.length > 0) {
-        const { data } = await admin
-          .from('profiles')
-          .select('id, name, first_name, last_name')
-          .eq('role', 'designer')
-          .eq('is_active', true)
-          .in('id', userIds)
-          .order('name')
-        designers = (data as typeof designers | null) ?? []
-      }
-    }
-  }
-
-  const modal = buildMosaicModal({
-    projects: projects ?? [],
-    designers,
-    privateMetadata: payload.view.private_metadata,
-    state: payload.view.state,
-    selectedProjectId: projectId,
-  })
-
-  const updateRes = await fetch('https://slack.com/api/views.update', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${BOT_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ view_id: payload.view.id, view: modal }),
-  })
-  const updateData = (await updateRes.json()) as { ok: boolean; error?: string }
-  if (!updateData.ok) {
-    console.error('[slack/actions] views.update failed:', updateData.error)
-  }
-
+async function handleBlockActions(_payload: SlackBlockActionsPayload): Promise<Response> {
+  // dispatch_action was removed from all modal inputs — this handler is kept as a
+  // safe no-op so stale modals (opened before the fix) don't trigger a 500.
   return new Response(null, { status: 200 })
 }
 
