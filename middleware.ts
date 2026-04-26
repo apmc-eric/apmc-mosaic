@@ -27,7 +27,7 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  const publicPaths = ['/login', '/auth', '/api']
+  const publicPaths = ['/login', '/auth', '/api', '/tickets']
   const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path))
 
   // Helper: redirect while preserving any session cookies that getUser() may have refreshed.
