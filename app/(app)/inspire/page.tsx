@@ -5,7 +5,7 @@ import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { AddInspirationModal } from '@/components/add-inspiration-modal'
-import { FilterBadge } from '@/components/filter-badge'
+import { InspireMasonryGrid } from '@/components/inspire-masonry-grid'
 import { InspirePostGrid } from '@/components/inspire-post-grid'
 import { OverlayViewer } from '@/components/overlay-viewer'
 import { PostDetailPanel } from '@/components/post-detail-panel'
@@ -21,21 +21,16 @@ import {
 } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 import { groupPostsByWeek } from '@/lib/week-buckets'
+import { cn } from '@/lib/utils'
 
 const supabase = createClient()
 
-type InspireFilterTab = 'links' | 'images' | 'videos'
+type LibraryTab = 'images' | 'sites' | 'resources'
 
-const TAB_TYPE: Record<InspireFilterTab, ContentType> = {
-  links: 'url',
-  images: 'image',
-  videos: 'video',
-}
-
-const FILTER_TABS: { id: InspireFilterTab; label: string }[] = [
-  { id: 'links', label: 'LINKS' },
-  { id: 'images', label: 'IMAGES' },
-  { id: 'videos', label: 'VIDEOS' },
+const LIBRARY_TABS: { id: LibraryTab; label: string; comingSoon?: boolean }[] = [
+  { id: 'images', label: 'Images' },
+  { id: 'sites', label: 'Sites' },
+  { id: 'resources', label: 'Resources', comingSoon: true },
 ]
 
 export default function InspirePage() {
@@ -47,17 +42,42 @@ export default function InspirePage() {
   const closeOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [contentTab, setContentTab] = useState<InspireFilterTab>('links')
+  const [activeTab, setActiveTab] = useState<LibraryTab>('images')
 
-  const filteredPosts = useMemo(
-    () => posts.filter((p) => p.type === TAB_TYPE[contentTab]),
-    [posts, contentTab],
+  // Shuffled image order — randomized once per page mount after posts load
+  const [shuffledImageIds, setShuffledImageIds] = useState<string[]>([])
+  const hasShuffledRef = useRef(false)
+
+  const imagePosts = useMemo(
+    () => posts.filter((p) => p.type === 'image' || p.type === 'video'),
+    [posts],
   )
 
-  const weekBuckets = useMemo(
-    () => groupPostsByWeek(filteredPosts),
-    [filteredPosts],
+  const sitePosts = useMemo(
+    () => posts.filter((p) => p.type === 'url'),
+    [posts],
   )
+
+  // Shuffle images once when they first load
+  useEffect(() => {
+    if (imagePosts.length === 0 || hasShuffledRef.current) return
+    hasShuffledRef.current = true
+    setShuffledImageIds(
+      [...imagePosts].sort(() => Math.random() - 0.5).map((p) => p.id),
+    )
+  }, [imagePosts])
+
+  const shuffledImages = useMemo(() => {
+    if (shuffledImageIds.length === 0) return imagePosts
+    const map = new Map(imagePosts.map((p) => [p.id, p]))
+    const ordered = shuffledImageIds.map((id) => map.get(id)).filter(Boolean) as Post[]
+    // Append any newly added posts not yet in the shuffled list
+    const inOrder = new Set(shuffledImageIds)
+    const newPosts = imagePosts.filter((p) => !inOrder.has(p.id))
+    return [...ordered, ...newPosts]
+  }, [imagePosts, shuffledImageIds])
+
+  const siteWeekBuckets = useMemo(() => groupPostsByWeek(sitePosts), [sitePosts])
 
   const fetchPosts = useCallback(async () => {
     try {
@@ -144,7 +164,6 @@ export default function InspirePage() {
         setShowAddModal(true)
       }
     }
-
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
@@ -211,7 +230,11 @@ export default function InspirePage() {
       throw error
     }
 
+    toast.success('Inspo added!')
     fetchPosts()
+    // Switch to the matching tab so user sees their new item
+    if (data.content_type === 'url') setActiveTab('sites')
+    else setActiveTab('images')
   }
 
   const handleFavoriteToggle = (postId: string, isFavorited: boolean) => {
@@ -235,22 +258,16 @@ export default function InspirePage() {
 
   return (
     <>
-      <div
-        className="w-full px-6 pb-16"
-        data-name="Feed"
-        data-node-id="118:22"
-      >
+      <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="118:22">
+        {/* Top bar: Add Inspo button + underline tab navigation */}
         <div
           className="grid w-full grid-cols-12 gap-x-6 gap-y-4 pb-6"
           data-name="Navigation"
           data-node-id="132:779"
         >
-          <div
-            className="hidden md:col-span-2 md:block"
-            aria-hidden
-            data-name="Spacer"
-          />
-          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-center md:gap-3">
+          <div className="hidden md:col-span-2 md:block" aria-hidden data-name="Spacer" />
+
+          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-end md:gap-6">
             <Button
               className="shrink-0 items-center gap-2 self-start md:self-auto"
               onClick={() => setShowAddModal(true)}
@@ -258,72 +275,100 @@ export default function InspirePage() {
               <Plus className="size-4 shrink-0" aria-hidden />
               Add Inspo
             </Button>
+
+            {/* Underline tabs */}
             <div
-              className="flex flex-wrap items-baseline gap-3"
-              data-name="FilterControls"
-              data-node-id="132:793"
+              className="flex items-end border-b border-neutral-200 gap-6 w-full md:w-auto"
               role="tablist"
-              aria-label="Inspiration type"
+              aria-label="Library category"
             >
-              {FILTER_TABS.map((tab) => (
-                <FilterBadge
+              {LIBRARY_TABS.map((tab) => (
+                <button
                   key={tab.id}
+                  type="button"
                   role="tab"
-                  aria-selected={contentTab === tab.id}
-                  label={tab.label}
-                  active={contentTab === tab.id}
-                  className="uppercase"
-                  onClick={() => setContentTab(tab.id)}
-                />
+                  aria-selected={activeTab === tab.id}
+                  disabled={tab.comingSoon}
+                  onClick={() => !tab.comingSoon && setActiveTab(tab.id)}
+                  className={cn(
+                    'relative pb-3 text-sm font-medium leading-none whitespace-nowrap transition-colors',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm',
+                    activeTab === tab.id && !tab.comingSoon
+                      ? 'border-b-2 border-black text-foreground'
+                      : 'text-neutral-400',
+                    tab.comingSoon && 'cursor-default',
+                  )}
+                >
+                  {tab.label}
+                  {tab.comingSoon && (
+                    <span className="ml-1.5 inline-flex items-center rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 leading-none">
+                      Soon
+                    </span>
+                  )}
+                </button>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="w-full space-y-10">
+        {/* Content */}
+        <div className="w-full">
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
             </div>
-          ) : posts.length === 0 ? (
-            <div className="py-20 text-center">
-              <p className="mb-4 text-muted-foreground">No inspiration yet</p>
-              <Button onClick={() => setShowAddModal(true)}>
-                <Plus className="size-4" aria-hidden />
-                Add your first inspiration
-              </Button>
-            </div>
-          ) : filteredPosts.length === 0 ? (
-            <div className="py-16 text-center">
-              <p className="text-muted-foreground">
-                {contentTab === 'links' && 'No links yet for this view.'}
-                {contentTab === 'images' && 'No images yet for this view.'}
-                {contentTab === 'videos' && 'No videos yet for this view.'}
+          ) : activeTab === 'images' ? (
+            shuffledImages.length === 0 ? (
+              <div className="py-20 text-center">
+                <p className="mb-4 text-muted-foreground">No images yet</p>
+                <Button onClick={() => setShowAddModal(true)}>
+                  <Plus className="size-4" aria-hidden />
+                  Add your first image
+                </Button>
+              </div>
+            ) : (
+              <InspireMasonryGrid posts={shuffledImages} onPostClick={openViewer} />
+            )
+          ) : activeTab === 'sites' ? (
+            sitePosts.length === 0 ? (
+              <div className="py-20 text-center">
+                <p className="mb-4 text-muted-foreground">No sites yet</p>
+                <Button onClick={() => setShowAddModal(true)}>
+                  <Plus className="size-4" aria-hidden />
+                  Add your first site
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-10">
+                {siteWeekBuckets.map((bucket) => (
+                  <section
+                    key={bucket.key}
+                    className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
+                    data-name="ContentWrapper"
+                  >
+                    <div className="col-span-12 md:col-span-2">
+                      <TimelineIndicator
+                        heading={bucket.heading}
+                        dateRange={bucket.rangeLabel}
+                      />
+                    </div>
+                    <div className="col-span-12 min-w-0 md:col-span-10">
+                      <InspirePostGrid posts={bucket.posts} onPostClick={openViewer} />
+                    </div>
+                  </section>
+                ))}
+              </div>
+            )
+          ) : (
+            /* Resources — coming soon */
+            <div className="flex flex-col items-center justify-center py-24 gap-3">
+              <span className="inline-flex items-center rounded-full bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-500">
+                Coming Soon
+              </span>
+              <p className="text-muted-foreground text-sm">
+                Resources will be available in a future update.
               </p>
             </div>
-          ) : (
-            weekBuckets.map((bucket) => (
-              <section
-                key={bucket.key}
-                className="grid grid-cols-12 gap-x-6 gap-y-6 md:items-start"
-                data-name="ContentWrapper"
-                data-node-id="132:645"
-              >
-                <div className="col-span-12 md:col-span-2">
-                  <TimelineIndicator heading={bucket.heading} dateRange={bucket.rangeLabel} />
-                </div>
-                <div
-                  className="col-span-12 min-w-0 md:col-span-10"
-                  data-name="ContentArea"
-                  data-node-id="132:647"
-                >
-                  <InspirePostGrid
-                    posts={bucket.posts}
-                    onPostClick={openViewer}
-                  />
-                </div>
-              </section>
-            ))
           )}
         </div>
       </div>
