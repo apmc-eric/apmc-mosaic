@@ -87,9 +87,8 @@ export function buildMosaicModal(params: {
     {
       type: 'input',
       block_id: 'project_type_block',
-      dispatch_action: true,
       label: { type: 'plain_text', text: 'Project Type' },
-      optional: true,
+      optional: false,
       element: {
         type: 'static_select',
         action_id: 'project_type_select',

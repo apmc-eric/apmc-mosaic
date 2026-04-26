@@ -183,14 +183,18 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const availDate = values.availability_date_block?.availability_date?.selected_date
   const availTime = values.availability_time_block?.availability_time?.selected_time
 
-  // Validate synchronously before responding
+  // Validate required fields — Slack enforces project type natively (optional: false in modal)
   const errors: Record<string, string> = {}
   if (!title) errors.title_block = 'Title is required'
   if (!description) errors.description_block = 'Description is required'
-  if (!projectId) errors.project_type_block = 'Project Type is required to create a ticket'
 
   if (Object.keys(errors).length > 0) {
     return NextResponse.json({ response_action: 'errors', errors })
+  }
+
+  // project_type_block is required in the modal; if somehow null, abort gracefully
+  if (!projectId) {
+    return NextResponse.json({ response_action: 'clear' })
   }
 
   const checkpointDate = combineDateTime(availDate, availTime, metadata.timezone)
