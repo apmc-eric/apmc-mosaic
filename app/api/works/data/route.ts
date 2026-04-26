@@ -1,14 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import type { Project, Ticket, TicketAssigneeRow } from '@/lib/types'
+import { isDemoViewRole, MOSAIC_WORKS_DATA_VIEW_ROLE_HEADER } from '@/lib/demo-view-role'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * Loads Works board data on the server (cookies → Supabase).
- * Avoids browser → Supabase fetch failures (extensions, network, TLS) that show as TypeError: Failed to fetch.
+ * For **designer** and **collaborator** roles (or an **admin** previewing those via
+ * **`x-mosaic-view-role`**), tickets are limited to rows the viewer is involved in
+ * (created, assignee, or accepted collaborator invite).
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient()
     const {
@@ -38,7 +41,13 @@ export async function GET() {
     }
 
     const viewerRole = viewerProfile?.role ?? null
-    const designerScoped = viewerRole === 'designer'
+    const headerRaw = request.headers.get(MOSAIC_WORKS_DATA_VIEW_ROLE_HEADER)
+    let dataRole = viewerRole
+    if (viewerRole === 'admin' && isDemoViewRole(headerRaw)) {
+      dataRole = headerRaw
+    }
+
+    const ticketsScopeToInvolvement = dataRole === 'designer' || dataRole === 'collaborator'
 
     const { data: projects, error: projectsError } = await supabase.from('projects').select('*').order('name')
 
@@ -54,7 +63,9 @@ export async function GET() {
     }
 
     let allowedTicketIds: string[] | null = null
-    if (designerScoped) {
+    if (ticketsScopeToInvolvement) {
+      const idSet = new Set<string>()
+
       const { data: createdRows, error: createdErr } = await supabase
         .from('tickets')
         .select('id')
@@ -79,7 +90,7 @@ export async function GET() {
       if (assignErr) {
         return NextResponse.json(
           {
-            error: assignErr.message || 'Assignees query failed',
+            error: assignErr.message || 'Tickets query failed',
             code: assignErr.code,
             details: assignErr.details,
           },
@@ -87,7 +98,23 @@ export async function GET() {
         )
       }
 
-      const idSet = new Set<string>()
+      const { data: collabRows, error: collabErr } = await supabase
+        .from('ticket_collaborators')
+        .select('ticket_id')
+        .eq('user_id', user.id)
+        .eq('status', 'accepted')
+
+      if (collabErr) {
+        return NextResponse.json(
+          {
+            error: collabErr.message || 'Collaborators query failed',
+            code: collabErr.code,
+            details: collabErr.details,
+          },
+          { status: 503 }
+        )
+      }
+
       for (const r of createdRows ?? []) {
         if (r?.id) idSet.add(r.id as string)
       }
@@ -95,6 +122,11 @@ export async function GET() {
         const tid = (r as { ticket_id?: string }).ticket_id
         if (tid) idSet.add(tid)
       }
+      for (const r of collabRows ?? []) {
+        const tid = (r as { ticket_id?: string }).ticket_id
+        if (tid) idSet.add(tid)
+      }
+
       allowedTicketIds = [...idSet]
     }
 
@@ -105,7 +137,7 @@ export async function GET() {
       `
     )
 
-    if (designerScoped) {
+    if (ticketsScopeToInvolvement) {
       if (!allowedTicketIds?.length) {
         return NextResponse.json({
           projects: projects as Project[],

@@ -225,11 +225,17 @@ export async function POST(req: Request) {
     return new Response('Bad Request', { status: 400 })
   }
 
-  if (parsed?.type === 'block_actions') {
-    return handleBlockActions(parsed as unknown as SlackBlockActionsPayload)
-  }
-  if (parsed?.type === 'view_submission') {
-    return handleViewSubmission(parsed as unknown as SlackViewSubmissionPayload)
+  try {
+    if (parsed?.type === 'block_actions') {
+      return await handleBlockActions(parsed as unknown as SlackBlockActionsPayload)
+    }
+    if (parsed?.type === 'view_submission') {
+      return await handleViewSubmission(parsed as unknown as SlackViewSubmissionPayload)
+    }
+  } catch (err) {
+    console.error('[slack/actions] Unhandled exception:', err)
+    // Return 200 so Slack doesn't show "We had some trouble connecting"
+    return new Response(null, { status: 200 })
   }
 
   return new Response(null, { status: 200 })
