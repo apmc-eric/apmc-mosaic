@@ -1,4 +1,4 @@
-import { NextResponse, after } from 'next/server'
+import { NextResponse } from 'next/server'
 import { fromZonedTime } from 'date-fns-tz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackSignature } from '@/lib/slack/verify'
@@ -161,8 +161,15 @@ async function processTicketCreation(
 }
 
 async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promise<Response> {
+  let metadata: SlackPrivateMetadata
+  try {
+    metadata = JSON.parse(payload.view.private_metadata)
+  } catch {
+    console.error('[slack/actions] Failed to parse private_metadata')
+    return NextResponse.json({ response_action: 'clear' })
+  }
+
   const values = payload.view.state.values
-  const metadata: SlackPrivateMetadata = JSON.parse(payload.view.private_metadata)
 
   const title = values.title_block?.title_input?.value?.trim() ?? ''
   const description = values.description_block?.description_input?.value?.trim() ?? ''
@@ -190,17 +197,15 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const leadId = designerIds[0] ?? null
   const supportIds = designerIds.slice(1)
 
-  // Schedule ticket creation after the response is sent so Slack gets an instant reply
-  after(
-    processTicketCreation(metadata, {
-      title,
-      description,
-      projectId: projectId!,
-      leadId,
-      supportIds,
-      checkpointDate,
-    }),
-  )
+  // Fire-and-forget — Edge runtime keeps promises alive after the response is sent
+  void processTicketCreation(metadata, {
+    title,
+    description,
+    projectId: projectId!,
+    leadId,
+    supportIds,
+    checkpointDate,
+  })
 
   return NextResponse.json({ response_action: 'clear' })
 }
@@ -229,11 +234,15 @@ export async function POST(req: Request) {
     return new Response('Bad Request', { status: 400 })
   }
 
-  if (parsed?.type === 'block_actions') {
-    return handleBlockActions(parsed as unknown as SlackBlockActionsPayload)
-  }
-  if (parsed?.type === 'view_submission') {
-    return handleViewSubmission(parsed as unknown as SlackViewSubmissionPayload)
+  try {
+    if (parsed?.type === 'block_actions') {
+      return await handleBlockActions(parsed as unknown as SlackBlockActionsPayload)
+    }
+    if (parsed?.type === 'view_submission') {
+      return await handleViewSubmission(parsed as unknown as SlackViewSubmissionPayload)
+    }
+  } catch (err) {
+    console.error('[slack/actions] Unhandled error:', err)
   }
 
   return new Response(null, { status: 200 })
