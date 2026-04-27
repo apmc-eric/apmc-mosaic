@@ -5,9 +5,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 interface TicketIDLabelProps {
-  /** Display ID shown in the label, e.g. "FRA-006" */
   ticketId: string
-  /** UUID of the ticket — used to build the shareable /tickets/[uuid] URL */
   ticketUuid?: string
   className?: string
 }

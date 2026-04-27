@@ -23,8 +23,6 @@ import { createClient } from '@/lib/supabase/client'
 import { groupPostsByWeek } from '@/lib/week-buckets'
 import { cn } from '@/lib/utils'
 
-const supabase = createClient()
-
 type LibraryTab = 'images' | 'sites' | 'resources'
 
 const LIBRARY_TABS: { id: LibraryTab; label: string; comingSoon?: boolean }[] = [
@@ -34,6 +32,7 @@ const LIBRARY_TABS: { id: LibraryTab; label: string; comingSoon?: boolean }[] = 
 ]
 
 export default function InspirePage() {
+  const supabase = createClient()
   const { profile } = useAuth()
   const [posts, setPosts] = useState<Post[]>([])
   const [tags, setTags] = useState<Tag[]>([])
@@ -261,27 +260,26 @@ export default function InspirePage() {
       <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="118:22">
         {/* Top bar: Add Inspo button + underline tab navigation */}
         <div
-          className="grid w-full grid-cols-12 gap-x-6 gap-y-4 pb-6"
+          className="grid w-full grid-cols-12 gap-x-8 gap-y-4 pb-6"
           data-name="Navigation"
           data-node-id="132:779"
         >
-          <div className="hidden md:col-span-2 md:block" aria-hidden data-name="Spacer" />
-
-          <div className="col-span-12 flex flex-col gap-4 md:col-span-10 md:flex-row md:items-end md:gap-6">
+          <div className="col-span-12 flex flex-col gap-2 md:col-span-2">
             <Button
-              className="shrink-0 items-center gap-2 self-start md:self-auto"
+              className="inline-flex w-fit items-center gap-2 self-start"
               onClick={() => setShowAddModal(true)}
             >
               <Plus className="size-4 shrink-0" aria-hidden />
               Add Inspo
             </Button>
+          </div>
 
-            {/* Underline tabs */}
-            <div
-              className="flex items-end border-b border-neutral-200 gap-6 w-full md:w-auto"
-              role="tablist"
-              aria-label="Library category"
-            >
+          {/* Underline tabs */}
+          <div
+            className="col-span-12 min-w-0 md:col-span-10 flex items-end border-b border-neutral-200 gap-6"
+            role="tablist"
+            aria-label="Library category"
+          >
               {LIBRARY_TABS.map((tab) => (
                 <button
                   key={tab.id}
@@ -307,7 +305,6 @@ export default function InspirePage() {
                   )}
                 </button>
               ))}
-            </div>
           </div>
         </div>
 
