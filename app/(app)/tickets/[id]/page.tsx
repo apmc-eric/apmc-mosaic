@@ -45,6 +45,8 @@ import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indica
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { ArrowLeft, MoreHorizontal, History } from 'lucide-react'
 import { toast } from 'sonner'
+import { TicketIDLabel } from '@/components/ticket-id-label'
+import { TicketPublicView } from '@/components/ticket-public-view'
 
 const supabase = createClient()
 const DEBOUNCE_MS = 800
@@ -351,6 +353,11 @@ export default function TicketDetailPage() {
     void load()
   }
 
+  // Unauthenticated users see the public read-only view
+  if (!profile) {
+    return <TicketPublicView ticketId={id} />
+  }
+
   if (!ticket) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-12 text-muted-foreground text-sm">Loading…</div>
@@ -390,8 +397,7 @@ export default function TicketDetailPage() {
 
       <div className="space-y-6">
         <div>
-          <Label className="text-muted-foreground text-xs uppercase tracking-wide">Ticket</Label>
-          <p className="font-mono text-lg mt-1">{ticket.ticket_id}</p>
+          <TicketIDLabel ticketId={ticket.ticket_id} />
         </div>
 
         <div>
