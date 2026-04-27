@@ -57,6 +57,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { Plus, Trash2 } from 'lucide-react'
 import { DesignerProfileRow } from '@/components/designer-profile-row'
 import { toast } from 'sonner'
+import { TicketIDLabel } from '@/components/ticket-id-label'
 
 const supabase = createClient()
 
@@ -939,9 +940,7 @@ export default function WorksPage() {
                 <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
                   <header className="bg-background flex w-full min-w-0 shrink-0 flex-col justify-start gap-4 px-6 pt-6 pb-4">
                     <div className="flex w-full min-w-0 flex-col gap-2">
-                      <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
-                        {panelTicket.ticket_id}
-                      </p>
+                      <TicketIDLabel ticketId={panelTicket.ticket_id} />
                       <p className="text-base font-semibold">{panelTicket.title}</p>
                     </div>
                   </header>
@@ -1197,9 +1196,7 @@ export default function WorksPage() {
                   data-node-id="227:3295"
                 >
                   <div className="flex w-full min-w-0 flex-col gap-2">
-                    <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
-                      {panelTicket.ticket_id}
-                    </p>
+                    <TicketIDLabel ticketId={panelTicket.ticket_id} />
                     <TicketTitleEditor
                       key={panelTicket.id}
                       ticketId={panelTicket.id}
