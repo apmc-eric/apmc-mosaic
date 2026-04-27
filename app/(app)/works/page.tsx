@@ -57,6 +57,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { Plus, Trash2 } from 'lucide-react'
 import { DesignerProfileRow } from '@/components/designer-profile-row'
 import { toast } from 'sonner'
+import { TicketIDLabel } from '@/components/ticket-id-label'
 
 const supabase = createClient()
 
@@ -262,6 +263,26 @@ export default function WorksPage() {
           )
       })
   }, [])
+
+  // Sync panel UUID to URL so ?ticket=[uuid] deep-links work
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (panelTicket?.id) {
+      window.history.replaceState(null, '', `?ticket=${panelTicket.id}`)
+    } else {
+      window.history.replaceState(null, '', '/works')
+    }
+  }, [panelTicket?.id])
+
+  // On load, open the ticket from ?ticket= URL param once tickets are ready
+  useEffect(() => {
+    if (loading || !tickets.length) return
+    const params = new URLSearchParams(window.location.search)
+    const tid = params.get('ticket')
+    if (!tid || panelTicket?.id === tid) return
+    const t = tickets.find((t) => t.id === tid)
+    if (t) setPanelTicket(t)
+  }, [loading, tickets]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!panelTicket?.id) return
@@ -939,9 +960,7 @@ export default function WorksPage() {
                 <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
                   <header className="bg-background flex w-full min-w-0 shrink-0 flex-col justify-start gap-4 px-6 pt-6 pb-4">
                     <div className="flex w-full min-w-0 flex-col gap-2">
-                      <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
-                        {panelTicket.ticket_id}
-                      </p>
+                      <TicketIDLabel ticketId={panelTicket.ticket_id} ticketUuid={panelTicket.id} />
                       <p className="text-base font-semibold">{panelTicket.title}</p>
                     </div>
                   </header>
@@ -1197,9 +1216,7 @@ export default function WorksPage() {
                   data-node-id="227:3295"
                 >
                   <div className="flex w-full min-w-0 flex-col gap-2">
-                    <p className="w-full font-mono text-mono-micro font-normal uppercase tabular-nums text-foreground opacity-50">
-                      {panelTicket.ticket_id}
-                    </p>
+                    <TicketIDLabel ticketId={panelTicket.ticket_id} ticketUuid={panelTicket.id} />
                     <TicketTitleEditor
                       key={panelTicket.id}
                       ticketId={panelTicket.id}

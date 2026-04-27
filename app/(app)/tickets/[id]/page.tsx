@@ -72,6 +72,13 @@ export default function TicketDetailPage() {
   const [commentBody, setCommentBody] = useState('')
   const pending = useRef<Record<string, NodeJS.Timeout>>({})
 
+  // Redirect authenticated users to the Works panel deep-link
+  useEffect(() => {
+    if (profile) {
+      router.replace(`/works?ticket=${id}`)
+    }
+  }, [profile, id, router])
+
   const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('tickets')

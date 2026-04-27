@@ -5,13 +5,19 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 interface TicketIDLabelProps {
+  /** Display ID shown in the label, e.g. "FRA-006" */
   ticketId: string
+  /** UUID of the ticket — used to build the shareable /tickets/[uuid] URL */
+  ticketUuid?: string
   className?: string
 }
 
-export function TicketIDLabel({ ticketId, className }: TicketIDLabelProps) {
+export function TicketIDLabel({ ticketId, ticketUuid, className }: TicketIDLabelProps) {
   const handleCopy = () => {
-    void navigator.clipboard.writeText(window.location.href)
+    const url = ticketUuid
+      ? `${window.location.origin}/tickets/${ticketUuid}`
+      : window.location.href
+    void navigator.clipboard.writeText(url)
     toast.success('Link to ticket copied to clipboard')
   }
 
