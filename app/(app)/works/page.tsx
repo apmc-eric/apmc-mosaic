@@ -179,6 +179,7 @@ export default function WorksPage() {
   >([])
   const [assigneeSaving, setAssigneeSaving] = useState(false)
   const panelCommentTaRef = useRef<HTMLTextAreaElement>(null)
+  const deepLinkProcessed = useRef(false)
   const [checkpointModalOpen, setCheckpointModalOpen] = useState(false)
   const [submitOpen, setSubmitOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -269,7 +270,8 @@ export default function WorksPage() {
     if (typeof window === 'undefined') return
     if (panelTicket?.id) {
       window.history.replaceState(null, '', `?ticket=${panelTicket.id}`)
-    } else {
+    } else if (deepLinkProcessed.current) {
+      // Only clear the URL once the initial deep-link param has been resolved (or found absent)
       window.history.replaceState(null, '', '/works')
     }
   }, [panelTicket?.id])
@@ -277,6 +279,7 @@ export default function WorksPage() {
   // On load, open the ticket from ?ticket= URL param once tickets are ready
   useEffect(() => {
     if (loading || !tickets.length) return
+    deepLinkProcessed.current = true
     const params = new URLSearchParams(window.location.search)
     const tid = params.get('ticket')
     if (!tid || panelTicket?.id === tid) return
