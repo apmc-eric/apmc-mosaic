@@ -6,12 +6,16 @@ import { cn } from '@/lib/utils'
 
 interface TicketIDLabelProps {
   ticketId: string
+  ticketUuid?: string
   className?: string
 }
 
-export function TicketIDLabel({ ticketId, className }: TicketIDLabelProps) {
+export function TicketIDLabel({ ticketId, ticketUuid, className }: TicketIDLabelProps) {
   const handleCopy = () => {
-    void navigator.clipboard.writeText(window.location.href)
+    const url = ticketUuid
+      ? `${window.location.origin}/tickets/${ticketUuid}`
+      : window.location.href
+    void navigator.clipboard.writeText(url)
     toast.success('Link to ticket copied to clipboard')
   }
 
