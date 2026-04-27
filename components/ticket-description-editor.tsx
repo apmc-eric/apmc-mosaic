@@ -8,6 +8,9 @@ import {
   looksLikeUrl,
   sanitizeDescriptionHtml,
 } from '@/lib/sanitize-ticket-description-html'
+import { LinkTooltipController } from '@/components/link-tooltip'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 const DEBOUNCE_MS = 800
 
@@ -48,6 +51,12 @@ export function TicketDescriptionEditor({
   // Always-current ref so the unmount flush calls the latest onSave
   const onSaveRef = React.useRef(onSave)
   React.useLayoutEffect(() => { onSaveRef.current = onSave })
+
+  // Link tooltip + edit modal state
+  type LinkState = { x: number; y: number; href: string; element: HTMLAnchorElement }
+  const [linkTooltip, setLinkTooltip] = React.useState<LinkState | null>(null)
+  const [editUrlModal, setEditUrlModal] = React.useState<{ href: string; element: HTMLAnchorElement } | null>(null)
+  const [editUrlValue, setEditUrlValue] = React.useState('')
   // Tracks content that has been scheduled but not yet persisted
   const pendingContent = React.useRef<string | null>(null)
 
@@ -121,6 +130,19 @@ export function TicketDescriptionEditor({
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (compose || !canEdit || editing) return
+    // If the user clicked on a link, show the link tooltip instead of entering edit mode
+    const anchor = (e.target as HTMLElement).closest('a')
+    if (anchor && ref.current?.contains(anchor)) {
+      e.preventDefault()
+      const rect = anchor.getBoundingClientRect()
+      setLinkTooltip({
+        x: rect.left,
+        y: rect.bottom + 6,
+        href: anchor.href,
+        element: anchor as HTMLAnchorElement,
+      })
+      return
+    }
     e.preventDefault()
     setEditing(true)
   }
@@ -294,21 +316,95 @@ export function TicketDescriptionEditor({
     />
   )
 
+  const linkOverlays = (
+    <>
+      {linkTooltip && (
+        <LinkTooltipController
+          x={linkTooltip.x}
+          y={linkTooltip.y}
+          onOpenLink={() => {
+            window.open(linkTooltip.href, '_blank', 'noopener,noreferrer')
+            setLinkTooltip(null)
+          }}
+          onEditUrl={() => {
+            setEditUrlModal({ href: linkTooltip.href, element: linkTooltip.element })
+            setEditUrlValue(linkTooltip.href)
+            setLinkTooltip(null)
+          }}
+          onDismiss={() => setLinkTooltip(null)}
+        />
+      )}
+      {editUrlModal && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setEditUrlModal(null)
+          }}
+        >
+          <div className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-lg w-[320px]">
+            <p className="text-sm font-semibold text-foreground">Edit URL</p>
+            <Input
+              value={editUrlValue}
+              onChange={(e) => setEditUrlValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  applyEditUrl()
+                }
+                if (e.key === 'Escape') setEditUrlModal(null)
+              }}
+              autoFocus
+              placeholder="https://example.com"
+              className="text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="small" onClick={() => setEditUrlModal(null)}>
+                Cancel
+              </Button>
+              <Button size="small" onClick={applyEditUrl}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+
+  function applyEditUrl() {
+    if (!editUrlModal) return
+    const el = editUrlModal.element
+    const href = editUrlValue.trim().startsWith('http')
+      ? editUrlValue.trim()
+      : `https://${editUrlValue.trim()}`
+    el.href = href
+    setEditUrlModal(null)
+    scheduleSave()
+  }
+
   if (compose) {
     return (
-      <div className="relative w-full min-h-[15rem] sm:min-h-[240px]">
-        {composeEmpty ? (
-          <span
-            className="pointer-events-none absolute left-0 top-0 z-0 max-w-full text-sm leading-5 text-neutral-400 select-none dark:text-neutral-500"
-            aria-hidden
-          >
-            {placeholder}
-          </span>
-        ) : null}
-        {editor}
-      </div>
+      <>
+        <div className="relative w-full min-h-[15rem] sm:min-h-[240px]">
+          {composeEmpty ? (
+            <span
+              className="pointer-events-none absolute left-0 top-0 z-0 max-w-full text-sm leading-5 text-neutral-400 select-none dark:text-neutral-500"
+              aria-hidden
+            >
+              {placeholder}
+            </span>
+          ) : null}
+          {editor}
+        </div>
+        {linkOverlays}
+      </>
     )
   }
 
-  return editor
+  return (
+    <>
+      {editor}
+      {linkOverlays}
+    </>
+  )
 }

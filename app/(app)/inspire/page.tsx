@@ -257,59 +257,49 @@ export default function InspirePage() {
 
   return (
     <>
-      <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="118:22">
-        {/* Top bar: Add Inspo button + underline tab navigation */}
+      <div className="w-full pb-16" data-name="Feed" data-node-id="118:22">
+        {/* Tab header + Add Inspo button — same pattern as Works page */}
         <div
-          className="grid w-full grid-cols-12 gap-x-8 gap-y-4 pb-6"
+          className="flex items-start justify-between px-6 pb-7 pt-12"
           data-name="Navigation"
-          data-node-id="132:779"
+          data-node-id="470:8382"
         >
-          <div className="col-span-12 flex flex-col gap-2 md:col-span-2">
-            <Button
-              className="inline-flex w-fit items-center gap-2 self-start"
-              onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="size-4 shrink-0" aria-hidden />
-              Add Inspo
-            </Button>
+          <div className="flex items-baseline gap-8" role="tablist" aria-label="Library category">
+            {LIBRARY_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                disabled={tab.comingSoon}
+                onClick={() => !tab.comingSoon && setActiveTab(tab.id)}
+                className={cn(
+                  'flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm',
+                  activeTab === tab.id && !tab.comingSoon
+                    ? 'opacity-100'
+                    : 'opacity-20 hover:opacity-40',
+                  tab.comingSoon && 'cursor-default',
+                )}
+              >
+                {tab.label}
+                {tab.comingSoon && (
+                  <span className="mt-1 text-sm font-medium">(Coming Soon)</span>
+                )}
+              </button>
+            ))}
           </div>
-
-          {/* Underline tabs */}
-          <div
-            className="col-span-12 min-w-0 md:col-span-10 flex items-end border-b border-neutral-200 gap-6"
-            role="tablist"
-            aria-label="Library category"
+          <Button
+            className="shrink-0"
+            onClick={() => setShowAddModal(true)}
           >
-              {LIBRARY_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  disabled={tab.comingSoon}
-                  onClick={() => !tab.comingSoon && setActiveTab(tab.id)}
-                  className={cn(
-                    'relative pb-3 text-sm font-medium leading-none whitespace-nowrap transition-colors',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm',
-                    activeTab === tab.id && !tab.comingSoon
-                      ? 'border-b-2 border-black text-foreground'
-                      : 'text-neutral-400',
-                    tab.comingSoon && 'cursor-default',
-                  )}
-                >
-                  {tab.label}
-                  {tab.comingSoon && (
-                    <span className="ml-1.5 inline-flex items-center rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 leading-none">
-                      Soon
-                    </span>
-                  )}
-                </button>
-              ))}
-          </div>
+            <Plus className="size-4 shrink-0" aria-hidden />
+            Add Inspo
+          </Button>
         </div>
 
         {/* Content */}
-        <div className="w-full">
+        <div className="w-full px-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
