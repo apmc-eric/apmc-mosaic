@@ -27,7 +27,7 @@ export function LinkTooltipController({
 }: LinkTooltipControllerProps) {
   const ref = React.useRef<HTMLDivElement>(null)
 
-  // Dismiss on outside pointer-down or Escape
+  // Dismiss on outside pointer-down, scroll, or Escape
   React.useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -37,11 +37,15 @@ export function LinkTooltipController({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onDismiss()
     }
+    // capture:true catches scroll on any element (scroll doesn't bubble)
+    const handleScroll = () => onDismiss()
     document.addEventListener('pointerdown', handlePointerDown, { capture: true })
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('scroll', handleScroll, { capture: true, passive: true })
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, { capture: true })
       document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('scroll', handleScroll, { capture: true })
     }
   }, [onDismiss])
 
