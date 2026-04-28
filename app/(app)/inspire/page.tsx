@@ -170,7 +170,9 @@ export default function InspirePage() {
   const handleAddInspiration = async (data: {
     content_type: ContentType
     url?: string
-    file?: File
+    files?: File[]
+    preUploadedPathnames?: string[]
+    thumbnailIndex?: number
     thumbnail?: File
     screenshot_url?: string
     full_screenshot_url?: string
@@ -183,50 +185,59 @@ export default function InspirePage() {
       return
     }
 
-    let fileUrl: string | null = null
-    let thumbnailUrl: string | null = null
+    // Start with any files already uploaded server-side (from URL paste)
+    const fileUrls: string[] = [...(data.preUploadedPathnames ?? [])]
 
-    if (data.file) {
-      const formData = new FormData()
-      formData.append('file', data.file)
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'File upload failed')
-      }
-      const { pathname } = await res.json()
-      fileUrl = pathname
+    // Upload local files in parallel
+    if (data.files && data.files.length > 0) {
+      const results = await Promise.all(
+        data.files.map(async (file) => {
+          const formData = new FormData()
+          formData.append('file', file)
+          const res = await fetch('/api/upload', { method: 'POST', body: formData })
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.error || 'File upload failed')
+          }
+          const { pathname } = await res.json()
+          return pathname as string
+        }),
+      )
+      fileUrls.push(...results)
     }
 
-    if (data.thumbnail) {
-      const formData = new FormData()
-      formData.append('file', data.thumbnail)
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      if (!res.ok) throw new Error('Thumbnail upload failed')
-      const { pathname } = await res.json()
-      thumbnailUrl = pathname
-    }
+    const thumbIdx = data.thumbnailIndex ?? 0
+    const primaryFileUrl = fileUrls[thumbIdx] ?? fileUrls[0] ?? null
 
     const screenshotUrl = data.screenshot_url ?? data.full_screenshot_url
-    let finalThumbnail = thumbnailUrl || screenshotUrl || fileUrl
+    let finalThumbnail = primaryFileUrl || screenshotUrl
     if (data.content_type === 'image' && data.url && !finalThumbnail) {
       finalThumbnail = data.url
     }
 
-    const { error } = await supabase.from('inspiration_items').insert({
+    const basePayload = {
       submitted_by: profile.id,
       type: data.content_type,
       title: data.title,
       note: data.description || null,
       url: data.url || null,
-      media_url: fileUrl || (data.content_type === 'image' ? data.url : null),
+      media_url: primaryFileUrl || (data.content_type === 'image' ? data.url : null),
       thumbnail_url: finalThumbnail,
       full_screenshot_url: data.content_type === 'url' ? (screenshotUrl ?? null) : null,
-    })
+    }
 
-    if (error) {
-      console.error('Inspiration insert error:', error)
-      throw error
+    let result = await supabase
+      .from('inspiration_items')
+      .insert({ ...basePayload, media_urls: fileUrls.length > 0 ? fileUrls : null })
+
+    // If the media_urls column doesn't exist yet (migration pending), fall back without it
+    if (result.error?.message?.includes('media_urls')) {
+      result = await supabase.from('inspiration_items').insert(basePayload)
+    }
+
+    if (result.error) {
+      console.error('Inspiration insert error:', result.error)
+      throw result.error
     }
 
     toast.success('Inspo added!')

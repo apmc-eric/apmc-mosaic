@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,8 @@ import {
   Send,
   Trash2,
   Link2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
@@ -34,29 +36,39 @@ function commentDisplayName(profile?: Comment['profile']) {
   )
 }
 
+function mediaSrc(pathname: string): string {
+  return pathname.startsWith('http')
+    ? pathname
+    : `/api/file?pathname=${encodeURIComponent(pathname)}`
+}
+
+function isVideoPathname(pathname: string): boolean {
+  return pathname.toLowerCase().split('?')[0].endsWith('.mp4')
+}
+
 function OverlayMediaPane({
   post,
   thumbnailUrl,
   fullScreenshotUrl,
+  activeMediaPathname,
+  mediaIndex,
+  mediaTotal,
+  onPrev,
+  onNext,
 }: {
   post: Post
   thumbnailUrl: string | null
   fullScreenshotUrl: string | null
+  activeMediaPathname: string | null
+  mediaIndex: number
+  mediaTotal: number
+  onPrev: () => void
+  onNext: () => void
 }) {
-  const inner = (() => {
-    if (post.type === 'video' && post.media_url) {
-      return (
-        <video
-          src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
-          autoPlay
-          muted
-          loop
-          playsInline
-          className="max-h-full max-w-full object-contain"
-        />
-      )
-    }
+  const activeIsVideo = activeMediaPathname ? isVideoPathname(activeMediaPathname) : post.type === 'video'
+  const activeSrc = activeMediaPathname ? mediaSrc(activeMediaPathname) : null
 
+  const inner = (() => {
     if (post.type === 'url') {
       const src = fullScreenshotUrl || thumbnailUrl
       if (!src) return null
@@ -76,12 +88,24 @@ function OverlayMediaPane({
       )
     }
 
-    const src =
-      thumbnailUrl ||
-      (post.media_url ? `/api/file?pathname=${encodeURIComponent(post.media_url)}` : null)
+    if (activeSrc && activeIsVideo) {
+      return (
+        <video
+          key={activeSrc}
+          src={activeSrc}
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="max-h-full max-w-full object-contain"
+        />
+      )
+    }
+
+    const src = activeSrc || thumbnailUrl
     if (!src) return null
     return (
-      <img src={src} alt={post.title} className="max-h-full max-w-full object-contain" />
+      <img key={src} src={src} alt={post.title} className="max-h-full max-w-full object-contain" />
     )
   })()
 
@@ -92,6 +116,35 @@ function OverlayMediaPane({
       data-node-id="149:2599"
     >
       <div className="absolute inset-0 flex items-center justify-center p-10">{inner}</div>
+
+      {/* Carousel arrows — only for image/video posts with multiple media */}
+      {mediaTotal > 1 && post.type !== 'url' && (
+        <>
+          <button
+            type="button"
+            onClick={onPrev}
+            disabled={mediaIndex === 0}
+            className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center size-8 rounded-full bg-white/90 shadow border border-black/10 disabled:opacity-30 hover:bg-white transition-colors"
+            aria-label="Previous"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={mediaIndex === mediaTotal - 1}
+            className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center size-8 rounded-full bg-white/90 shadow border border-black/10 disabled:opacity-30 hover:bg-white transition-colors"
+            aria-label="Next"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
+            <span className="text-[10px] font-medium text-white/90 bg-black/40 rounded-full px-2.5 py-1 leading-none">
+              {mediaIndex + 1} / {mediaTotal}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -123,7 +176,17 @@ export function PostDetailPanel({
   const [newComment, setNewComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isFavorited, setIsFavorited] = useState(post.is_favorited ?? false)
+  const [mediaIndex, setMediaIndex] = useState(0)
   const supabase = createClient()
+
+  const allMediaPathnames = useMemo(() => {
+    if (post.media_urls && post.media_urls.length > 0) return post.media_urls
+    if (post.media_url) return [post.media_url]
+    return []
+  }, [post.media_urls, post.media_url])
+
+  const activeMediaPathname = allMediaPathnames[mediaIndex] ?? null
+  const mediaTotal = allMediaPathnames.length
 
   useEffect(() => {
     fetchComments()
@@ -333,6 +396,11 @@ export function PostDetailPanel({
           post={post}
           thumbnailUrl={thumbnailUrl}
           fullScreenshotUrl={fullScreenshotUrl}
+          activeMediaPathname={activeMediaPathname}
+          mediaIndex={mediaIndex}
+          mediaTotal={mediaTotal}
+          onPrev={() => setMediaIndex((i) => Math.max(0, i - 1))}
+          onNext={() => setMediaIndex((i) => Math.min(mediaTotal - 1, i + 1))}
         />
 
         <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col sm:max-w-[380px]">
@@ -509,17 +577,8 @@ export function PostDetailPanel({
       <div className="flex min-h-0 flex-1">
         {/* Left: full-page screenshot or media */}
         <ScrollArea className="min-w-0 flex-[3] border-r border-border">
-          <div className="p-4">
-            {post.type === 'video' ? (
-              <video
-                src={`/api/file?pathname=${encodeURIComponent(post.media_url!)}`}
-                autoPlay
-                muted
-                loop
-                playsInline
-                className="w-full rounded-lg"
-              />
-            ) : post.type === 'url' && fullScreenshotUrl ? (
+          <div className="relative p-4">
+            {post.type === 'url' && fullScreenshotUrl ? (
               <div className="overflow-hidden rounded-lg bg-muted">
                 <img
                   src={fullScreenshotUrl}
@@ -527,30 +586,72 @@ export function PostDetailPanel({
                   className="min-w-0 w-full object-contain"
                 />
               </div>
-            ) : thumbnailUrl ? (
+            ) : post.type === 'url' && thumbnailUrl ? (
               <div className="relative overflow-hidden rounded-lg bg-muted">
-                {post.type === 'url' ? (
-                  <div className="aspect-video w-full overflow-hidden">
-                    <img
-                      src={thumbnailUrl}
-                      alt={post.title}
-                      className="h-full w-full object-cover object-top"
-                    />
-                  </div>
-                ) : (
+                <div className="aspect-video w-full overflow-hidden">
                   <img
                     src={thumbnailUrl}
                     alt={post.title}
-                    className="max-h-[80vh] w-full object-contain"
+                    className="h-full w-full object-cover object-top"
                   />
-                )}
-                {post.type === 'url' && (
-                  <div className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md bg-background/80 backdrop-blur-sm">
-                    <Link2 className="size-3.5 text-foreground" />
-                  </div>
-                )}
+                </div>
+                <div className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-md bg-background/80 backdrop-blur-sm">
+                  <Link2 className="size-3.5 text-foreground" />
+                </div>
               </div>
+            ) : activeMediaPathname && isVideoPathname(activeMediaPathname) ? (
+              <video
+                key={activeMediaPathname}
+                src={mediaSrc(activeMediaPathname)}
+                autoPlay
+                muted
+                loop
+                playsInline
+                className="w-full rounded-lg"
+              />
+            ) : activeMediaPathname ? (
+              <img
+                key={activeMediaPathname}
+                src={mediaSrc(activeMediaPathname)}
+                alt={post.title}
+                className="max-h-[80vh] w-full object-contain rounded-lg"
+              />
+            ) : thumbnailUrl ? (
+              <img
+                src={thumbnailUrl}
+                alt={post.title}
+                className="max-h-[80vh] w-full object-contain rounded-lg"
+              />
             ) : null}
+
+            {/* Carousel arrows for split layout */}
+            {mediaTotal > 1 && post.type !== 'url' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMediaIndex((i) => Math.max(0, i - 1))}
+                  disabled={mediaIndex === 0}
+                  className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center justify-center size-8 rounded-full bg-white/90 shadow border border-black/10 disabled:opacity-30 hover:bg-white transition-colors"
+                  aria-label="Previous"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaIndex((i) => Math.min(mediaTotal - 1, i + 1))}
+                  disabled={mediaIndex === mediaTotal - 1}
+                  className="absolute right-6 top-1/2 -translate-y-1/2 flex items-center justify-center size-8 rounded-full bg-white/90 shadow border border-black/10 disabled:opacity-30 hover:bg-white transition-colors"
+                  aria-label="Next"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+                  <span className="text-[10px] font-medium text-white/90 bg-black/40 rounded-full px-2.5 py-1 leading-none">
+                    {mediaIndex + 1} / {mediaTotal}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </ScrollArea>
 
