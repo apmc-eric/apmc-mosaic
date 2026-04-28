@@ -121,11 +121,8 @@ export function AddInspirationModal({
       return
     }
     setImageFile(file)
-    if (file.type !== 'video/mp4') {
-      setImagePreviewSrc(URL.createObjectURL(file))
-    } else {
-      setImagePreviewSrc(null)
-    }
+    setImagePreviewSrc(URL.createObjectURL(file))
+    setStep('details')
   }, [])
 
   // ─── Drag & Drop ─────────────────────────────────────────────────────────
@@ -387,7 +384,16 @@ export function AddInspirationModal({
             <div className="flex flex-col gap-5">
               {/* Preview: full width × 220px, 24px padding, image object-contain inside */}
               <div className="relative w-full h-[220px] rounded-md border border-black/10 bg-neutral-50 p-6 overflow-hidden flex items-center justify-center">
-                {imagePreviewSrc ? (
+                {imageFile?.type === 'video/mp4' && imagePreviewSrc ? (
+                  <video
+                    src={imagePreviewSrc}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : imagePreviewSrc ? (
                   <img
                     src={imagePreviewSrc}
                     alt="Preview"
@@ -395,7 +401,7 @@ export function AddInspirationModal({
                   />
                 ) : (
                   <span className="text-sm text-neutral-400">
-                    {imageFile?.name ?? 'Video selected'}
+                    {imageFile?.name ?? 'File selected'}
                   </span>
                 )}
                 <Button
@@ -405,7 +411,7 @@ export function AddInspirationModal({
                   className="absolute top-3 right-3 gap-1.5"
                 >
                   <Trash2 className="size-3.5 shrink-0" aria-hidden />
-                  Clear Image
+                  {imageFile?.type === 'video/mp4' ? 'Clear Video' : 'Clear Image'}
                 </Button>
               </div>
 

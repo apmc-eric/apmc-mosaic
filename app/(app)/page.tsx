@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { defaultHomeForRole } from '@/lib/mosaic-roles'
-import { Spinner } from '@/components/ui/spinner'
+import { PageLoader } from '@/components/page-loader'
 
 export default function HomePage() {
   const { profile, isLoading } = useAuth()
@@ -16,9 +16,5 @@ export default function HomePage() {
     router.replace(defaultHomeForRole(profile.role))
   }, [isLoading, profile, router])
 
-  return (
-    <div className="min-h-[40vh] flex items-center justify-center">
-      <Spinner className="w-8 h-8" />
-    </div>
-  )
+  return <PageLoader />
 }

@@ -48,7 +48,10 @@ function OverlayMediaPane({
       return (
         <video
           src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
-          controls
+          autoPlay
+          muted
+          loop
+          playsInline
           className="max-h-full max-w-full object-contain"
         />
       )
@@ -510,7 +513,10 @@ export function PostDetailPanel({
             {post.type === 'video' ? (
               <video
                 src={`/api/file?pathname=${encodeURIComponent(post.media_url!)}`}
-                controls
+                autoPlay
+                muted
+                loop
+                playsInline
                 className="w-full rounded-lg"
               />
             ) : post.type === 'url' && fullScreenshotUrl ? (

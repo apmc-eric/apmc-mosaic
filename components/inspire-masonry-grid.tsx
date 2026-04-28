@@ -29,7 +29,7 @@ export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridPro
         const isHovered = hoveredId === post.id
 
         const videoMedia =
-          post.type === 'video' && post.media_url && isHovered ? (
+          post.type === 'video' && post.media_url ? (
             <video
               src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
               className="w-full h-auto block"

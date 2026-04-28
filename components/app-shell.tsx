@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context'
 import { AppHeader } from '@/components/app-header'
 import { OnboardingModal } from '@/components/onboarding-modal'
 import { RoleGate } from '@/components/role-gate'
-import { Spinner } from '@/components/ui/spinner'
+import { PageLoader } from '@/components/page-loader'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, profile, teams, isLoading, refreshProfile } = useAuth()
@@ -34,11 +34,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Show loading state
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Spinner className="w-8 h-8" />
-      </div>
-    )
+    return <PageLoader />
   }
 
   // For public ticket paths, render children directly without the app shell
@@ -48,11 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Redirect handled by useEffect, show nothing while redirecting
   if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Spinner className="w-8 h-8" />
-      </div>
-    )
+    return <PageLoader />
   }
 
   return (
