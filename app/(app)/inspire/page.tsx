@@ -229,15 +229,29 @@ export default function InspirePage() {
     let result = await supabase
       .from('inspiration_items')
       .insert({ ...basePayload, media_urls: fileUrls.length > 0 ? fileUrls : null })
+      .select('id')
+      .single()
 
     // If the media_urls column doesn't exist yet (migration pending), fall back without it
     if (result.error?.message?.includes('media_urls')) {
-      result = await supabase.from('inspiration_items').insert(basePayload)
+      result = await supabase
+        .from('inspiration_items')
+        .insert(basePayload)
+        .select('id')
+        .single()
     }
 
     if (result.error) {
       console.error('Inspiration insert error:', result.error)
       throw result.error
+    }
+
+    // Persist tag associations
+    const newItemId = result.data?.id
+    if (newItemId && data.tag_ids.length > 0) {
+      await supabase
+        .from('inspiration_item_tags')
+        .insert(data.tag_ids.map((tagId) => ({ inspiration_item_id: newItemId, tag_id: tagId })))
     }
 
     toast.success('Inspo added!')

@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { ChevronLeft, ChevronRight, Loader2, Trash2, Upload } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ContentType, Tag } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { FloatingTagPicker } from '@/components/tag-picker'
 
 type ModalTab = 'image' | 'link'
 type ModalStep = 'input' | 'details'
@@ -22,7 +23,7 @@ const VALID_MIME_TYPES = new Set([
   'video/mp4',
 ])
 const VALID_URL_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4']
-const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2 MB
+const MAX_FILE_SIZE = 3 * 1024 * 1024 // 3 MB
 
 function isValidMediaUrl(url: string): boolean {
   try {
@@ -33,6 +34,12 @@ function isValidMediaUrl(url: string): boolean {
   } catch {
     return false
   }
+}
+
+function cleanFilename(name: string): string {
+  const withoutExt = name.replace(/\.[^.]+$/, '')
+  const spaced = withoutExt.replace(/[-_]+/g, ' ').trim()
+  return spaced.replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 interface AddInspirationModalProps {
@@ -57,6 +64,7 @@ interface AddInspirationModalProps {
 export function AddInspirationModal({
   open,
   onOpenChange,
+  tags,
   onSubmit,
 }: AddInspirationModalProps) {
   const [tab, setTab] = useState<ModalTab>('image')
@@ -78,11 +86,19 @@ export function AddInspirationModal({
   // Shared step-2 state
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
+  const [availableTags, setAvailableTags] = useState<Tag[]>(tags)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [addTagOpen, setAddTagOpen] = useState(false)
+  const addTagButtonRef = useRef<HTMLElement>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const linkInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // Keep availableTags in sync when parent refreshes
+  useEffect(() => { setAvailableTags(tags) }, [tags])
+
 
   useEffect(() => {
     if (step === 'details') setTimeout(() => titleInputRef.current?.focus(), 80)
@@ -108,6 +124,7 @@ export function AddInspirationModal({
     setIsFetchingMeta(false)
     setTitle('')
     setDescription('')
+    setSelectedTagIds([])
     setIsSubmitting(false)
   }, [])
 
@@ -117,12 +134,6 @@ export function AddInspirationModal({
   }, [reset, onOpenChange])
 
   // ─── File validation + preview ───────────────────────────────────────────
-  function cleanFilename(name: string): string {
-    const noExt = name.replace(/\.[^.]+$/, '')
-    const spaced = noExt.replace(/[-_]+/g, ' ').trim()
-    return spaced.replace(/\b\w/g, (c) => c.toUpperCase())
-  }
-
   const applyFiles = useCallback((incoming: File[]) => {
     const valid: File[] = []
     for (const file of incoming) {
@@ -133,7 +144,7 @@ export function AddInspirationModal({
         continue
       }
       if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name}: too large`, { description: 'Max size is 2 MB per file' })
+        toast.error(`${file.name}: too large`, { description: 'Max size is 3 MB per file' })
         continue
       }
       valid.push(file)
@@ -204,8 +215,11 @@ export function AddInspirationModal({
               setImagePreviewSrcs([previewSrc])
               setPrefetchedPathnames([pathname])
               setThumbnailIndex(0)
-              const urlFilename = trimmed.split('/').pop()?.split('?')[0] ?? ''
-              if (urlFilename) setTitle((prev) => prev || cleanFilename(urlFilename))
+              // Auto-title from URL filename
+              try {
+                const urlFilename = new URL(trimmed).pathname.split('/').pop() ?? ''
+                if (urlFilename) setTitle((prev) => prev || cleanFilename(urlFilename))
+              } catch { /* ignore */ }
               setStep('details')
             } finally {
               setIsFetchingFile(false)
@@ -308,7 +322,7 @@ export function AddInspirationModal({
         screenshot_url: !isImageTab ? (ogPreviewUrl ?? undefined) : undefined,
         title: title.trim(),
         description: description.trim(),
-        tag_ids: [],
+        tag_ids: selectedTagIds,
       })
       handleClose()
     } catch {
@@ -316,7 +330,7 @@ export function AddInspirationModal({
     } finally {
       setIsSubmitting(false)
     }
-  }, [tab, imageFiles, imagePreviewSrcs, thumbnailIndex, linkUrl, ogPreviewUrl, title, description, onSubmit, handleClose])
+  }, [tab, imageFiles, imagePreviewSrcs, thumbnailIndex, prefetchedPathnames, linkUrl, ogPreviewUrl, title, description, selectedTagIds, onSubmit, handleClose])
 
   // ─── Tab switchers ───────────────────────────────────────────────────────
   const switchToImage = useCallback(() => {
@@ -334,6 +348,56 @@ export function AddInspirationModal({
   const currentFile = imageFiles[thumbnailIndex] ?? null
   const isCurrentVideo = currentFile?.type === 'video/mp4' || currentPreviewSrc?.endsWith('.mp4') || false
   const totalMedia = imagePreviewSrcs.length
+
+  // ─── Tag helpers ─────────────────────────────────────────────────────────
+  const selectedTags = availableTags.filter((t) => selectedTagIds.includes(t.id))
+
+  const TagsSection = (
+    <div className="flex flex-col gap-1.5">
+      <Label>Tags</Label>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {selectedTags.map((tag) => (
+          <span
+            key={tag.id}
+            className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs font-medium leading-none text-black"
+          >
+            {tag.name}
+            <button
+              type="button"
+              onClick={() => setSelectedTagIds((prev) => prev.filter((id) => id !== tag.id))}
+              className="ml-0.5 rounded hover:text-neutral-500"
+              aria-label={`Remove ${tag.name}`}
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        <button
+          ref={addTagButtonRef as React.RefObject<HTMLButtonElement>}
+          type="button"
+          onClick={() => setAddTagOpen((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs font-medium leading-none text-black transition-colors hover:bg-black/10"
+        >
+          <Plus className="size-3 shrink-0" />
+          Add
+        </button>
+        <FloatingTagPicker
+          anchorRef={addTagButtonRef}
+          open={addTagOpen}
+          onClose={() => setAddTagOpen(false)}
+          availableTags={availableTags}
+          selectedTagIds={selectedTagIds}
+          onAdd={(tag) => setSelectedTagIds((prev) => [...prev, tag.id])}
+          onTagCreated={(tag) => setAvailableTags((prev) => [...prev, tag])}
+          onTagDeleted={(id) => {
+            setAvailableTags((prev) => prev.filter((t) => t.id !== id))
+            setSelectedTagIds((prev) => prev.filter((tagId) => tagId !== id))
+          }}
+          placeholder="Search or add a tag…"
+        />
+      </div>
+    </div>
+  )
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -428,7 +492,7 @@ export function AddInspirationModal({
               </div>
 
               <p className="text-[10px] text-neutral-500 leading-none">
-                Accepted formats: JPG, GIF, PNG, WEBP, MP4 (&lt;2MB each)
+                Accepted formats: JPG, GIF, PNG, WEBP, MP4 (&lt;3MB each)
               </p>
             </div>
           )}
@@ -531,6 +595,8 @@ export function AddInspirationModal({
                   rows={2}
                 />
               </div>
+
+              {TagsSection}
             </div>
           )}
 
@@ -590,6 +656,8 @@ export function AddInspirationModal({
                   rows={2}
                 />
               </div>
+
+              {TagsSection}
             </div>
           )}
 

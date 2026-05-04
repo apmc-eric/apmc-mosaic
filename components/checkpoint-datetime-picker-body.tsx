@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { format, parseISO, setHours, setMilliseconds, setMinutes, setSeconds, startOfDay } from 'date-fns'
+import { parseISO, setHours, setMilliseconds, setMinutes, setSeconds, startOfDay } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { Clock } from 'lucide-react'
 
@@ -74,15 +74,16 @@ export type CheckpointDatetimePickerBodyProps = {
   /** When **false**, external state is frozen (popover closed). */
   open: boolean
   checkpointDate: string | null
-  /** IANA zone (e.g. **`America/Chicago`**). Omit to use the browser’s local zone. */
+  /** IANA zone (e.g. **`America/Chicago`**). Omit to use the browser's local zone. */
   timeZone?: string | null
   onCommit: (iso: string | null) => Promise<void>
   onRequestClose: () => void
 }
 
 /**
- * Checkpoint date + time UI (Figma-style): calendar, summary line, clock + 12h time + AM/PM, **Clear** only.
- * Commits on every change (no Save button). When **`timeZone`** is set, wall clock is interpreted in that zone.
+ * Checkpoint date + time UI. Changes accumulate in local state and are
+ * committed in a single call when the picker closes (click-outside or Esc).
+ * Only the Clear button commits immediately.
  */
 export function CheckpointDatetimePickerBody({
   open,
@@ -97,6 +98,7 @@ export function CheckpointDatetimePickerBody({
   const [pm, setPm] = React.useState(() => isoToParts(checkpointDate, timeZone).pm)
   const [committing, setCommitting] = React.useState(false)
 
+  // Reset local state when picker opens (pick up any external changes)
   React.useEffect(() => {
     if (!open) return
     const p = isoToParts(checkpointDate, timeZone)
@@ -106,19 +108,30 @@ export function CheckpointDatetimePickerBody({
     setPm(p.pm)
   }, [open, checkpointDate, timeZone])
 
-  const commit = React.useCallback(
-    async (nextDay: Date, nextH12: number, nextMin: number, nextPm: boolean) => {
-      setCommitting(true)
-      try {
-        await onCommit(combineToIso(nextDay, nextH12, nextMin, nextPm, timeZone))
-      } finally {
-        setCommitting(false)
+  // Always-current snapshot of local state for the commit-on-close effect
+  const pendingRef = React.useRef({ day, h12, minute, pm })
+  React.useLayoutEffect(() => {
+    pendingRef.current = { day, h12, minute, pm }
+  })
+
+  // Skip commit-on-close after a Clear (it already committed null)
+  const skipNextCommitRef = React.useRef(false)
+
+  // Commit once when the picker transitions from open → closed
+  const wasOpenRef = React.useRef(false)
+  React.useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      if (!skipNextCommitRef.current) {
+        const { day, h12, minute, pm } = pendingRef.current
+        void onCommit(combineToIso(day, h12, minute, pm, timeZone))
       }
-    },
-    [onCommit, timeZone],
-  )
+      skipNextCommitRef.current = false
+    }
+    wasOpenRef.current = open
+  }, [open, onCommit, timeZone])
 
   const handleClear = async () => {
+    skipNextCommitRef.current = true
     setCommitting(true)
     try {
       await onCommit(null)
@@ -147,11 +160,9 @@ export function CheckpointDatetimePickerBody({
         <Calendar
           mode="single"
           selected={day}
-          onSelect={async (d) => {
+          onSelect={(d) => {
             if (!d) return
-            const next = startOfDay(d)
-            setDay(next)
-            await commit(next, h12, minute, pm)
+            setDay(startOfDay(d))
           }}
           defaultMonth={day}
           captionLayout="label"
@@ -173,11 +184,7 @@ export function CheckpointDatetimePickerBody({
           <Clock className="text-muted-foreground size-4 shrink-0" aria-hidden />
           <Select
             value={String(h12)}
-            onValueChange={async (v) => {
-              const next = Number(v)
-              setH12(next)
-              await commit(day, next, minute, pm)
-            }}
+            onValueChange={(v) => setH12(Number(v))}
             disabled={committing}
           >
             <SelectTrigger
@@ -203,11 +210,7 @@ export function CheckpointDatetimePickerBody({
           </span>
           <Select
             value={String(minute)}
-            onValueChange={async (v) => {
-              const next = Number(v)
-              setMinute(next)
-              await commit(day, h12, next, pm)
-            }}
+            onValueChange={(v) => setMinute(Number(v))}
             disabled={committing}
           >
             <SelectTrigger
@@ -241,11 +244,7 @@ export function CheckpointDatetimePickerBody({
                 'rounded px-2.5 py-1 text-xs font-medium transition-colors',
                 !pm ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-background/80',
               )}
-              onClick={async () => {
-                if (!pm) return
-                setPm(false)
-                await commit(day, h12, minute, false)
-              }}
+              onClick={() => { if (pm) setPm(false) }}
             >
               AM
             </button>
@@ -256,11 +255,7 @@ export function CheckpointDatetimePickerBody({
                 'rounded px-2.5 py-1 text-xs font-medium transition-colors',
                 pm ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-background/80',
               )}
-              onClick={async () => {
-                if (pm) return
-                setPm(true)
-                await commit(day, h12, minute, true)
-              }}
+              onClick={() => { if (!pm) setPm(true) }}
             >
               PM
             </button>

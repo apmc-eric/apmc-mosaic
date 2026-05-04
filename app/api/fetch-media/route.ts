@@ -2,7 +2,7 @@ import { put } from '@vercel/blob'
 import { type NextRequest, NextResponse } from 'next/server'
 
 const VALID_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4']
-const MAX_SIZE = 2 * 1024 * 1024 // 2 MB
+const MAX_SIZE = 3 * 1024 * 1024 // 3 MB
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const buffer = await response.arrayBuffer()
     if (buffer.byteLength > MAX_SIZE) {
-      return NextResponse.json({ error: 'File too large (max 2 MB)' }, { status: 400 })
+      return NextResponse.json({ error: 'File too large (max 3 MB)' }, { status: 400 })
     }
 
     const timestamp = Date.now()

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { UserComment } from '@/components/user-comment'
 import { CommentsSectionHeader } from '@/components/comments-section-header'
+import { FloatingTagPicker } from '@/components/tag-picker'
 import { mosaicRoleLabel } from '@/lib/mosaic-role-label'
 import {
   X,
@@ -23,10 +24,11 @@ import {
   Link2,
   ChevronLeft,
   ChevronRight,
+  Plus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
-import type { Comment, Post } from '@/lib/types'
+import type { Comment, Post, Tag } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 
@@ -55,6 +57,8 @@ function OverlayMediaPane({
   mediaTotal,
   onPrev,
   onNext,
+  isFavorited,
+  onSaveToggle,
 }: {
   post: Post
   thumbnailUrl: string | null
@@ -64,7 +68,11 @@ function OverlayMediaPane({
   mediaTotal: number
   onPrev: () => void
   onNext: () => void
+  isFavorited: boolean
+  onSaveToggle: () => void
 }) {
+  const [isHovered, setIsHovered] = useState(false)
+
   const activeIsVideo = activeMediaPathname ? isVideoPathname(activeMediaPathname) : post.type === 'video'
   const activeSrc = activeMediaPathname ? mediaSrc(activeMediaPathname) : null
 
@@ -112,10 +120,42 @@ function OverlayMediaPane({
   return (
     <div
       className="relative aspect-[696/618] w-full min-w-0 overflow-hidden rounded-[10px] bg-zinc-100"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       data-name="ContentWindow (80%)"
-      data-node-id="149:2599"
     >
       <div className="absolute inset-0 flex items-center justify-center p-10">{inner}</div>
+
+      {/* Save to Collection — top left, revealed on hover */}
+      <div
+        className={cn(
+          'absolute left-3 top-3 transition-opacity duration-150',
+          isHovered ? 'opacity-100' : 'opacity-0 pointer-events-none',
+        )}
+      >
+        <Button
+          variant="outline"
+          size="small"
+          className="bg-white/90 shadow-sm backdrop-blur-sm hover:bg-white"
+          onClick={onSaveToggle}
+          aria-label={isFavorited ? 'Remove from saved' : 'Save to Collection'}
+        >
+          <Bookmark className={cn('size-3', isFavorited && 'fill-current')} aria-hidden />
+          Save to Collection
+        </Button>
+      </div>
+
+      {/* Open Link — bottom center, only for URL posts */}
+      {post.type === 'url' && post.url && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+          <Button variant="default" size="default" asChild>
+            <a href={post.url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-3.5" aria-hidden />
+              Open Link
+            </a>
+          </Button>
+        </div>
+      )}
 
       {/* Carousel arrows — only for image/video posts with multiple media */}
       {mediaTotal > 1 && post.type !== 'url' && (
@@ -177,7 +217,17 @@ export function PostDetailPanel({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isFavorited, setIsFavorited] = useState(post.is_favorited ?? false)
   const [mediaIndex, setMediaIndex] = useState(0)
+
+  // Tags state (overlay / inspiration mode)
+  const [postTags, setPostTags] = useState<Tag[]>([])
+  const [allTags, setAllTags] = useState<Tag[]>([])
+  const [addTagOpen, setAddTagOpen] = useState(false)
+  const addTagButtonRef = useRef<HTMLElement>(null)
+
   const supabase = createClient()
+  const isOwner = isAdmin || post.user_id === profile?.id
+  // Any logged-in user can manage tags on inspiration items (team curation)
+  const canEditTags = inspirationMode && !!profile
 
   const allMediaPathnames = useMemo(() => {
     if (post.media_urls && post.media_urls.length > 0) return post.media_urls
@@ -190,8 +240,10 @@ export function PostDetailPanel({
 
   useEffect(() => {
     fetchComments()
-    if (!inspirationMode) {
-      void incrementViewCount()
+    if (!inspirationMode) void incrementViewCount()
+    if (inspirationMode) {
+      void fetchPostTags()
+      void fetchAllTags()
     }
   }, [post.id, inspirationMode])
 
@@ -226,6 +278,53 @@ export function PostDetailPanel({
       .eq('post_id', post.id)
       .order('created_at', { ascending: true })
     if (data) setComments(data as Comment[])
+  }
+
+  const fetchPostTags = async () => {
+    const { data: links, error: linksError } = await supabase
+      .from('inspiration_item_tags')
+      .select('tag_id')
+      .eq('inspiration_item_id', post.id)
+    if (linksError) { console.error('fetchPostTags:', linksError); return }
+    if (!links || links.length === 0) { setPostTags([]); return }
+    const { data: tagsData } = await supabase
+      .from('tags')
+      .select('*')
+      .in('id', links.map((l: any) => l.tag_id))
+    if (tagsData) setPostTags(tagsData as Tag[])
+  }
+
+  const fetchAllTags = async () => {
+    const { data } = await supabase.from('tags').select('*').order('name')
+    if (data) setAllTags(data as Tag[])
+  }
+
+  const handleAddTag = async (tag: Tag) => {
+    if (postTags.some((t) => t.id === tag.id)) {
+      setAddTagOpen(false)
+      return
+    }
+    const { error } = await supabase
+      .from('inspiration_item_tags')
+      .insert({ inspiration_item_id: post.id, tag_id: tag.id })
+    if (error) {
+      toast.error('Failed to add tag', { description: error.message })
+    } else {
+      setPostTags((prev) => [...prev, tag])
+    }
+  }
+
+  const handleRemoveTag = async (tagId: string) => {
+    const { error } = await supabase
+      .from('inspiration_item_tags')
+      .delete()
+      .eq('inspiration_item_id', post.id)
+      .eq('tag_id', tagId)
+    if (error) {
+      toast.error('Failed to remove tag', { description: error.message })
+    } else {
+      setPostTags((prev) => prev.filter((t) => t.id !== tagId))
+    }
   }
 
   const incrementViewCount = async () => {
@@ -382,16 +481,28 @@ export function PostDetailPanel({
         )}
         data-name="OverlayView"
       >
+        {/* Window controls — top right */}
         <div
-          className="absolute right-4 top-4 z-10 flex justify-end sm:right-4 sm:top-4"
+          className="absolute right-4 top-4 z-10 flex items-center gap-0.5"
           data-name="WindowControls"
-          data-node-id="183:12113"
         >
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleDeletePost}
+              aria-label="Delete"
+              className="text-foreground/60 hover:text-destructive"
+            >
+              <Trash2 />
+            </Button>
+          )}
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
             <X />
           </Button>
         </div>
 
+        {/* Left: media preview */}
         <OverlayMediaPane
           post={post}
           thumbnailUrl={thumbnailUrl}
@@ -401,16 +512,19 @@ export function PostDetailPanel({
           mediaTotal={mediaTotal}
           onPrev={() => setMediaIndex((i) => Math.max(0, i - 1))}
           onNext={() => setMediaIndex((i) => Math.min(mediaTotal - 1, i + 1))}
+          isFavorited={isFavorited}
+          onSaveToggle={handleFavoriteToggle}
         />
 
+        {/* Right: conversation area */}
         <div className="flex h-full min-h-0 min-w-0 max-w-full flex-col sm:max-w-[380px]">
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4 pb-2 pt-3 sm:min-h-0 sm:px-0 sm:pb-0 sm:pt-1.5">
             <header
-              className="flex shrink-0 flex-col border-b border-black/10 pb-6 pt-1.5"
+              className="flex shrink-0 flex-col gap-3 border-b border-black/10 pb-6 pt-1.5"
               data-name="Header"
-              data-node-id="149:2600"
             >
-              <div className="min-w-0 space-y-1.5 pr-9">
+              {/* Title + poster */}
+              <div className="min-w-0 space-y-1.5 pr-16">
                 <h2 className="truncate text-base font-bold leading-snug text-foreground" title={post.title}>
                   {post.title}
                 </h2>
@@ -427,57 +541,64 @@ export function PostDetailPanel({
                   {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
                 </p>
               </div>
+
+              {/* Description */}
               {post.description ? (
-                <p className="mt-3 mb-4 text-sm leading-5 text-foreground/80">{post.description}</p>
+                <p className="text-sm leading-5 text-foreground/80">{post.description}</p>
               ) : null}
-              <div
-                className={cn(
-                  'flex w-full items-center justify-between gap-3',
-                  !post.description && 'mt-3',
+
+              {/* Category tags */}
+              <div className="flex flex-wrap items-center gap-1.5" data-name="Badges">
+                {postTags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs font-medium leading-none text-black"
+                  >
+                    {tag.name}
+                    {canEditTags && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveTag(tag.id)}
+                        className="ml-0.5 rounded opacity-50 hover:opacity-100 transition-opacity"
+                        aria-label={`Remove ${tag.name}`}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    )}
+                  </span>
+                ))}
+
+                {canEditTags && (
+                  <>
+                    <button
+                      ref={addTagButtonRef as React.RefObject<HTMLButtonElement>}
+                      type="button"
+                      onClick={() => setAddTagOpen((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs font-medium leading-none text-black transition-colors hover:bg-black/10"
+                    >
+                      <Plus className="size-3 shrink-0" />
+                      Add
+                    </button>
+                    <FloatingTagPicker
+                      anchorRef={addTagButtonRef}
+                      open={addTagOpen}
+                      onClose={() => setAddTagOpen(false)}
+                      availableTags={allTags}
+                      selectedTagIds={postTags.map((t) => t.id)}
+                      onAdd={(tag) => void handleAddTag(tag)}
+                      onTagCreated={(tag) => setAllTags((prev) => [...prev, tag])}
+                      onTagDeleted={(id) => {
+                        setAllTags((prev) => prev.filter((t) => t.id !== id))
+                        setPostTags((prev) => prev.filter((t) => t.id !== id))
+                      }}
+                    />
+                  </>
                 )}
-                data-name="ControlsWrapper"
-                data-node-id="187:12225"
-              >
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" data-name="Left">
-                  {post.url ? (
-                    <Button variant="secondary" size="small" className="shrink-0 shadow-none" asChild>
-                      <a href={post.url} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink aria-hidden />
-                        Open Link
-                      </a>
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    className="shadow-none"
-                    onClick={handleFavoriteToggle}
-                    aria-label={isFavorited ? 'Remove from saved' : 'Save'}
-                  >
-                    <Bookmark className={cn(isFavorited && 'fill-current text-foreground')} />
-                  </Button>
-                </div>
-                {(isAdmin || post.user_id === profile?.id) ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    className="text-destructive shadow-none hover:text-destructive"
-                    onClick={handleDeletePost}
-                    aria-label="Delete inspiration"
-                  >
-                    <Trash2 />
-                  </Button>
-                ) : null}
               </div>
             </header>
 
             <ScrollArea className="min-h-[120px] flex-1 pr-2" data-name="CommentsWrapper">
-              <div
-                className="flex flex-col gap-5 overflow-clip pb-10 pt-4"
-                data-node-id="227:3336"
-              >
+              <div className="flex flex-col gap-5 overflow-clip pb-10 pt-4">
                 <CommentsSectionHeader count={comments.length} />
                 <div className="flex flex-col gap-6" data-name="CommentStack">
                   {commentNodes}
@@ -489,12 +610,9 @@ export function PostDetailPanel({
           <form
             onSubmit={handleSubmitComment}
             className="mt-auto shrink-0 px-4 pb-4 sm:px-0 sm:pb-0"
-            data-name="CommentBox(Absolute Positioned)"
+            data-name="CommentBox"
           >
-            <div
-              className="flex flex-1 items-center gap-2 rounded-xl border border-black/5 bg-neutral-100 py-1.5 pl-3 pr-1.5"
-              data-name="CommentInput"
-            >
+            <div className="flex flex-1 items-center gap-2 rounded-xl border border-black/5 bg-neutral-100 py-1.5 pl-3 pr-1.5">
               <Input
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
@@ -517,6 +635,7 @@ export function PostDetailPanel({
     )
   }
 
+  // ─── Split layout (non-inspire pages) ────────────────────────────────────
   return (
     <div
       className={cn(
@@ -524,7 +643,6 @@ export function PostDetailPanel({
         className,
       )}
     >
-      {/* Header: title + posted by (left), Save / Visit / Delete / Close (right) */}
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border p-4">
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-sans text-lg font-medium">{post.title}</h2>
@@ -573,9 +691,7 @@ export function PostDetailPanel({
         </div>
       </div>
 
-      {/* Main: screenshot (left ~75%) | comments sidebar (right ~25%) */}
       <div className="flex min-h-0 flex-1">
-        {/* Left: full-page screenshot or media */}
         <ScrollArea className="min-w-0 flex-[3] border-r border-border">
           <div className="relative p-4">
             {post.type === 'url' && fullScreenshotUrl ? (
@@ -624,7 +740,6 @@ export function PostDetailPanel({
               />
             ) : null}
 
-            {/* Carousel arrows for split layout */}
             {mediaTotal > 1 && post.type !== 'url' && (
               <>
                 <button
@@ -655,7 +770,6 @@ export function PostDetailPanel({
           </div>
         </ScrollArea>
 
-        {/* Right: description, metadata, comments */}
         <aside className="flex w-[320px] shrink-0 flex-col bg-muted/30">
           <ScrollArea className="flex-1">
             <div className="space-y-4 p-4">
