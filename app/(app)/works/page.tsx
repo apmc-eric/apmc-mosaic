@@ -721,7 +721,11 @@ export default function WorksPage() {
       })
     }
     if (filterDesignerIds.length > 0) {
-      list = list.filter((t) => (t.assignees ?? []).some((a) => filterDesignerIds.includes(a.user_id)))
+      // Admins: always keep unassigned Triage tickets so they appear in Needs Review
+      list = list.filter((t) =>
+        (isAdmin && isTriagePhase(t) && (t.assignees ?? []).length === 0) ||
+        (t.assignees ?? []).some((a) => filterDesignerIds.includes(a.user_id))
+      )
     }
     const q = filterSearch.trim().toLowerCase()
     if (q) {

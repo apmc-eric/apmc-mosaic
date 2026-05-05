@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import type { Project, Ticket, TicketAssigneeRow } from '@/lib/types'
 import { isDemoViewRole, MOSAIC_WORKS_DATA_VIEW_ROLE_HEADER } from '@/lib/demo-view-role'
@@ -48,6 +49,12 @@ export async function GET(request: Request) {
     }
 
     const ticketsScopeToInvolvement = dataRole === 'designer' || dataRole === 'collaborator'
+
+    // Admins (not previewing another role) use the service-role client to bypass RLS
+    // so tickets created by collaborators and other non-admin users are always visible.
+    const ticketsClient = viewerRole === 'admin' && !isDemoViewRole(headerRaw)
+      ? createAdminClient()
+      : supabase
 
     const { data: projects, error: projectsError } = await supabase.from('projects').select('*').order('name')
 
@@ -130,7 +137,7 @@ export async function GET(request: Request) {
       allowedTicketIds = [...idSet]
     }
 
-    let ticketsQuery = supabase.from('tickets').select(
+    let ticketsQuery = ticketsClient.from('tickets').select(
       `
         *,
         project:projects(id, name, abbreviation, team_access, ticket_counter, created_at)
@@ -167,7 +174,7 @@ export async function GET(request: Request) {
     const assigneeMap = new Map<string, TicketAssigneeRow[]>()
 
     if (ids.length > 0) {
-      const { data: assignRows, error: assignErr } = await supabase
+      const { data: assignRows, error: assignErr } = await ticketsClient
         .from('ticket_assignees')
         .select(
           `
