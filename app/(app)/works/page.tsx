@@ -256,7 +256,7 @@ export default function WorksPage() {
       .from('profiles')
       .select('id, first_name, last_name, name, email, role, avatar_url')
       .eq('is_active', true)
-      .in('role', ['admin', 'designer', 'collaborator', 'guest', 'user', 'member'])
+      .in('role', ['admin', 'designer'])
       .order('first_name', { ascending: true })
       .then(({ data }) => {
         if (data)
