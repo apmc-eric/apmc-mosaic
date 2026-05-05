@@ -65,12 +65,14 @@ export async function POST(req: Request) {
     }
   }
 
-  const { data: profile } = await admin
+  const { data: profileRows } = await admin
     .from('profiles')
     .select('id, timezone')
     .in('email', candidateEmails)
     .eq('is_active', true)
-    .maybeSingle()
+    .limit(1)
+
+  const profile = profileRows?.[0] ?? null
 
   if (!profile) {
     return ephemeral("You don't have access to Mosaic. Contact your design team.")
@@ -80,7 +82,7 @@ export async function POST(req: Request) {
     admin.from('projects').select('id, name').order('name'),
     admin
       .from('profiles')
-      .select('id, name, first_name, last_name')
+      .select('id, name, first_name, last_name, email')
       .eq('role', 'designer')
       .eq('is_active', true)
       .order('name'),

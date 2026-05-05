@@ -1,12 +1,15 @@
 import type { SlackViewState } from './types'
 
 type Project = { id: string; name: string }
-type Designer = { id: string; name: string | null; first_name: string | null; last_name: string | null }
+type Designer = { id: string; name: string | null; first_name: string | null; last_name: string | null; email?: string | null }
 
 function designerLabel(d: Designer): string {
   if (d.name?.trim()) return d.name.trim()
   const parts = [d.first_name, d.last_name].filter(Boolean)
-  return parts.join(' ') || 'Unknown'
+  if (parts.length > 0) return parts.join(' ')
+  // Fall back to the part of the email before @ so the user is identifiable
+  if (d.email) return d.email.split('@')[0]
+  return 'Unnamed'
 }
 
 export function buildMosaicModal(params: {
