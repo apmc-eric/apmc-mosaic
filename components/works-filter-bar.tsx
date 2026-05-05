@@ -34,6 +34,10 @@ export type WorksFilterBarProps = {
   designers: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'>[]
   selectedDesignerIds: string[]
   onDesignersChange: (next: string[]) => void
+  /** People who submitted at least one visible ticket. */
+  submitters: { id: string; label: string }[]
+  selectedSubmitterIds: string[]
+  onSubmittersChange: (next: string[]) => void
   /** When true, omits the inline designer profile row (designer filter lives in the left column instead). */
   hideDesigners?: boolean
 }
@@ -66,11 +70,15 @@ export function WorksFilterBar({
   designers,
   selectedDesignerIds,
   onDesignersChange,
+  submitters,
+  selectedSubmitterIds,
+  onSubmittersChange,
   hideDesigners = false,
 }: WorksFilterBarProps) {
   const [phaseQ, setPhaseQ] = React.useState('')
   const [catQ, setCatQ] = React.useState('')
   const [projectQ, setProjectQ] = React.useState('')
+  const [submitterQ, setSubmitterQ] = React.useState('')
 
   const firstProjectName =
     selectedProjectIds.length === 1
@@ -95,6 +103,12 @@ export function WorksFilterBar({
     if (!q) return projects
     return projects.filter((p) => p.name.toLowerCase().includes(q))
   }, [projects, projectQ])
+
+  const submittersFiltered = React.useMemo(() => {
+    const q = submitterQ.trim().toLowerCase()
+    if (!q) return submitters
+    return submitters.filter((s) => s.label.toLowerCase().includes(q))
+  }, [submitters, submitterQ])
 
   const firstPhaseLabel = selectedPhases[0]?.trim() ?? ''
   const firstCategoryLabel = selectedCategories[0] ?? ''
@@ -345,6 +359,83 @@ export function WorksFilterBar({
             </button>
           ) : null}
         </div>
+
+        {/* Submitter */}
+        {submitters.length > 0 && (() => {
+          const empty = selectedSubmitterIds.length === 0
+          const firstLabel = submitters.find((s) => s.id === selectedSubmitterIds[0])?.label ?? ''
+          return (
+            <div className={cn(FILTER_CHIP, 'max-w-[16rem]')}>
+              <Popover onOpenChange={(o) => !o && setSubmitterQ('')}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2.5 text-foreground outline-none transition-colors hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-800/60"
+                  >
+                    {empty ? (
+                      <>
+                        <span className="shrink-0">Submitter</span>
+                        <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+                      </>
+                    ) : selectedSubmitterIds.length === 1 ? (
+                      <span className="min-w-0 truncate">{firstLabel}</span>
+                    ) : (
+                      <>
+                        <span className="shrink-0">Submitter</span>
+                        <NumberCount value={selectedSubmitterIds.length} className="mx-0.5" />
+                      </>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-0" align="start" sideOffset={6}>
+                  <ClearableInlineInput
+                    aria-label="Search submitters"
+                    placeholder="Search submitters…"
+                    value={submitterQ}
+                    onChange={(e) => setSubmitterQ(e.target.value)}
+                    onClear={() => setSubmitterQ('')}
+                    className="rounded-t-lg rounded-b-none border-b border-neutral-200 bg-white px-2 dark:border-zinc-600 dark:bg-zinc-900"
+                  />
+                  <ScrollArea className="max-h-56">
+                    <div className="flex flex-col gap-0.5 p-1">
+                      {submittersFiltered.length === 0 ? (
+                        <p className="px-2 py-3 text-sm text-muted-foreground">No submitters match.</p>
+                      ) : (
+                        submittersFiltered.map((s) => {
+                          const checked = selectedSubmitterIds.includes(s.id)
+                          return (
+                            <label
+                              key={s.id}
+                              className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm leading-4 hover:bg-accent"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={() =>
+                                  onSubmittersChange(toggle(selectedSubmitterIds, s.id, (a, b) => a === b))
+                                }
+                              />
+                              <span className="truncate">{s.label}</span>
+                            </label>
+                          )
+                        })
+                      )}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              {!empty ? (
+                <button
+                  type="button"
+                  className="inline-flex w-8 shrink-0 items-center justify-center border-l border-neutral-200 text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+                  aria-label="Clear submitter filters"
+                  onClick={() => onSubmittersChange([])}
+                >
+                  <X className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+          )
+        })()}
         </div>
       </div>
 

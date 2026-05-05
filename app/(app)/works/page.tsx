@@ -162,6 +162,7 @@ export default function WorksPage() {
   const [filterPhases, setFilterPhases] = useState<string[]>([])
   const [filterCategories, setFilterCategories] = useState<string[]>([])
   const [filterDesignerIds, setFilterDesignerIds] = useState<string[]>([])
+  const [filterSubmitterIds, setFilterSubmitterIds] = useState<string[]>([])
   const [filterSearch, setFilterSearch] = useState('')
   const [pauseModalOpen, setPauseModalOpen] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
@@ -265,6 +266,30 @@ export default function WorksPage() {
           )
       })
   }, [])
+
+  // Derive unique submitters from loaded tickets, fetching profiles for any not already known
+  const [submitterProfiles, setSubmitterProfiles] = useState<{ id: string; label: string }[]>([])
+  useEffect(() => {
+    const ids = [...new Set(tickets.map((t) => t.created_by).filter(Boolean))]
+    if (!ids.length) { setSubmitterProfiles([]); return }
+    void supabase
+      .from('profiles')
+      .select('id, name, first_name, last_name, email')
+      .in('id', ids)
+      .then(({ data }) => {
+        if (!data) return
+        const list = data.map((p) => {
+          const label =
+            p.name?.trim() ||
+            [p.first_name, p.last_name].filter(Boolean).join(' ') ||
+            (p.email as string | null)?.split('@')[0] ||
+            'Unknown'
+          return { id: p.id as string, label }
+        })
+        list.sort((a, b) => a.label.localeCompare(b.label))
+        setSubmitterProfiles(list)
+      })
+  }, [tickets])
 
   // Sync panel UUID to URL so ?ticket=[uuid] deep-links work
   useEffect(() => {
@@ -727,6 +752,9 @@ export default function WorksPage() {
         (t.assignees ?? []).some((a) => filterDesignerIds.includes(a.user_id))
       )
     }
+    if (filterSubmitterIds.length > 0) {
+      list = list.filter((t) => filterSubmitterIds.includes(t.created_by))
+    }
     const q = filterSearch.trim().toLowerCase()
     if (q) {
       list = list.filter((t) => {
@@ -1088,6 +1116,9 @@ export default function WorksPage() {
               designers={workspaceDesigners}
               selectedDesignerIds={filterDesignerIds}
               onDesignersChange={setFilterDesignerIds}
+              submitters={submitterProfiles}
+              selectedSubmitterIds={filterSubmitterIds}
+              onSubmittersChange={setFilterSubmitterIds}
               hideDesigners
             />
           </div>
