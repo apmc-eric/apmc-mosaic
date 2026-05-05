@@ -72,10 +72,59 @@ export async function POST(req: Request) {
     .eq('is_active', true)
     .limit(1)
 
-  const profile = profileRows?.[0] ?? null
+  let profile = profileRows?.[0] ?? null
 
   if (!profile) {
-    return ephemeral("You don't have access to Mosaic. Contact your design team.")
+    // No existing profile — check the whitelist and auto-provision if found
+    const { data: settingsRow } = await admin
+      .from('settings')
+      .select('value')
+      .eq('key', 'allowed_emails')
+      .maybeSingle()
+
+    type AllowedEntry = { username: string; first_name: string; last_name: string; role: string }
+    const allowedUsers = (settingsRow?.value as AllowedEntry[] | null) ?? []
+    const entry = allowedUsers.find((e) => e.username.toLowerCase().trim() === local.toLowerCase())
+
+    if (!entry) {
+      return ephemeral("You don't have access to Mosaic. Contact your design team.")
+    }
+
+    // Create an auth user (email confirmed so they can log in with magic link later)
+    const { data: authData, error: authErr } = await admin.auth.admin.createUser({
+      email,
+      email_confirm: true,
+    })
+
+    if (authErr || !authData?.user?.id) {
+      console.error('[slack/command] auto-provision auth.admin.createUser error:', authErr?.message)
+      return ephemeral("Something went wrong setting up your account. Contact your design team.")
+    }
+
+    const userId = authData.user.id
+    const fullName = [entry.first_name, entry.last_name].filter(Boolean).join(' ')
+
+    await admin.from('profiles').upsert({
+      id: userId,
+      email,
+      first_name: entry.first_name || null,
+      last_name: entry.last_name || null,
+      name: fullName || null,
+      role: entry.role || 'collaborator',
+      is_active: true,
+    })
+
+    const { data: newRows } = await admin
+      .from('profiles')
+      .select('id, timezone')
+      .eq('id', userId)
+      .limit(1)
+
+    profile = newRows?.[0] ?? null
+
+    if (!profile) {
+      return ephemeral("Something went wrong setting up your account. Contact your design team.")
+    }
   }
 
   const [{ data: projects }, { data: allDesigners }] = await Promise.all([
