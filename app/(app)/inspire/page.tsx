@@ -12,6 +12,7 @@ import { PostDetailPanel } from '@/components/post-detail-panel'
 import { TimelineIndicator } from '@/components/timeline-indicator'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth-context'
+import { usePageLoading } from '@/lib/page-loading-context'
 import {
   inspirationItemToPost,
   type ContentType,
@@ -22,6 +23,8 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { groupPostsByWeek } from '@/lib/week-buckets'
 import { cn } from '@/lib/utils'
+
+const PAGE_SIZE = 40
 
 type LibraryTab = 'images' | 'sites' | 'resources'
 
@@ -41,11 +44,21 @@ export default function InspirePage() {
   const closeOverlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
   const [activeTab, setActiveTab] = useState<LibraryTab>('images')
+
+  // Refs to avoid stale closures in the intersection observer
+  const offsetRef = useRef(0)
+  const isFetchingRef = useRef(false)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Shuffled image order — randomized once per page mount after posts load
   const [shuffledImageIds, setShuffledImageIds] = useState<string[]>([])
   const hasShuffledRef = useRef(false)
+
+  // Register initial loading state with the global full-screen loader
+  usePageLoading('inspire', isLoading)
 
   const imagePosts = useMemo(
     () => posts.filter((p) => p.type === 'image' || p.type === 'video'),
@@ -78,49 +91,72 @@ export default function InspirePage() {
 
   const siteWeekBuckets = useMemo(() => groupPostsByWeek(sitePosts), [sitePosts])
 
-  const fetchPosts = useCallback(async () => {
-    try {
-      const query = supabase
-        .from('inspiration_items')
-        .select(
-          '*, profile:profiles!submitted_by(first_name, last_name, id, name, avatar_url, email)',
-        )
-        .order('created_at', { ascending: false })
+  const attachSavedFlags = useCallback(
+    async (rows: InspirationItem[]): Promise<InspirationItem[]> => {
+      if (!profile) return rows
+      const { data: saved } = await supabase
+        .from('saved_items')
+        .select('inspiration_item_id')
+        .eq('user_id', profile.id)
+      const savedIds = new Set(saved?.map((s) => s.inspiration_item_id) ?? [])
+      return rows.map((row) => ({ ...row, is_saved: savedIds.has(row.id) }))
+    },
+    [profile],
+  )
 
-      const { data, error } = await query
+  const fetchPosts = useCallback(
+    async (reset = false) => {
+      if (isFetchingRef.current) return
+      isFetchingRef.current = true
 
-      if (error) {
-        console.error('Error fetching posts:', error)
-        setIsLoading(false)
-        return
+      const offset = reset ? 0 : offsetRef.current
+      if (reset) {
+        setIsLoading(true)
+        offsetRef.current = 0
+      } else {
+        setIsLoadingMore(true)
       }
 
-      let rows = (data ?? []) as InspirationItem[]
+      try {
+        const { data, error } = await supabase
+          .from('inspiration_items')
+          .select(
+            '*, profile:profiles!submitted_by(first_name, last_name, id, name, avatar_url, email)',
+          )
+          .order('created_at', { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1)
 
-      if (profile) {
-        const { data: saved } = await supabase
-          .from('saved_items')
-          .select('inspiration_item_id')
-          .eq('user_id', profile.id)
+        if (error) {
+          console.error('Error fetching posts:', error)
+          return
+        }
 
-        const savedIds = new Set(saved?.map((s) => s.inspiration_item_id) ?? [])
-        rows = rows.map((row) => ({
-          ...row,
-          is_saved: savedIds.has(row.id),
-        }))
+        let rows = (data ?? []) as InspirationItem[]
+        rows = await attachSavedFlags(rows)
+
+        const transformedPosts = rows
+          .map((row) => inspirationItemToPost({ ...row, is_saved: row.is_saved }))
+          .map((p) => ({ ...p, tags: [] as Tag[] }))
+
+        if (reset) {
+          setPosts(transformedPosts)
+          offsetRef.current = transformedPosts.length
+        } else {
+          setPosts((prev) => [...prev, ...transformedPosts])
+          offsetRef.current = offset + transformedPosts.length
+        }
+
+        setHasMore(rows.length === PAGE_SIZE)
+      } catch (err) {
+        console.error('Fetch posts error:', err)
+      } finally {
+        isFetchingRef.current = false
+        if (reset) setIsLoading(false)
+        else setIsLoadingMore(false)
       }
-
-      const transformedPosts = rows.map((row) =>
-        inspirationItemToPost({ ...row, is_saved: row.is_saved }),
-      )
-
-      setPosts(transformedPosts.map((p) => ({ ...p, tags: [] as Tag[] })))
-    } catch (err) {
-      console.error('Fetch posts error:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [profile])
+    },
+    [attachSavedFlags],
+  )
 
   const fetchTags = async () => {
     const { data } = await supabase.from('tags').select('*').order('name')
@@ -128,9 +164,27 @@ export default function InspirePage() {
   }
 
   useEffect(() => {
-    fetchPosts()
+    hasShuffledRef.current = false
+    fetchPosts(true)
     fetchTags()
   }, [fetchPosts])
+
+  // Infinite scroll sentinel observer (images tab only)
+  useEffect(() => {
+    if (!sentinelRef.current) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingRef.current) {
+          fetchPosts(false)
+        }
+      },
+      { rootMargin: '400px' },
+    )
+
+    observer.observe(sentinelRef.current)
+    return () => observer.disconnect()
+  }, [fetchPosts, hasMore])
 
   useEffect(() => {
     return () => {
@@ -230,8 +284,8 @@ export default function InspirePage() {
     }
 
     toast.success('Inspo added!')
-    fetchPosts()
-    // Switch to the matching tab so user sees their new item
+    hasShuffledRef.current = false
+    fetchPosts(true)
     if (data.content_type === 'url') setActiveTab('sites')
     else setActiveTab('images')
   }
@@ -310,11 +364,7 @@ export default function InspirePage() {
 
         {/* Content */}
         <div className="w-full">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
-            </div>
-          ) : activeTab === 'images' ? (
+          {activeTab === 'images' ? (
             shuffledImages.length === 0 ? (
               <div className="py-20 text-center">
                 <p className="mb-4 text-muted-foreground">No images yet</p>
@@ -324,7 +374,17 @@ export default function InspirePage() {
                 </Button>
               </div>
             ) : (
-              <InspireMasonryGrid posts={shuffledImages} onPostClick={openViewer} />
+              <>
+                <InspireMasonryGrid posts={shuffledImages} onPostClick={openViewer} />
+                {/* Infinite scroll sentinel */}
+                {hasMore && (
+                  <div ref={sentinelRef} className="flex justify-center py-8">
+                    {isLoadingMore && (
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
+                    )}
+                  </div>
+                )}
+              </>
             )
           ) : activeTab === 'sites' ? (
             sitePosts.length === 0 ? (

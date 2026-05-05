@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
+import { usePageLoading } from '@/lib/page-loading-context'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -165,6 +166,7 @@ export default function WorksPage() {
   const [pauseModalOpen, setPauseModalOpen] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  usePageLoading('works', loading)
   const [panelTicket, setPanelTicket] = useState<Ticket | null>(null)
   const [panelComments, setPanelComments] = useState<TicketComment[]>([])
   const [panelAudit, setPanelAudit] = useState<WorksActivityAudit[]>([])
