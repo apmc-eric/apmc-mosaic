@@ -164,6 +164,7 @@ export default function WorksPage() {
   const [filterDesignerIds, setFilterDesignerIds] = useState<string[]>([])
   const [filterSubmitterIds, setFilterSubmitterIds] = useState<string[]>([])
   const [filterSearch, setFilterSearch] = useState('')
+  const [submitterProfiles, setSubmitterProfiles] = useState<{ id: string; label: string }[]>([])
   const [pauseModalOpen, setPauseModalOpen] = useState(false)
   const [pauseBusy, setPauseBusy] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -268,7 +269,6 @@ export default function WorksPage() {
   }, [])
 
   // Derive unique submitters from loaded tickets, fetching profiles for any not already known
-  const [submitterProfiles, setSubmitterProfiles] = useState<{ id: string; label: string }[]>([])
   useEffect(() => {
     const ids = [...new Set(tickets.map((t) => t.created_by).filter(Boolean))]
     if (!ids.length) { setSubmitterProfiles([]); return }
@@ -764,7 +764,7 @@ export default function WorksPage() {
       })
     }
     return list
-  }, [tickets, filterProjectIds, filterCategories, filterDesignerIds, filterSearch])
+  }, [tickets, filterProjectIds, filterCategories, filterDesignerIds, filterSubmitterIds, filterSearch])
 
   const filtered = useMemo(() => {
     let list = prePhaseFiltered
