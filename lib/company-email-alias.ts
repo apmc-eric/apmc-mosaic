@@ -1,5 +1,5 @@
 /** Domains treated as one company identity (same mailbox, different suffix). */
-export const DEFAULT_COMPANY_ALIAS_DOMAINS = ['aparentmedia.com', 'kidoodle.tv'] as const
+export const DEFAULT_COMPANY_ALIAS_DOMAINS = ['aparentmedia.com', 'kidoodle.tv', 'apmcsports.com'] as const
 
 export function emailLocalPart(email: string): string {
   const i = email.indexOf('@')

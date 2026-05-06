@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { formatDistanceToNow, parseISO, format } from 'date-fns'
 import { CalendarCheck, Users, Layers, Tags } from 'lucide-react'
 
+import { sanitizeDescriptionHtml, descriptionToEditableHtml } from '@/lib/sanitize-ticket-description-html'
 import { TicketIDLabel } from '@/components/ticket-id-label'
 import { ProfileImage } from '@/components/profile-image'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
@@ -121,10 +122,11 @@ export function TicketPublicView({ ticketId }: TicketPublicViewProps) {
         </div>
 
         {/* Description */}
-        {ticket.description && (
-          <div className="text-sm text-black/80 leading-5 whitespace-pre-wrap">
-            {ticket.description}
-          </div>
+        {descriptionToEditableHtml(ticket.description) && (
+          <div
+            className="min-w-0 max-w-full break-words text-sm leading-5 text-black/80 [overflow-wrap:anywhere] [&_a]:text-primary [&_a]:underline [&_a]:break-all [&_p]:mb-0 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:mb-0"
+            dangerouslySetInnerHTML={{ __html: sanitizeDescriptionHtml(descriptionToEditableHtml(ticket.description)) }}
+          />
         )}
 
         {/* Context links */}

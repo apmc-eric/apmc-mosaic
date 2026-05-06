@@ -224,7 +224,9 @@ export default function InspirePage() {
   const handleAddInspiration = async (data: {
     content_type: ContentType
     url?: string
-    file?: File
+    files?: File[]
+    preUploadedPathnames?: string[]
+    thumbnailIndex?: number
     thumbnail?: File
     screenshot_url?: string
     full_screenshot_url?: string
@@ -237,50 +239,73 @@ export default function InspirePage() {
       return
     }
 
-    let fileUrl: string | null = null
-    let thumbnailUrl: string | null = null
+    // Start with any files already uploaded server-side (from URL paste)
+    const fileUrls: string[] = [...(data.preUploadedPathnames ?? [])]
 
-    if (data.file) {
-      const formData = new FormData()
-      formData.append('file', data.file)
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'File upload failed')
-      }
-      const { pathname } = await res.json()
-      fileUrl = pathname
+    // Upload local files in parallel
+    if (data.files && data.files.length > 0) {
+      const results = await Promise.all(
+        data.files.map(async (file) => {
+          const formData = new FormData()
+          formData.append('file', file)
+          const res = await fetch('/api/upload', { method: 'POST', body: formData })
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.error || 'File upload failed')
+          }
+          const { pathname } = await res.json()
+          return pathname as string
+        }),
+      )
+      fileUrls.push(...results)
     }
 
-    if (data.thumbnail) {
-      const formData = new FormData()
-      formData.append('file', data.thumbnail)
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      if (!res.ok) throw new Error('Thumbnail upload failed')
-      const { pathname } = await res.json()
-      thumbnailUrl = pathname
-    }
+    const thumbIdx = data.thumbnailIndex ?? 0
+    const primaryFileUrl = fileUrls[thumbIdx] ?? fileUrls[0] ?? null
 
     const screenshotUrl = data.screenshot_url ?? data.full_screenshot_url
-    let finalThumbnail = thumbnailUrl || screenshotUrl || fileUrl
+    let finalThumbnail = primaryFileUrl || screenshotUrl
     if (data.content_type === 'image' && data.url && !finalThumbnail) {
       finalThumbnail = data.url
     }
 
-    const { error } = await supabase.from('inspiration_items').insert({
+    const basePayload = {
       submitted_by: profile.id,
       type: data.content_type,
       title: data.title,
       note: data.description || null,
       url: data.url || null,
-      media_url: fileUrl || (data.content_type === 'image' ? data.url : null),
+      media_url: primaryFileUrl || (data.content_type === 'image' ? data.url : null),
       thumbnail_url: finalThumbnail,
       full_screenshot_url: data.content_type === 'url' ? (screenshotUrl ?? null) : null,
-    })
+    }
 
-    if (error) {
-      console.error('Inspiration insert error:', error)
-      throw error
+    let result = await supabase
+      .from('inspiration_items')
+      .insert({ ...basePayload, media_urls: fileUrls.length > 0 ? fileUrls : null })
+      .select('id')
+      .single()
+
+    // If the media_urls column doesn't exist yet (migration pending), fall back without it
+    if (result.error?.message?.includes('media_urls')) {
+      result = await supabase
+        .from('inspiration_items')
+        .insert(basePayload)
+        .select('id')
+        .single()
+    }
+
+    if (result.error) {
+      console.error('Inspiration insert error:', result.error)
+      throw result.error
+    }
+
+    // Persist tag associations
+    const newItemId = result.data?.id
+    if (newItemId && data.tag_ids.length > 0) {
+      await supabase
+        .from('inspiration_item_tags')
+        .insert(data.tag_ids.map((tagId) => ({ inspiration_item_id: newItemId, tag_id: tagId })))
     }
 
     toast.success('Inspo added!')
@@ -311,55 +336,45 @@ export default function InspirePage() {
 
   return (
     <>
-      <div className="w-full px-6 pb-16" data-name="Feed" data-node-id="118:22">
-        {/* Top bar: Add Inspo button + underline tab navigation */}
+      <div className="w-full pb-16" data-name="Feed" data-node-id="118:22">
+        {/* Tab header + Add Inspo button — same pattern as Works page */}
         <div
-          className="grid w-full grid-cols-12 gap-x-8 gap-y-4 pb-6"
+          className="flex items-start justify-between px-6 pb-7 pt-12"
           data-name="Navigation"
-          data-node-id="132:779"
+          data-node-id="470:8382"
         >
-          <div className="col-span-12 flex flex-col gap-2 md:col-span-2">
-            <Button
-              className="inline-flex w-fit items-center gap-2 self-start"
-              onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="size-4 shrink-0" aria-hidden />
-              Add Inspo
-            </Button>
+          <div className="flex items-baseline gap-8" role="tablist" aria-label="Library category">
+            {LIBRARY_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                disabled={tab.comingSoon}
+                onClick={() => !tab.comingSoon && setActiveTab(tab.id)}
+                className={cn(
+                  'flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm',
+                  activeTab === tab.id && !tab.comingSoon
+                    ? 'opacity-100'
+                    : 'opacity-20 hover:opacity-40',
+                  tab.comingSoon && 'cursor-default',
+                )}
+              >
+                {tab.label}
+                {tab.comingSoon && (
+                  <span className="mt-1 text-sm font-medium">(Coming Soon)</span>
+                )}
+              </button>
+            ))}
           </div>
-
-          {/* Underline tabs */}
-          <div
-            className="col-span-12 min-w-0 md:col-span-10 flex items-end border-b border-neutral-200 gap-6"
-            role="tablist"
-            aria-label="Library category"
+          <Button
+            className="shrink-0"
+            onClick={() => setShowAddModal(true)}
           >
-              {LIBRARY_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  disabled={tab.comingSoon}
-                  onClick={() => !tab.comingSoon && setActiveTab(tab.id)}
-                  className={cn(
-                    'relative pb-3 text-sm font-medium leading-none whitespace-nowrap transition-colors',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm',
-                    activeTab === tab.id && !tab.comingSoon
-                      ? 'border-b-2 border-black text-foreground'
-                      : 'text-neutral-400',
-                    tab.comingSoon && 'cursor-default',
-                  )}
-                >
-                  {tab.label}
-                  {tab.comingSoon && (
-                    <span className="ml-1.5 inline-flex items-center rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 leading-none">
-                      Soon
-                    </span>
-                  )}
-                </button>
-              ))}
-          </div>
+            <Plus className="size-4 shrink-0" aria-hidden />
+            Add Inspo
+          </Button>
         </div>
 
         {/* Content */}

@@ -59,7 +59,7 @@ export default function TicketDetailPage() {
   const params = useParams()
   const id = params.id as string
   const router = useRouter()
-  const { profile, isAdmin, workspaceSettings } = useAuth()
+  const { profile, isAdmin, workspaceSettings, isLoading: authLoading } = useAuth()
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [designers, setDesigners] = useState<AssignableProfile[]>([])
   const [leadEdit, setLeadEdit] = useState('')
@@ -148,8 +148,9 @@ export default function TicketDetailPage() {
   }, [id])
 
   useEffect(() => {
+    if (!profile) return
     void load()
-  }, [load])
+  }, [load, profile])
 
   useEffect(() => {
     void supabase
@@ -358,6 +359,15 @@ export default function TicketDetailPage() {
     }
     setCommentBody('')
     void load()
+  }
+
+  // While auth is resolving, show nothing (avoids flash of public view for logged-in users)
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-foreground/20 border-t-foreground" />
+      </div>
+    )
   }
 
   // Unauthenticated users see the public read-only view

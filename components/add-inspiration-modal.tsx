@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Trash2, Upload } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, Plus, Trash2, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ContentType, Tag } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { FloatingTagPicker } from '@/components/tag-picker'
 
 type ModalTab = 'image' | 'link'
 type ModalStep = 'input' | 'details'
@@ -22,7 +23,7 @@ const VALID_MIME_TYPES = new Set([
   'video/mp4',
 ])
 const VALID_URL_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4']
-const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2 MB
+const MAX_FILE_SIZE = 3 * 1024 * 1024 // 3 MB
 
 function isValidMediaUrl(url: string): boolean {
   try {
@@ -35,6 +36,12 @@ function isValidMediaUrl(url: string): boolean {
   }
 }
 
+function cleanFilename(name: string): string {
+  const withoutExt = name.replace(/\.[^.]+$/, '')
+  const spaced = withoutExt.replace(/[-_]+/g, ' ').trim()
+  return spaced.replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 interface AddInspirationModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -42,7 +49,9 @@ interface AddInspirationModalProps {
   onSubmit: (data: {
     content_type: ContentType
     url?: string
-    file?: File
+    files?: File[]
+    preUploadedPathnames?: string[]
+    thumbnailIndex?: number
     thumbnail?: File
     screenshot_url?: string
     full_screenshot_url?: string
@@ -55,15 +64,19 @@ interface AddInspirationModalProps {
 export function AddInspirationModal({
   open,
   onOpenChange,
+  tags,
   onSubmit,
 }: AddInspirationModalProps) {
   const [tab, setTab] = useState<ModalTab>('image')
   const [step, setStep] = useState<ModalStep>('input')
 
-  // Image/Video Clip tab state
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreviewSrc, setImagePreviewSrc] = useState<string | null>(null)
+  // Image/Video Clip tab state — multi-file
+  const [imageFiles, setImageFiles] = useState<File[]>([])
+  const [imagePreviewSrcs, setImagePreviewSrcs] = useState<string[]>([])
+  const [prefetchedPathnames, setPrefetchedPathnames] = useState<string[]>([])
+  const [thumbnailIndex, setThumbnailIndex] = useState(0)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [isFetchingFile, setIsFetchingFile] = useState(false)
 
   // Web Link tab state
   const [linkUrl, setLinkUrl] = useState('')
@@ -73,11 +86,19 @@ export function AddInspirationModal({
   // Shared step-2 state
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
+  const [availableTags, setAvailableTags] = useState<Tag[]>(tags)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [addTagOpen, setAddTagOpen] = useState(false)
+  const addTagButtonRef = useRef<HTMLElement>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const linkInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // Keep availableTags in sync when parent refreshes
+  useEffect(() => { setAvailableTags(tags) }, [tags])
+
 
   useEffect(() => {
     if (step === 'details') setTimeout(() => titleInputRef.current?.focus(), 80)
@@ -92,14 +113,18 @@ export function AddInspirationModal({
   const reset = useCallback(() => {
     setTab('image')
     setStep('input')
-    setImageFile(null)
-    setImagePreviewSrc(null)
+    setImageFiles([])
+    setImagePreviewSrcs([])
+    setPrefetchedPathnames([])
+    setThumbnailIndex(0)
     setIsDragOver(false)
+    setIsFetchingFile(false)
     setLinkUrl('')
     setOgPreviewUrl(null)
     setIsFetchingMeta(false)
     setTitle('')
     setDescription('')
+    setSelectedTagIds([])
     setIsSubmitting(false)
   }, [])
 
@@ -109,23 +134,27 @@ export function AddInspirationModal({
   }, [reset, onOpenChange])
 
   // ─── File validation + preview ───────────────────────────────────────────
-  const applyFile = useCallback((file: File) => {
-    if (!VALID_MIME_TYPES.has(file.type)) {
-      toast.error('Format not supported', {
-        description: 'Accepted: JPG, GIF, PNG, WEBP, MP4',
-      })
-      return
+  const applyFiles = useCallback((incoming: File[]) => {
+    const valid: File[] = []
+    for (const file of incoming) {
+      if (!VALID_MIME_TYPES.has(file.type)) {
+        toast.error(`${file.name}: format not supported`, {
+          description: 'Accepted: JPG, GIF, PNG, WEBP, MP4',
+        })
+        continue
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name}: too large`, { description: 'Max size is 3 MB per file' })
+        continue
+      }
+      valid.push(file)
     }
-    if (file.size > MAX_FILE_SIZE) {
-      toast.error('File too large', { description: 'Max size is 2 MB' })
-      return
-    }
-    setImageFile(file)
-    if (file.type !== 'video/mp4') {
-      setImagePreviewSrc(URL.createObjectURL(file))
-    } else {
-      setImagePreviewSrc(null)
-    }
+    if (valid.length === 0) return
+    setImageFiles(valid)
+    setImagePreviewSrcs(valid.map((f) => URL.createObjectURL(f)))
+    setThumbnailIndex(0)
+    setTitle((prev) => prev || cleanFilename(valid[0].name))
+    setStep('details')
   }, [])
 
   // ─── Drag & Drop ─────────────────────────────────────────────────────────
@@ -143,31 +172,58 @@ export function AddInspirationModal({
     (e: React.DragEvent) => {
       e.preventDefault()
       setIsDragOver(false)
-      const file = e.dataTransfer.files?.[0]
-      if (file) applyFile(file)
+      const files = Array.from(e.dataTransfer.files ?? [])
+      if (files.length) applyFiles(files)
     },
-    [applyFile],
+    [applyFiles],
   )
 
   // ─── Paste processing ────────────────────────────────────────────────────
   const processPasteItems = useCallback(
     async (items: DataTransferItemList) => {
+      const fileItems: File[] = []
       for (const item of Array.from(items)) {
         if (VALID_MIME_TYPES.has(item.type)) {
           const file = item.getAsFile()
-          if (file) {
-            applyFile(file)
-            return
-          }
+          if (file) fileItems.push(file)
         }
+      }
+      if (fileItems.length) {
+        applyFiles(fileItems)
+        return
+      }
+      for (const item of Array.from(items)) {
         if (item.type === 'text/plain') {
-          const text: string = await new Promise((resolve) =>
-            item.getAsString(resolve),
-          )
+          const text: string = await new Promise((resolve) => item.getAsString(resolve))
           const trimmed = text.trim()
           if (isValidMediaUrl(trimmed)) {
-            setImageFile(null)
-            setImagePreviewSrc(trimmed)
+            setIsFetchingFile(true)
+            try {
+              const res = await fetch('/api/fetch-media', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: trimmed }),
+              })
+              const json = await res.json()
+              if (!res.ok) {
+                toast.error(json.error ?? 'Could not fetch media')
+                return
+              }
+              const { pathname } = json as { pathname: string }
+              const previewSrc = `/api/file?pathname=${encodeURIComponent(pathname)}`
+              setImageFiles([])
+              setImagePreviewSrcs([previewSrc])
+              setPrefetchedPathnames([pathname])
+              setThumbnailIndex(0)
+              // Auto-title from URL filename
+              try {
+                const urlFilename = new URL(trimmed).pathname.split('/').pop() ?? ''
+                if (urlFilename) setTitle((prev) => prev || cleanFilename(urlFilename))
+              } catch { /* ignore */ }
+              setStep('details')
+            } finally {
+              setIsFetchingFile(false)
+            }
           } else {
             toast.error('Format not supported', {
               description: 'Paste a JPG, PNG, WEBP, GIF, or MP4 link',
@@ -177,7 +233,7 @@ export function AddInspirationModal({
         }
       }
     },
-    [applyFile],
+    [applyFiles],
   )
 
   const handleZonePaste = useCallback(
@@ -202,25 +258,19 @@ export function AddInspirationModal({
   // ─── File input (browse) ─────────────────────────────────────────────────
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (file) applyFile(file)
+      const files = Array.from(e.target.files ?? [])
+      if (files.length) applyFiles(files)
       e.target.value = ''
     },
-    [applyFile],
+    [applyFiles],
   )
 
   // ─── Image tab step navigation ───────────────────────────────────────────
-  const handleNextImage = useCallback(() => {
-    if (!imageFile && !imagePreviewSrc) {
-      toast.error('Add an image or video first')
-      return
-    }
-    setStep('details')
-  }, [imageFile, imagePreviewSrc])
-
-  const handleClearImage = useCallback(() => {
-    setImageFile(null)
-    setImagePreviewSrc(null)
+  const handleClearImages = useCallback(() => {
+    setImageFiles([])
+    setImagePreviewSrcs([])
+    setPrefetchedPathnames([])
+    setThumbnailIndex(0)
     setStep('input')
   }, [])
 
@@ -259,18 +309,20 @@ export function AddInspirationModal({
       const isImageTab = tab === 'image'
       const contentType: ContentType =
         isImageTab
-          ? imageFile?.type === 'video/mp4' ? 'video' : 'image'
+          ? imageFiles.some((f) => f.type === 'video/mp4') ? 'video' : 'image'
           : 'url'
       await onSubmit({
         content_type: contentType,
         url: isImageTab
-          ? imageFile ? undefined : (imagePreviewSrc ?? undefined)
+          ? (imageFiles.length === 0 ? (imagePreviewSrcs[0] ?? undefined) : undefined)
           : linkUrl,
-        file: imageFile ?? undefined,
+        files: imageFiles.length > 0 ? imageFiles : undefined,
+        preUploadedPathnames: prefetchedPathnames.length > 0 ? prefetchedPathnames : undefined,
+        thumbnailIndex: (imageFiles.length > 0 || prefetchedPathnames.length > 0) ? thumbnailIndex : undefined,
         screenshot_url: !isImageTab ? (ogPreviewUrl ?? undefined) : undefined,
         title: title.trim(),
         description: description.trim(),
-        tag_ids: [],
+        tag_ids: selectedTagIds,
       })
       handleClose()
     } catch {
@@ -278,18 +330,74 @@ export function AddInspirationModal({
     } finally {
       setIsSubmitting(false)
     }
-  }, [tab, imageFile, imagePreviewSrc, linkUrl, ogPreviewUrl, title, description, onSubmit, handleClose])
+  }, [tab, imageFiles, imagePreviewSrcs, thumbnailIndex, prefetchedPathnames, linkUrl, ogPreviewUrl, title, description, selectedTagIds, onSubmit, handleClose])
 
   // ─── Tab switchers ───────────────────────────────────────────────────────
   const switchToImage = useCallback(() => {
-    setTab('image'); setStep('input'); setImageFile(null); setImagePreviewSrc(null)
+    setTab('image'); setStep('input'); setImageFiles([]); setImagePreviewSrcs([]); setThumbnailIndex(0)
   }, [])
 
   const switchToLink = useCallback(() => {
     setTab('link'); setStep('input'); setLinkUrl(''); setOgPreviewUrl(null)
   }, [])
 
-  const imageTabReady = !!(imageFile || imagePreviewSrc)
+  const imageTabReady = imageFiles.length > 0 || imagePreviewSrcs.length > 0
+
+  // ─── Carousel helpers ────────────────────────────────────────────────────
+  const currentPreviewSrc = imagePreviewSrcs[thumbnailIndex] ?? null
+  const currentFile = imageFiles[thumbnailIndex] ?? null
+  const isCurrentVideo = currentFile?.type === 'video/mp4' || currentPreviewSrc?.endsWith('.mp4') || false
+  const totalMedia = imagePreviewSrcs.length
+
+  // ─── Tag helpers ─────────────────────────────────────────────────────────
+  const selectedTags = availableTags.filter((t) => selectedTagIds.includes(t.id))
+
+  const TagsSection = (
+    <div className="flex flex-col gap-1.5">
+      <Label>Tags</Label>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {selectedTags.map((tag) => (
+          <span
+            key={tag.id}
+            className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs font-medium leading-none text-black"
+          >
+            {tag.name}
+            <button
+              type="button"
+              onClick={() => setSelectedTagIds((prev) => prev.filter((id) => id !== tag.id))}
+              className="ml-0.5 rounded hover:text-neutral-500"
+              aria-label={`Remove ${tag.name}`}
+            >
+              <X className="size-3" />
+            </button>
+          </span>
+        ))}
+        <button
+          ref={addTagButtonRef as React.RefObject<HTMLButtonElement>}
+          type="button"
+          onClick={() => setAddTagOpen((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-md border border-neutral-300 px-2 py-1.5 text-xs font-medium leading-none text-black transition-colors hover:bg-black/10"
+        >
+          <Plus className="size-3 shrink-0" />
+          Add
+        </button>
+        <FloatingTagPicker
+          anchorRef={addTagButtonRef}
+          open={addTagOpen}
+          onClose={() => setAddTagOpen(false)}
+          availableTags={availableTags}
+          selectedTagIds={selectedTagIds}
+          onAdd={(tag) => setSelectedTagIds((prev) => [...prev, tag.id])}
+          onTagCreated={(tag) => setAvailableTags((prev) => [...prev, tag])}
+          onTagDeleted={(id) => {
+            setAvailableTags((prev) => prev.filter((t) => t.id !== id))
+            setSelectedTagIds((prev) => prev.filter((tagId) => tagId !== id))
+          }}
+          placeholder="Search or add a tag…"
+        />
+      </div>
+    </div>
+  )
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -340,17 +448,24 @@ export function AddInspirationModal({
               onPaste={handleZonePaste}
               tabIndex={0}
               className={cn(
-                'h-[260px] flex flex-col items-center justify-between overflow-hidden px-5 py-4 rounded-md',
+                'relative h-[260px] flex flex-col items-center justify-between overflow-hidden px-5 py-4 rounded-md',
                 'border border-dashed border-black/20 transition-colors outline-none',
                 isDragOver ? 'bg-neutral-200' : 'bg-neutral-50',
               )}
             >
+              {isFetchingFile && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-neutral-50/90 z-10">
+                  <Loader2 className="size-5 animate-spin text-neutral-500" />
+                  <span className="text-xs text-neutral-500">Copying to storage…</span>
+                </div>
+              )}
               <div className="h-3 shrink-0" />
 
               <div className="flex flex-col gap-2 items-center">
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,image/jpeg,image/png,image/webp,image/gif,video/mp4"
                   onChange={handleFileInput}
                   className="hidden"
@@ -377,7 +492,7 @@ export function AddInspirationModal({
               </div>
 
               <p className="text-[10px] text-neutral-500 leading-none">
-                Accepted formats: JPG, GIF, PNG, WEBP, MP4 (&lt;2MB)
+                Accepted formats: JPG, GIF, PNG, WEBP, MP4 (&lt;3MB each)
               </p>
             </div>
           )}
@@ -385,27 +500,76 @@ export function AddInspirationModal({
           {/* ── Image/Video Clip — Step 2 (details) ── */}
           {tab === 'image' && step === 'details' && (
             <div className="flex flex-col gap-5">
-              {/* Preview: full width × 220px, 24px padding, image object-contain inside */}
-              <div className="relative w-full h-[220px] rounded-md border border-black/10 bg-neutral-50 p-6 overflow-hidden flex items-center justify-center">
-                {imagePreviewSrc ? (
-                  <img
-                    src={imagePreviewSrc}
-                    alt="Preview"
+              {/* Preview carousel */}
+              <div className="relative w-full h-[220px] rounded-md border border-black/10 bg-neutral-50 overflow-hidden flex items-center justify-center">
+                {/* Media */}
+                {isCurrentVideo && currentPreviewSrc ? (
+                  <video
+                    key={currentPreviewSrc}
+                    src={currentPreviewSrc}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
                     className="max-w-full max-h-full object-contain"
+                  />
+                ) : currentPreviewSrc ? (
+                  <img
+                    key={currentPreviewSrc}
+                    src={currentPreviewSrc}
+                    alt="Preview"
+                    className="max-w-full max-h-full object-contain p-6"
                   />
                 ) : (
                   <span className="text-sm text-neutral-400">
-                    {imageFile?.name ?? 'Video selected'}
+                    {currentFile?.name ?? 'File selected'}
                   </span>
                 )}
+
+                {/* Left arrow */}
+                {totalMedia > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setThumbnailIndex((i) => Math.max(0, i - 1))}
+                    disabled={thumbnailIndex === 0}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-full bg-white/90 shadow border border-black/10 disabled:opacity-30 hover:bg-white transition-colors"
+                    aria-label="Previous"
+                  >
+                    <ChevronLeft className="size-4" />
+                  </button>
+                )}
+
+                {/* Right arrow */}
+                {totalMedia > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setThumbnailIndex((i) => Math.min(totalMedia - 1, i + 1))}
+                    disabled={thumbnailIndex === totalMedia - 1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center size-7 rounded-full bg-white/90 shadow border border-black/10 disabled:opacity-30 hover:bg-white transition-colors"
+                    aria-label="Next"
+                  >
+                    <ChevronRight className="size-4" />
+                  </button>
+                )}
+
+                {/* Counter + thumbnail label */}
+                {totalMedia > 1 && (
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5">
+                    <span className="text-[10px] font-medium text-white/90 bg-black/40 rounded-full px-2 py-0.5 leading-none">
+                      {thumbnailIndex + 1} / {totalMedia} · thumbnail
+                    </span>
+                  </div>
+                )}
+
+                {/* Clear button */}
                 <Button
                   type="button"
                   size="small"
-                  onClick={handleClearImage}
+                  onClick={handleClearImages}
                   className="absolute top-3 right-3 gap-1.5"
                 >
                   <Trash2 className="size-3.5 shrink-0" aria-hidden />
-                  Clear Image
+                  Clear
                 </Button>
               </div>
 
@@ -431,6 +595,8 @@ export function AddInspirationModal({
                   rows={2}
                 />
               </div>
+
+              {TagsSection}
             </div>
           )}
 
@@ -490,6 +656,8 @@ export function AddInspirationModal({
                   rows={2}
                 />
               </div>
+
+              {TagsSection}
             </div>
           )}
 
@@ -508,7 +676,7 @@ export function AddInspirationModal({
 
             {/* Right button */}
             {tab === 'image' && step === 'input' && (
-              <Button type="button" disabled={!imageTabReady} onClick={handleNextImage}>
+              <Button type="button" disabled={!imageTabReady} onClick={() => setStep('details')}>
                 Next
               </Button>
             )}
