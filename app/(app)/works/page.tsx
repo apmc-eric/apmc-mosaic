@@ -394,18 +394,19 @@ export default function WorksPage() {
     if (!body) return
     setCommentPosting(true)
     try {
-      const { data, error } = await supabase
-        .from('ticket_comments')
-        .insert({ ticket_id: panelTicket.id, author_id: profile.id, body })
-        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
-        .single()
-      if (error) {
-        console.error(error)
+      const res = await fetch(`/api/tickets/${panelTicket.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        console.error('[postPanelComment]', json)
         toast.error('Could not post comment')
         return
       }
-      if (data) {
-        const row = data as TicketComment
+      if (json.comment) {
+        const row = json.comment as TicketComment
         const withProfile: TicketComment =
           row.profile != null
             ? row
@@ -485,14 +486,21 @@ export default function WorksPage() {
 
   const deletePanelComment = useCallback(
     async (commentId: string) => {
-      const { error } = await supabase.from('ticket_comments').delete().eq('id', commentId)
-      if (error) {
+      if (!panelTicket?.id) return
+      const res = await fetch(`/api/tickets/${panelTicket.id}/comments`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment_id: commentId }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        console.error('[deletePanelComment]', json)
         toast.error('Could not delete comment')
         return
       }
       setPanelComments((c) => c.filter((x) => x.id !== commentId))
     },
-    [],
+    [panelTicket?.id],
   )
 
   const panelLogChange = useCallback(
