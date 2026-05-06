@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { defaultHomeForRole } from '@/lib/mosaic-roles'
-import { PageLoader } from '@/components/page-loader'
 
 export default function HomePage() {
   const { profile, isLoading } = useAuth()
@@ -16,5 +15,7 @@ export default function HomePage() {
     router.replace(defaultHomeForRole(profile.role))
   }, [isLoading, profile, router])
 
-  return <PageLoader />
+  // app-shell already shows the LottieLoader while auth resolves —
+  // render nothing here to avoid a second full-screen overlay.
+  return null
 }
