@@ -14,9 +14,102 @@ export const dynamic = 'force-dynamic'
 
 const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
 const SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mosaic.apmc.design'
 
 function ephemeral(text: string) {
   return NextResponse.json({ response_type: 'ephemeral', text })
+}
+
+const PHASE_EMOJI: Record<string, string> = {
+  triage: '📋',
+  'in progress': '🔄',
+  review: '👀',
+  paused: '⏸️',
+  completed: '✅',
+}
+
+function phaseEmoji(phase: string): string {
+  return PHASE_EMOJI[phase.trim().toLowerCase()] ?? '•'
+}
+
+async function handleList(
+  admin: ReturnType<typeof createAdminClient>,
+  profileId: string,
+  profileRole: string,
+): Promise<Response> {
+  // Admins see all active tickets; everyone else sees their own submissions
+  const isAdmin = profileRole === 'admin'
+
+  let query = admin
+    .from('tickets')
+    .select('id, ticket_id, title, phase, checkpoint_date, project:projects(name)')
+    .not('phase', 'ilike', 'completed')
+    .order('checkpoint_date', { ascending: true, nullsFirst: false })
+    .limit(20)
+
+  if (!isAdmin) {
+    query = query.eq('created_by', profileId)
+  }
+
+  const { data: tickets, error } = await query
+
+  if (error) {
+    console.error('[slack/command list] tickets error:', error.message)
+    return ephemeral('Could not load tickets. Please try again.')
+  }
+
+  if (!tickets?.length) {
+    return NextResponse.json({
+      response_type: 'ephemeral',
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: isAdmin
+              ? '_No active tickets found._'
+              : "_You haven't submitted any tickets yet. Use `/mosaic` to submit one._",
+          },
+        },
+      ],
+    })
+  }
+
+  const header = isAdmin
+    ? `*Active tickets* (${tickets.length}${tickets.length === 20 ? '+' : ''})`
+    : `*Your tickets* (${tickets.length})`
+
+  const lines = tickets.map((t) => {
+    const project = (t.project as { name?: string } | null)?.name ?? ''
+    const phase = t.phase ?? 'Triage'
+    const emoji = phaseEmoji(phase)
+    const link = `${APP_URL}/tickets/${t.id}`
+    const projectTag = project ? ` _(${project})_` : ''
+    return `${emoji} *<${link}|${t.ticket_id}>* ${t.title}${projectTag} — _${phase}_`
+  })
+
+  return NextResponse.json({
+    response_type: 'ephemeral',
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: header },
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: lines.join('\n') },
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `<${APP_URL}/works|Open Mosaic →>  •  Use \`/mosaic\` to submit a new request`,
+          },
+        ],
+      },
+    ],
+  })
 }
 
 export async function POST(req: Request) {
@@ -38,6 +131,7 @@ export async function POST(req: Request) {
   const triggerId = params.get('trigger_id') ?? ''
   const channelId = params.get('channel_id') ?? ''
   const responseUrl = params.get('response_url') ?? ''
+  const subCommand = (params.get('text') ?? '').trim().toLowerCase()
 
   // Resolve email — slash commands don't include it, requires users:read.email scope
   const userInfoRes = await fetch(`https://slack.com/api/users.info?user=${slackUserId}`, {
@@ -67,7 +161,7 @@ export async function POST(req: Request) {
 
   const { data: profileRows } = await admin
     .from('profiles')
-    .select('id, timezone')
+    .select('id, timezone, role')
     .in('email', candidateEmails)
     .eq('is_active', true)
     .limit(1)
@@ -116,7 +210,7 @@ export async function POST(req: Request) {
 
     const { data: newRows } = await admin
       .from('profiles')
-      .select('id, timezone')
+      .select('id, timezone, role')
       .eq('id', userId)
       .limit(1)
 
@@ -125,6 +219,12 @@ export async function POST(req: Request) {
     if (!profile) {
       return ephemeral("Something went wrong setting up your account. Contact your design team.")
     }
+  }
+
+  // Route sub-commands before opening the modal
+  const profileRole = (profile as { role?: string }).role ?? 'collaborator'
+  if (subCommand === 'list' || subCommand === 'tickets') {
+    return handleList(admin, profile.id, profileRole)
   }
 
   const [{ data: projects }, { data: allDesigners }] = await Promise.all([
