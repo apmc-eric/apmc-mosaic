@@ -378,7 +378,7 @@ export default function InspirePage() {
         </div>
 
         {/* Content */}
-        <div className="w-full">
+        <div className="w-full px-6">
           {activeTab === 'images' ? (
             shuffledImages.length === 0 ? (
               <div className="py-20 text-center">
