@@ -27,24 +27,24 @@ export function OverlayViewer({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        {/*
-          Backdrop: no opacity enter/exit animation — animating opacity on the same layer
-          as a translucent fill is a common source of stuck ~20–90% dimmers (WebKit/GPU).
-          Dimming comes only from bg alpha; element stays opacity-100.
-        */}
         <DialogPrimitive.Overlay
           className={cn(
-            'fixed inset-0 z-50 bg-black/25 opacity-100',
-            'pointer-events-auto [backface-visibility:hidden]',
+            'fixed inset-0 z-50 bg-black/25',
+            'data-[state=open]:animate-in data-[state=closed]:animate-out',
+            'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
+            'duration-200 ease-out',
+            'pointer-events-auto',
           )}
           data-name="OverlayViewer"
           data-slot="overlay-viewer-backdrop"
         />
         <DialogPrimitive.Content
           className={cn(
-            /* Zoom only — avoid simultaneous opacity tweens on the shell */
-            'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-            'fixed top-1/2 left-1/2 z-[51] flex max-h-[min(90dvh,calc(100dvh-2rem))] w-[min(1140px,calc(100vw-2rem))] max-w-[1140px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-background p-0 opacity-100 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] duration-200 outline-none',
+            'data-[state=open]:animate-in data-[state=closed]:animate-out',
+            'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
+            'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
+            'duration-200 ease-out',
+            'fixed top-1/2 left-1/2 z-[51] flex max-h-[min(90dvh,calc(100dvh-2rem))] w-[min(1140px,calc(100vw-2rem))] max-w-[1140px] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-3xl border border-border bg-background p-0 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] outline-none',
             'motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none',
             className,
           )}
