@@ -42,24 +42,11 @@ export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridPro
         const isHovered = hoveredId === post.id
         const isLoaded = loadedIds.has(post.id)
 
-        // Use stored dimensions; fall back to 4:3 so the column doesn't
-        // collapse to zero height before the image arrives.
-        const w = post.media_width ?? 4
-        const h = post.media_height ?? 3
-        const aspectRatio = `${w} / ${h}`
-
-        const videoMedia =
-          post.type === 'video' && post.media_url ? (
-            <video
-              src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
-              className="w-full h-auto block"
-              autoPlay
-              muted
-              loop
-              playsInline
-              onCanPlay={() => markLoaded(post.id)}
-            />
-          ) : null
+        // Only use a fixed aspect-ratio shell when we have stored dimensions.
+        // Without them, let the image dictate its own height so the masonry
+        // stagger is preserved for existing items.
+        const hasDimensions = post.media_width != null && post.media_height != null
+        const aspectRatio = hasDimensions ? `${post.media_width} / ${post.media_height}` : undefined
 
         return (
           <button
@@ -75,40 +62,46 @@ export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridPro
             style={{ marginBottom: '24px' }}
             data-name="MasonryCard"
           >
-            {videoMedia ? (
-              /* Video: wrap in aspect-ratio shell so it reserves space */
-              <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio }}>
-                {!isLoaded && (
-                  <div className="absolute inset-0 bg-neutral-100 animate-pulse" />
-                )}
-                <div className={cn('transition-opacity duration-300', isLoaded ? 'opacity-100' : 'opacity-0')}>
-                  {videoMedia}
-                </div>
+            {post.type === 'video' && post.media_url ? (
+              /* Video */
+              <div className="relative w-full overflow-hidden rounded-lg" style={aspectRatio ? { aspectRatio } : undefined}>
+                {!isLoaded && <div className="absolute inset-0 bg-neutral-100 animate-pulse" />}
+                <video
+                  src={`/api/file?pathname=${encodeURIComponent(post.media_url)}`}
+                  className={cn('w-full h-auto block transition-opacity duration-300', isLoaded ? 'opacity-100' : 'opacity-0')}
+                  autoPlay muted loop playsInline
+                  onCanPlay={() => markLoaded(post.id)}
+                />
               </div>
             ) : thumbnailUrl ? (
-              /* Image: skeleton shell at known (or fallback) aspect ratio */
-              <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio }}>
-                {/* Shimmer — hidden once image loaded */}
-                <div
-                  className={cn(
-                    'absolute inset-0 bg-neutral-100 transition-opacity duration-300',
-                    isLoaded ? 'opacity-0 pointer-events-none' : 'animate-pulse',
-                  )}
-                />
-                <img
-                  src={thumbnailUrl}
-                  alt={post.title}
-                  className={cn(
-                    'w-full h-full object-cover transition-opacity duration-300',
-                    isLoaded ? 'opacity-100' : 'opacity-0',
-                  )}
-                  loading="lazy"
-                  onLoad={() => markLoaded(post.id)}
-                />
-              </div>
+              hasDimensions ? (
+                /* Known dimensions — exact skeleton, no layout shift */
+                <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio }}>
+                  <div className={cn('absolute inset-0 bg-neutral-100 transition-opacity duration-300', isLoaded ? 'opacity-0 pointer-events-none' : 'animate-pulse')} />
+                  <img
+                    src={thumbnailUrl}
+                    alt={post.title}
+                    className={cn('w-full h-full object-cover transition-opacity duration-300', isLoaded ? 'opacity-100' : 'opacity-0')}
+                    loading="lazy"
+                    onLoad={() => markLoaded(post.id)}
+                  />
+                </div>
+              ) : (
+                /* No stored dimensions — natural height preserves masonry stagger */
+                <div className="relative w-full overflow-hidden rounded-lg">
+                  <img
+                    src={thumbnailUrl}
+                    alt={post.title}
+                    className={cn('w-full h-auto block transition-opacity duration-500', isLoaded ? 'opacity-100' : 'opacity-0')}
+                    loading="lazy"
+                    onLoad={() => markLoaded(post.id)}
+                  />
+                  {!isLoaded && <div className="absolute inset-0 bg-neutral-100 animate-pulse" />}
+                </div>
+              )
             ) : (
-              /* Fallback: no thumbnail URL at all */
-              <div className="w-full bg-neutral-100 flex items-center justify-center rounded-lg" style={{ aspectRatio }}>
+              /* No thumbnail at all */
+              <div className="w-full aspect-[4/3] bg-neutral-100 flex items-center justify-center rounded-lg">
                 <span className="text-sm text-neutral-400">{post.title}</span>
               </div>
             )}
