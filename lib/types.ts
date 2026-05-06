@@ -79,6 +79,8 @@ export interface Post {
   full_screenshot_url: string | null
   media_url: string | null
   media_urls?: string[] | null
+  media_width?: number | null
+  media_height?: number | null
   view_count: number
   created_at: string
   updated_at: string
@@ -137,6 +139,8 @@ export interface InspirationItem {
   full_screenshot_url: string | null
   media_url: string | null
   media_urls?: string[] | null
+  media_width?: number | null
+  media_height?: number | null
   submitted_by: string
   created_at: string
   profile?: Profile
@@ -214,6 +218,8 @@ export function inspirationItemToPost(item: InspirationItem): Post {
     full_screenshot_url: item.full_screenshot_url,
     media_url: item.media_url ?? item.file_ref,
     media_urls: item.media_urls ?? null,
+    media_width: item.media_width ?? null,
+    media_height: item.media_height ?? null,
     view_count: 0,
     created_at: item.created_at,
     updated_at: item.created_at,

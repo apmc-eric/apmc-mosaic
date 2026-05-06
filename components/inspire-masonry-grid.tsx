@@ -3,7 +3,7 @@
 import { getInspireThumbnailUrl } from '@/lib/inspire-post-display'
 import type { Post } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 type InspireMasonryGridProps = {
   posts: Post[]
@@ -13,9 +13,22 @@ type InspireMasonryGridProps = {
 /**
  * Pinterest-style masonry grid for the Images library tab.
  * CSS columns give natural image heights; 24px gaps on both axes.
+ *
+ * Each card shows an aspect-ratio skeleton (shimmer) until the image
+ * loads, then crossfades. When stored dimensions are absent (legacy rows)
+ * we fall back to a 4:3 placeholder so the column doesn't collapse.
  */
 export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set())
+
+  const markLoaded = useCallback((id: string) => {
+    setLoadedIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+  }, [])
 
   if (posts.length === 0) return null
 
@@ -27,6 +40,13 @@ export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridPro
       {posts.map((post) => {
         const thumbnailUrl = getInspireThumbnailUrl(post)
         const isHovered = hoveredId === post.id
+        const isLoaded = loadedIds.has(post.id)
+
+        // Use stored dimensions; fall back to 4:3 so the column doesn't
+        // collapse to zero height before the image arrives.
+        const w = post.media_width ?? 4
+        const h = post.media_height ?? 3
+        const aspectRatio = `${w} / ${h}`
 
         const videoMedia =
           post.type === 'video' && post.media_url ? (
@@ -37,6 +57,7 @@ export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridPro
               muted
               loop
               playsInline
+              onCanPlay={() => markLoaded(post.id)}
             />
           ) : null
 
@@ -55,21 +76,45 @@ export function InspireMasonryGrid({ posts, onPostClick }: InspireMasonryGridPro
             data-name="MasonryCard"
           >
             {videoMedia ? (
-              videoMedia
+              /* Video: wrap in aspect-ratio shell so it reserves space */
+              <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio }}>
+                {!isLoaded && (
+                  <div className="absolute inset-0 bg-neutral-100 animate-pulse" />
+                )}
+                <div className={cn('transition-opacity duration-300', isLoaded ? 'opacity-100' : 'opacity-0')}>
+                  {videoMedia}
+                </div>
+              </div>
             ) : thumbnailUrl ? (
-              <img
-                src={thumbnailUrl}
-                alt={post.title}
-                className="w-full h-auto block"
-                loading="lazy"
-              />
+              /* Image: skeleton shell at known (or fallback) aspect ratio */
+              <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio }}>
+                {/* Shimmer — hidden once image loaded */}
+                <div
+                  className={cn(
+                    'absolute inset-0 bg-neutral-100 transition-opacity duration-300',
+                    isLoaded ? 'opacity-0 pointer-events-none' : 'animate-pulse',
+                  )}
+                />
+                <img
+                  src={thumbnailUrl}
+                  alt={post.title}
+                  className={cn(
+                    'w-full h-full object-cover transition-opacity duration-300',
+                    isLoaded ? 'opacity-100' : 'opacity-0',
+                  )}
+                  loading="lazy"
+                  onLoad={() => markLoaded(post.id)}
+                />
+              </div>
             ) : (
-              <div className="w-full aspect-video bg-neutral-100 flex items-center justify-center">
+              /* Fallback: no thumbnail URL at all */
+              <div className="w-full bg-neutral-100 flex items-center justify-center rounded-lg" style={{ aspectRatio }}>
                 <span className="text-sm text-neutral-400">{post.title}</span>
               </div>
             )}
 
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-200 flex items-end p-3">
+            {/* Hover overlay with title */}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-200 flex items-end p-3 rounded-lg">
               <p
                 className={cn(
                   'text-white text-sm font-medium truncate w-full transition-opacity duration-200',

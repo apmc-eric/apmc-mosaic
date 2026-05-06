@@ -221,6 +221,17 @@ export default function InspirePage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  /** Read pixel dimensions from a File without uploading it. */
+  const readFileDimensions = (file: File): Promise<{ width: number; height: number } | null> =>
+    new Promise((resolve) => {
+      if (!file.type.startsWith('image/')) { resolve(null); return }
+      const url = URL.createObjectURL(file)
+      const img = new Image()
+      img.onload = () => { URL.revokeObjectURL(url); resolve({ width: img.naturalWidth, height: img.naturalHeight }) }
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+      img.src = url
+    })
+
   const handleAddInspiration = async (data: {
     content_type: ContentType
     url?: string
@@ -242,10 +253,13 @@ export default function InspirePage() {
     // Start with any files already uploaded server-side (from URL paste)
     const fileUrls: string[] = [...(data.preUploadedPathnames ?? [])]
 
-    // Upload local files in parallel
+    // Read dimensions and upload local files in parallel
+    let thumbnailDimensions: { width: number; height: number } | null = null
     if (data.files && data.files.length > 0) {
-      const results = await Promise.all(
-        data.files.map(async (file) => {
+      const thumbFile = data.files[data.thumbnailIndex ?? 0] ?? data.files[0]
+      const [dims, ...uploadResults] = await Promise.all([
+        readFileDimensions(thumbFile),
+        ...data.files.map(async (file) => {
           const formData = new FormData()
           formData.append('file', file)
           const res = await fetch('/api/upload', { method: 'POST', body: formData })
@@ -256,8 +270,9 @@ export default function InspirePage() {
           const { pathname } = await res.json()
           return pathname as string
         }),
-      )
-      fileUrls.push(...results)
+      ])
+      thumbnailDimensions = dims
+      fileUrls.push(...(uploadResults as string[]))
     }
 
     const thumbIdx = data.thumbnailIndex ?? 0
@@ -278,6 +293,8 @@ export default function InspirePage() {
       media_url: primaryFileUrl || (data.content_type === 'image' ? data.url : null),
       thumbnail_url: finalThumbnail,
       full_screenshot_url: data.content_type === 'url' ? (screenshotUrl ?? null) : null,
+      media_width: thumbnailDimensions?.width ?? null,
+      media_height: thumbnailDimensions?.height ?? null,
     }
 
     let result = await supabase
