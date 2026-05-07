@@ -10,10 +10,10 @@ export default function HomePage() {
   const { profile, isLoading } = useAuth()
   const router = useRouter()
 
-  // Keep the global loader overlay up while we wait for auth + redirect.
-  // This is intentionally always true — the page immediately redirects away,
-  // so the loader never needs to be dismissed here.
-  usePageLoading('home', true)
+  // Keep the global loader overlay up while auth is resolving.
+  // Once isLoading is false, clear the overlay — the redirect will fire
+  // (or app-shell will handle the /login redirect if profile is null).
+  usePageLoading('home', isLoading)
 
   useEffect(() => {
     if (isLoading) return
