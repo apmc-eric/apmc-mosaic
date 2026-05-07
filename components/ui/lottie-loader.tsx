@@ -10,7 +10,7 @@ export function LottieLoader({ className }: { className?: string }) {
       loop
       autoplay
       className={className}
-      style={{ width: 120, height: 120 }}
+      style={{ width: 400, height: 182 }}
     />
   )
 }
