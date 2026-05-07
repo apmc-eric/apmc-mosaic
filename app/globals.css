@@ -197,6 +197,7 @@
   letter-spacing: var(--type-mono-micro-tracking);
 }
 
+
 @layer utilities {
   /* Horizontal ellipsis with overflow-x hidden only; overflow-y visible (not Tailwind truncate). */
   .truncate-x {
