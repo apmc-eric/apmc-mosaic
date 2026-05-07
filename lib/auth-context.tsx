@@ -156,16 +156,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    const authTimeout = <T,>(promise: Promise<T>, ms = 10000): Promise<T> =>
-      Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('auth timeout')), ms))])
-
     // Get initial session
-    authTimeout(supabase.auth.getSession()).then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
 
       if (session?.user) {
         // Fetch profile, user_teams, teams, settings, workspace settings, and google token status
-        authTimeout(Promise.all([
+        Promise.all([
           supabase
             .from('profiles')
             .select('*')
@@ -183,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .select('id')
             .eq('user_id', session.user.id)
             .maybeSingle(),
-        ])).then(([profileRes, userTeamsRes, teamsRes, settingsRes, wsRes, googleTokenRes]) => {
+        ]).then(([profileRes, userTeamsRes, teamsRes, settingsRes, wsRes, googleTokenRes]) => {
           if (profileRes.data) {
             const userTeams = userTeamsRes.data?.map(ut => ut.team).filter(Boolean) as Team[] ?? []
             setProfile({
