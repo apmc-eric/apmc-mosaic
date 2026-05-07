@@ -9,14 +9,6 @@ import { OnboardingModal } from '@/components/onboarding-modal'
 import { RoleGate } from '@/components/role-gate'
 import { LottieLoader } from '@/components/ui/lottie-loader'
 
-function LoadingOverlay() {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
-      <LottieLoader />
-    </div>
-  )
-}
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, profile, teams, isLoading, refreshProfile } = useAuth()
   const isAnyPageLoading = useIsAnyPageLoading()
@@ -42,17 +34,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setShowOnboarding(false)
   }
 
-  if (isLoading) return <LoadingOverlay />
+  // Auth still resolving — hard block before rendering anything
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <LottieLoader />
+      </div>
+    )
+  }
 
-  if (!user && isPublicTicketPath) return <>{children}</>
+  // For public ticket paths, render children directly without the app shell
+  if (!user && isPublicTicketPath) {
+    return <>{children}</>
+  }
 
-  if (!user) return <LoadingOverlay />
+  // Redirect handled by useEffect, show nothing while redirecting
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <LottieLoader />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <AppHeader />
       <main className="flex-1 pt-[40px]">
         <RoleGate>
+          {/*
+           * While the page-loading overlay is up, keep content invisible so the
+           * blur-reveal animation doesn't play underneath the loader.
+           * When the overlay lifts, switch to animate-blur-reveal so the animation
+           * fires exactly when content becomes visible.
+           * key={pathname} remounts on navigation, resetting the animation.
+           */}
           <div
             key={pathname}
             className={isAnyPageLoading ? 'opacity-0' : 'animate-blur-reveal'}
@@ -62,7 +78,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </RoleGate>
       </main>
 
-      {isAnyPageLoading && <LoadingOverlay />}
+      {/* Fixed overlay — covers content until page data is ready, without unmounting children */}
+      {isAnyPageLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+          <LottieLoader />
+        </div>
+      )}
 
       {showOnboarding && (
         <OnboardingModal

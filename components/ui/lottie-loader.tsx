@@ -3,13 +3,14 @@
 import Lottie from 'lottie-react'
 import loaderAnimation from '@/public/loader.json'
 
-export function LottieLoader() {
+export function LottieLoader({ className }: { className?: string }) {
   return (
     <Lottie
       animationData={loaderAnimation}
       loop
       autoplay
-      style={{ width: 400, height: 182 }}
+      className={className}
+      style={{ width: 120, height: 120 }}
     />
   )
 }
