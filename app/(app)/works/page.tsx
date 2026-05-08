@@ -99,6 +99,10 @@ function isTriagePhase(t: Pick<Ticket, 'phase'>): boolean {
   return t.phase?.trim().toLowerCase() === 'triage'
 }
 
+function isBacklogPhase(t: Pick<Ticket, 'phase'>): boolean {
+  return t.phase?.trim().toLowerCase() === 'backlog'
+}
+
 function normPhase(s: string) {
   return s.trim().toLowerCase()
 }
@@ -899,7 +903,14 @@ export default function WorksPage() {
   }, [byBucket])
 
   const backlogSorted = useMemo(() => {
-    const list = [...byBucket.backlog]
+    const list = byBucket.backlog.filter(isBacklogPhase)
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [byBucket])
+
+  // Active-phase tickets (Concept/Design/Build/etc.) with no checkpoint — shown in Current tab
+  const unscheduledSorted = useMemo(() => {
+    const list = byBucket.backlog.filter((t) => !isBacklogPhase(t))
     list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     return list
   }, [byBucket])
@@ -963,7 +974,7 @@ export default function WorksPage() {
   )
 
   // Tab counts
-  const currentCount = needsReviewSorted.length + needsUpdateSorted.length + thisWeekSorted.length + nextWeekSorted.length
+  const currentCount = needsReviewSorted.length + needsUpdateSorted.length + thisWeekSorted.length + nextWeekSorted.length + unscheduledSorted.length
   const upcomingCount = upcomingTabTickets.length
   const backlogCount = backlogSorted.length + pausedSorted.length
   const inQueueCount = inQueueTickets.length
@@ -1197,6 +1208,7 @@ export default function WorksPage() {
                   {sectionRow('Needs Update', 'Passed Checkpoints', needsUpdateSorted, 'Needs update')}
                   {sectionRow('This Week', scheduleLabels.thisWeek, thisWeekSorted)}
                   {sectionRow('Next Week', scheduleLabels.nextWeek, nextWeekSorted)}
+                  {sectionRow('Unscheduled', null, unscheduledSorted, 'Unscheduled tickets')}
                   {currentCount === 0 && (
                     <p className="py-16 text-center text-muted-foreground">
                       {tickets.length === 0
