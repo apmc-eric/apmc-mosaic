@@ -977,24 +977,6 @@ export default function WorksPage() {
   const backlogCount = backlogSorted.length + pausedSorted.length
   const inQueueCount = inQueueTickets.length
 
-  // In Queue unseen badge — persisted in localStorage, cleared when the tab is visited
-  const [inQueueSeenAt, setInQueueSeenAt] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null
-    return localStorage.getItem('mosaic_in_queue_seen_at')
-  })
-
-  useEffect(() => {
-    if (worksTab !== 'in_queue') return
-    const now = new Date().toISOString()
-    localStorage.setItem('mosaic_in_queue_seen_at', now)
-    setInQueueSeenAt(now)
-  }, [worksTab])
-
-  const inQueueNewCount = useMemo(() => {
-    if (!inQueueSeenAt) return inQueueCount
-    return inQueueTickets.filter((t) => t.created_at > inQueueSeenAt).length
-  }, [inQueueTickets, inQueueSeenAt, inQueueCount])
-
   const panelUrls = useMemo(
     () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
     [panelTicket?.urls],
@@ -1163,15 +1145,16 @@ export default function WorksPage() {
               onClick={() => setWorksTab(key)}
               className={`flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity ${worksTab === key ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
             >
-              <span className="relative">
-                {label}
-                {key === 'in_queue' && inQueueNewCount > 0 && (
-                  <span className="absolute -top-1 -right-3 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
-                    {inQueueNewCount > 99 ? '99+' : inQueueNewCount}
+              {label}
+              {key === 'in_queue' ? (
+                inQueueCount > 0 && (
+                  <span className="mt-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
+                    {inQueueCount > 99 ? '99+' : inQueueCount}
                   </span>
-                )}
-              </span>
-              <span className="mt-1 text-sm font-medium">{count}</span>
+                )
+              ) : (
+                <span className="mt-1 text-sm font-medium">{count}</span>
+              )}
             </button>
           ))}
         </div>
