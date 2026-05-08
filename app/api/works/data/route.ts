@@ -134,6 +134,17 @@ export async function GET(request: Request) {
         if (tid) idSet.add(tid)
       }
 
+      // Designers also see all Triage tickets so the In Queue tab is populated
+      if (dataRole === 'designer') {
+        const { data: triageRows } = await supabase
+          .from('tickets')
+          .select('id')
+          .eq('phase', 'Triage')
+        for (const r of triageRows ?? []) {
+          if (r?.id) idSet.add(r.id as string)
+        }
+      }
+
       allowedTicketIds = [...idSet]
     }
 

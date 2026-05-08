@@ -111,7 +111,7 @@ function insertCompletedBeforePausedForStatus(phases: string[]): string[] {
   return [...phases.slice(0, pi), COMPLETED_PHASE_LABEL, ...phases.slice(pi)]
 }
 
-type WorksTab = 'current' | 'upcoming' | 'backlog'
+type WorksTab = 'current' | 'upcoming' | 'backlog' | 'in_queue'
 
 type MonthGroup = {
   key: string
@@ -916,10 +916,57 @@ export default function WorksPage() {
     [backlogSorted, displayTz],
   )
 
+  // In Queue tab: all Triage tickets split by current Sun–Sat week (uses created_at)
+  const inQueueTickets = useMemo(() => {
+    const list = tickets.filter(isTriagePhase)
+    const q = filterSearch.trim().toLowerCase()
+    if (!q) return list
+    return list.filter((t) => {
+      const title = (t.title ?? '').toLowerCase()
+      const tid = (t.ticket_id ?? '').toLowerCase()
+      return title.includes(q) || tid.includes(q)
+    })
+  }, [tickets, filterSearch])
+
+  const inQueueWeekBounds = useMemo(() => {
+    const now = new Date()
+    return {
+      start: startOfWeek(now, { weekStartsOn: 0 }),
+      end: endOfWeek(now, { weekStartsOn: 0 }),
+    }
+  }, [])
+
+  const inQueueWeekLabel = useMemo(
+    () =>
+      formatInTimeZone(inQueueWeekBounds.start, displayTz, 'MM.dd') +
+      '—' +
+      formatInTimeZone(inQueueWeekBounds.end, displayTz, 'MM.dd'),
+    [inQueueWeekBounds, displayTz],
+  )
+
+  const inQueueThisWeek = useMemo(
+    () =>
+      inQueueTickets.filter((t) => {
+        try { return isWithinInterval(parseISO(t.created_at), inQueueWeekBounds) }
+        catch { return false }
+      }),
+    [inQueueTickets, inQueueWeekBounds],
+  )
+
+  const inQueueAllOthers = useMemo(
+    () =>
+      inQueueTickets.filter((t) => {
+        try { return !isWithinInterval(parseISO(t.created_at), inQueueWeekBounds) }
+        catch { return true }
+      }),
+    [inQueueTickets, inQueueWeekBounds],
+  )
+
   // Tab counts
   const currentCount = needsReviewSorted.length + needsUpdateSorted.length + thisWeekSorted.length + nextWeekSorted.length
   const upcomingCount = upcomingTabTickets.length
   const backlogCount = backlogSorted.length + pausedSorted.length
+  const inQueueCount = inQueueTickets.length
 
   const panelUrls = useMemo(
     () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
@@ -1075,10 +1122,13 @@ export default function WorksPage() {
         <div className="flex items-baseline gap-8">
           {(
             [
-              { key: 'current', label: 'Current', count: currentCount },
-              { key: 'upcoming', label: 'Upcoming', count: upcomingCount },
-              { key: 'backlog', label: 'Backlog', count: backlogCount },
-            ] as const
+              { key: 'current' as WorksTab, label: 'Current', count: currentCount },
+              { key: 'upcoming' as WorksTab, label: 'Upcoming', count: upcomingCount },
+              { key: 'backlog' as WorksTab, label: 'Backlog', count: backlogCount },
+              ...(isAdmin || viewRole === 'designer'
+                ? [{ key: 'in_queue' as WorksTab, label: 'In Queue', count: inQueueCount }]
+                : []),
+            ]
           ).map(({ key, label, count }) => (
             <button
               key={key}
@@ -1195,6 +1245,17 @@ export default function WorksPage() {
                   )}
                   {backlogCount === 0 && completedSectionTickets.length === 0 && (
                     <p className="py-16 text-center text-muted-foreground">No backlog tickets.</p>
+                  )}
+                </>
+              )}
+
+              {/* ── In Queue tab ── */}
+              {worksTab === 'in_queue' && (
+                <>
+                  {sectionRow('This week', inQueueWeekLabel, inQueueThisWeek, 'This week')}
+                  {sectionRow('All others', null, inQueueAllOthers, 'All others')}
+                  {inQueueCount === 0 && (
+                    <p className="py-16 text-center text-muted-foreground">No tickets in triage.</p>
                   )}
                 </>
               )}
