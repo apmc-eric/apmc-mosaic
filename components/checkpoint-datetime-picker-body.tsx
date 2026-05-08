@@ -78,6 +78,8 @@ export type CheckpointDatetimePickerBodyProps = {
   timeZone?: string | null
   onCommit: (iso: string | null) => Promise<void>
   onRequestClose: () => void
+  /** When true, calls onCommit on every change instead of only on close. Use for embedded (non-popover) contexts. */
+  commitOnChange?: boolean
 }
 
 /**
@@ -91,11 +93,20 @@ export function CheckpointDatetimePickerBody({
   timeZone,
   onCommit,
   onRequestClose,
+  commitOnChange = false,
 }: CheckpointDatetimePickerBodyProps) {
   const [day, setDay] = React.useState<Date>(() => isoToParts(checkpointDate, timeZone).day)
   const [h12, setH12] = React.useState(() => isoToParts(checkpointDate, timeZone).h12)
   const [minute, setMinute] = React.useState(() => isoToParts(checkpointDate, timeZone).min)
   const [pm, setPm] = React.useState(() => isoToParts(checkpointDate, timeZone).pm)
+
+  const commitEager = React.useCallback(
+    (d: Date, hour: number, min: number, isPm: boolean) => {
+      if (!commitOnChange) return
+      void onCommit(combineToIso(d, hour, min, isPm, timeZone))
+    },
+    [commitOnChange, onCommit, timeZone],
+  )
   const [committing, setCommitting] = React.useState(false)
 
   // Reset local state when picker opens (pick up any external changes)
@@ -162,7 +173,9 @@ export function CheckpointDatetimePickerBody({
           selected={day}
           onSelect={(d) => {
             if (!d) return
-            setDay(startOfDay(d))
+            const next = startOfDay(d)
+            setDay(next)
+            commitEager(next, h12, minute, pm)
           }}
           defaultMonth={day}
           captionLayout="label"
@@ -184,7 +197,7 @@ export function CheckpointDatetimePickerBody({
           <Clock className="text-muted-foreground size-4 shrink-0" aria-hidden />
           <Select
             value={String(h12)}
-            onValueChange={(v) => setH12(Number(v))}
+            onValueChange={(v) => { const next = Number(v); setH12(next); commitEager(day, next, minute, pm) }}
             disabled={committing}
           >
             <SelectTrigger
@@ -210,7 +223,7 @@ export function CheckpointDatetimePickerBody({
           </span>
           <Select
             value={String(minute)}
-            onValueChange={(v) => setMinute(Number(v))}
+            onValueChange={(v) => { const next = Number(v); setMinute(next); commitEager(day, h12, next, pm) }}
             disabled={committing}
           >
             <SelectTrigger
@@ -244,7 +257,7 @@ export function CheckpointDatetimePickerBody({
                 'rounded px-2.5 py-1 text-xs font-medium transition-colors',
                 !pm ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-background/80',
               )}
-              onClick={() => { if (pm) setPm(false) }}
+              onClick={() => { if (pm) { setPm(false); commitEager(day, h12, minute, false) } }}
             >
               AM
             </button>
@@ -255,7 +268,7 @@ export function CheckpointDatetimePickerBody({
                 'rounded px-2.5 py-1 text-xs font-medium transition-colors',
                 pm ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-background/80',
               )}
-              onClick={() => { if (!pm) setPm(true) }}
+              onClick={() => { if (!pm) { setPm(true); commitEager(day, h12, minute, true) } }}
             >
               PM
             </button>

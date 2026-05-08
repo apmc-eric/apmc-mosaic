@@ -806,12 +806,10 @@ export default function WorksPage() {
     return list
   }, [filterPhases, prePhaseFiltered])
 
-  /** Admins see **Triage** tickets only under **Needs Review**; they are omitted from week/backlog columns to avoid duplicates. */
+  /** Triage tickets are handled exclusively in the In Queue tab — excluded from all time buckets for all roles. */
   const ticketsForTimeBuckets = useMemo(() => {
-    const sansPaused = filteredForTimeline.filter((t) => !isPausedPhaseLabel(t.phase))
-    if (!isAdmin) return sansPaused
-    return sansPaused.filter((t) => !isTriagePhase(t))
-  }, [isAdmin, filteredForTimeline])
+    return filteredForTimeline.filter((t) => !isPausedPhaseLabel(t.phase) && !isTriagePhase(t))
+  }, [filteredForTimeline])
 
   const needsReviewSorted = useMemo(() => {
     if (!isAdmin) return [] as Ticket[]
@@ -978,6 +976,24 @@ export default function WorksPage() {
   const upcomingCount = upcomingTabTickets.length
   const backlogCount = backlogSorted.length + pausedSorted.length
   const inQueueCount = inQueueTickets.length
+
+  // In Queue unseen badge — persisted in localStorage, cleared when the tab is visited
+  const [inQueueSeenAt, setInQueueSeenAt] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('mosaic_in_queue_seen_at')
+  })
+
+  useEffect(() => {
+    if (worksTab !== 'in_queue') return
+    const now = new Date().toISOString()
+    localStorage.setItem('mosaic_in_queue_seen_at', now)
+    setInQueueSeenAt(now)
+  }, [worksTab])
+
+  const inQueueNewCount = useMemo(() => {
+    if (!inQueueSeenAt) return inQueueCount
+    return inQueueTickets.filter((t) => t.created_at > inQueueSeenAt).length
+  }, [inQueueTickets, inQueueSeenAt, inQueueCount])
 
   const panelUrls = useMemo(
     () => (panelTicket?.urls ?? []).filter(Boolean) as string[],
@@ -1147,7 +1163,14 @@ export default function WorksPage() {
               onClick={() => setWorksTab(key)}
               className={`flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity ${worksTab === key ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
             >
-              {label}
+              <span className="relative">
+                {label}
+                {key === 'in_queue' && inQueueNewCount > 0 && (
+                  <span className="absolute -top-1 -right-3 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+                    {inQueueNewCount > 99 ? '99+' : inQueueNewCount}
+                  </span>
+                )}
+              </span>
               <span className="mt-1 text-sm font-medium">{count}</span>
             </button>
           ))}

@@ -711,6 +711,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                                 timeZone={profile?.timezone ?? null}
                                 onCommit={async (iso) => { setCheckpointIso(iso); setSelectedSlot(null) }}
                                 onRequestClose={() => {}}
+                                commitOnChange
                               />
                             </div>
                             {checkpointPreview && (
