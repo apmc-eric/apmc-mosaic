@@ -28,11 +28,8 @@ type PhaseDotStyle =
   | { kind: 'solid'; className: string }
   | { kind: 'triangle' }
   | { kind: 'pause' }
+  | { kind: 'completed' }
 
-/**
- * Opinionated visuals per Figma **WorkflowPhaseTag** (node `199:1197`).
- * Replace with a DB-driven map when `WORKSPACE_PHASE_CUSTOMIZATION_ENABLED` ships.
- */
 export const WORKFLOW_PHASE_TAG_DOT: Record<StandardWorkflowPhase, PhaseDotStyle> = {
   Triage: { kind: 'triangle' },
   Backlog: {
@@ -42,7 +39,7 @@ export const WORKFLOW_PHASE_TAG_DOT: Record<StandardWorkflowPhase, PhaseDotStyle
   Concept: { kind: 'solid', className: 'bg-orange-400' },
   Design: { kind: 'solid', className: 'bg-blue-600' },
   Build: { kind: 'solid', className: 'bg-green-600' },
-  [COMPLETED_PHASE_LABEL]: { kind: 'solid', className: 'bg-zinc-500 dark:bg-zinc-400' },
+  [COMPLETED_PHASE_LABEL]: { kind: 'completed' },
   [PAUSED_PHASE_LABEL]: { kind: 'pause' },
 }
 
@@ -74,6 +71,15 @@ function PhaseMarker({ dot }: { dot: PhaseDotStyle }) {
       </span>
     )
   }
+  if (dot.kind === 'completed') {
+    return (
+      <span className="inline-flex size-2 shrink-0 items-center justify-center rounded-full bg-black dark:bg-white" aria-hidden>
+        <svg viewBox="0 0 6 6" className="size-[6px]" fill="none" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M1 3l1.5 1.5L5 2" />
+        </svg>
+      </span>
+    )
+  }
   return (
     <span
       className={cn('size-2 shrink-0 rounded-[8px]', dot.className)}
@@ -93,6 +99,7 @@ export function WorkflowPhaseTag({ phase, className, 'data-node-id': dataNodeId 
   const canonical = normalizeToStandardPhase(phase)
   const dot = canonical ? WORKFLOW_PHASE_TAG_DOT[canonical] : FALLBACK_DOT
   const label = canonical ?? phase.trim()
+  const isCompleted = dot.kind === 'completed'
 
   return (
     <div
@@ -101,7 +108,14 @@ export function WorkflowPhaseTag({ phase, className, 'data-node-id': dataNodeId 
       className={cn('inline-flex items-center gap-1', className)}
     >
       <PhaseMarker dot={dot} />
-      <span className="font-mono text-mono-micro font-bold uppercase whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+      <span
+        className={cn(
+          'font-mono text-[10px] font-bold uppercase leading-4 tracking-[0.25px] whitespace-nowrap',
+          isCompleted
+            ? 'text-black dark:text-white'
+            : 'text-gray-500 dark:text-zinc-400',
+        )}
+      >
         {label || '—'}
       </span>
     </div>
