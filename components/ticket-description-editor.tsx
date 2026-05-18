@@ -8,6 +8,7 @@ import {
   looksLikeUrl,
   sanitizeDescriptionHtml,
 } from '@/lib/sanitize-ticket-description-html'
+import { uploadTicketImage } from '@/lib/upload-ticket-image'
 import * as ReactDOM from 'react-dom'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { ExternalLink } from 'lucide-react'
@@ -216,6 +217,38 @@ export function TicketDescriptionEditor({
     if (!canEdit || (!compose && !editing)) return
     const root = ref.current
     if (!root) return
+
+    // Image paste: upload to Supabase Storage and insert <img> tag
+    const imageItem = Array.from(e.clipboardData.items).find(
+      (item) => item.kind === 'file' && item.type.startsWith('image/'),
+    )
+    if (imageItem) {
+      const file = imageItem.getAsFile()
+      if (file) {
+        e.preventDefault()
+        uploadTicketImage(file).then((result) => {
+          if (!result.ok) return
+          const img = document.createElement('img')
+          img.src = result.url
+          img.style.maxWidth = '100%'
+          img.style.borderRadius = '6px'
+          const sel = window.getSelection()
+          if (sel && sel.rangeCount > 0 && root.contains(sel.anchorNode)) {
+            const range = sel.getRangeAt(0)
+            range.deleteContents()
+            range.insertNode(img)
+            range.setStartAfter(img)
+            range.collapse(true)
+            sel.removeAllRanges()
+            sel.addRange(range)
+          } else {
+            root.appendChild(img)
+          }
+          scheduleSave()
+        })
+        return
+      }
+    }
 
     const clipSel = window.getSelection()
     if (clipSel && clipSel.rangeCount > 0) {

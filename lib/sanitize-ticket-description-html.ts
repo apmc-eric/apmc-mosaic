@@ -16,6 +16,7 @@ const ALLOWED_TAGS = new Set([
   'ul',
   'ol',
   'li',
+  'img',
 ])
 
 function escapeHtml(s: string): string {
@@ -74,6 +75,16 @@ function walkClean(root: ParentNode) {
           if (attr.name !== 'href' && attr.name !== 'rel' && attr.name !== 'target') {
             el.removeAttribute(attr.name)
           }
+        }
+      } else if (tag === 'img') {
+        const src = el.getAttribute('src') ?? ''
+        if (!/^https?:\/\//i.test(src)) {
+          el.parentNode?.removeChild(el)
+          continue
+        }
+        const keepAttrs = new Set(['src', 'alt', 'style'])
+        for (const attr of [...el.attributes]) {
+          if (!keepAttrs.has(attr.name)) el.removeAttribute(attr.name)
         }
       } else {
         for (const attr of [...el.attributes]) {

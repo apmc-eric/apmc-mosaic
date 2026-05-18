@@ -53,12 +53,16 @@ import {
 import { TicketCard } from '@/components/ticket-card'
 import { TimelineIndicator } from '@/components/timeline-indicator'
 import { WorksCollaboratorView } from '@/components/works-collaborator-view'
+import { WorksDesignerBoard } from '@/components/works-designer-board'
+import { TicketPhaseNoteModal } from '@/components/ticket-phase-note-modal'
 import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { Plus, Trash2 } from 'lucide-react'
 import { DesignerProfileRow } from '@/components/designer-profile-row'
 import { toast } from 'sonner'
 import { TicketIDLabel } from '@/components/ticket-id-label'
+import type { DesignerBucket, TicketDesignerBucket } from '@/lib/types'
+import { isUnscopedPhaseLabel } from '@/lib/mosaic-project-phases'
 
 const supabase = createClient()
 
@@ -115,7 +119,9 @@ function insertCompletedBeforePausedForStatus(phases: string[]): string[] {
   return [...phases.slice(0, pi), COMPLETED_PHASE_LABEL, ...phases.slice(pi)]
 }
 
-type WorksTab = 'current' | 'upcoming' | 'backlog' | 'in_queue'
+type WorksTab = 'work' | 'team' | 'unscoped' | 'in_queue'
+
+const PHASE_NOTE_TRIGGERS = ['Build', 'Completed', 'Paused']
 
 type MonthGroup = {
   key: string
@@ -196,7 +202,14 @@ export default function WorksPage() {
     title: string
   } | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
-  const [worksTab, setWorksTab] = useState<WorksTab>('current')
+  const [worksTab, setWorksTab] = useState<WorksTab>('work')
+  const [viewingDesignerId, setViewingDesignerId] = useState<string | null>(null)
+  const [designerBuckets, setDesignerBuckets] = useState<TicketDesignerBucket[]>([])
+  const [bucketsLoading, setBucketsLoading] = useState(false)
+  const [phaseNoteModal, setPhaseNoteModal] = useState<{
+    targetPhase: string
+    onConfirm: (note: string) => void
+  } | null>(null)
 
   const load = useCallback(async () => {
     if (!profile?.id) {
@@ -255,8 +268,31 @@ export default function WorksPage() {
   useEffect(() => {
     if (!profile?.id) return
     if (profile.role !== 'designer') return
-    setFilterDesignerIds((prev) => (prev.length === 0 ? [profile.id] : prev))
-  }, [profile?.id, profile.role])
+    const selfId = profile.id
+    setFilterDesignerIds((prev) => (prev.length === 0 ? [selfId] : prev))
+  }, [profile?.id, profile?.role])
+
+  // Auto-set viewing designer: self if designer, first workspace designer if admin
+  useEffect(() => {
+    if (!profile?.id) return
+    if (viewingDesignerId) return
+    if (profile.role === 'designer') {
+      setViewingDesignerId(profile.id)
+    } else if (isAdmin && workspaceDesigners.length > 0) {
+      setViewingDesignerId(workspaceDesigners[0]!.id)
+    }
+  }, [profile?.id, profile?.role, isAdmin, workspaceDesigners, viewingDesignerId])
+
+  // Load buckets when viewing designer changes
+  useEffect(() => {
+    if (!viewingDesignerId) return
+    setBucketsLoading(true)
+    fetch(`/api/works/buckets?designer_id=${viewingDesignerId}`, { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then(({ buckets }) => { if (buckets) setDesignerBuckets(buckets as TicketDesignerBucket[]) })
+      .catch(() => {})
+      .finally(() => setBucketsLoading(false))
+  }, [viewingDesignerId])
 
   useEffect(() => {
     void supabase
@@ -689,11 +725,10 @@ export default function WorksPage() {
     [profile?.id, panelTicket, panelLogChange, load],
   )
 
-  const commitPanelPhase = useCallback(
-    async (phase: string) => {
+  const applyPanelPhase = useCallback(
+    async (phase: string, note: string) => {
       if (!profile?.id || !panelTicket?.id) return
       const prev = panelTicket.phase
-      if (prev === phase) return
       const { error } = await supabase
         .from('tickets')
         .update({ phase, updated_at: new Date().toISOString() })
@@ -704,8 +739,87 @@ export default function WorksPage() {
       }
       patchPanelTicket(panelTicket.id, { phase })
       await panelLogChange('phase', prev, phase)
+      if (note.trim()) {
+        const res = await fetch(`/api/tickets/${panelTicket.id}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: note.trim() }),
+        })
+        const json = await res.json()
+        if (res.ok && json.comment) {
+          const row = json.comment as TicketComment
+          const withProfile: TicketComment = row.profile != null ? row : {
+            ...row,
+            profile: {
+              id: profile.id,
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+              name: profile.name ?? null,
+              avatar_url: profile.avatar_url,
+              role: profile.role,
+              email: profile.email,
+              timezone: profile.timezone ?? null,
+            },
+          }
+          setPanelComments((c) => [...c, withProfile])
+        }
+      }
     },
-    [profile?.id, panelTicket?.id, panelTicket?.phase, panelLogChange, patchPanelTicket]
+    [profile, panelTicket, panelLogChange, patchPanelTicket],
+  )
+
+  const commitPanelPhase = useCallback(
+    async (phase: string) => {
+      if (!profile?.id || !panelTicket?.id) return
+      const prev = panelTicket.phase
+      if (prev === phase) return
+      const triggers = PHASE_NOTE_TRIGGERS.map((p) => p.toLowerCase())
+      if (triggers.includes(phase.toLowerCase())) {
+        setPhaseNoteModal({
+          targetPhase: phase,
+          onConfirm: (note) => {
+            setPhaseNoteModal(null)
+            void applyPanelPhase(phase, note)
+          },
+        })
+        return
+      }
+      await applyPanelPhase(phase, '')
+    },
+    [profile?.id, panelTicket?.id, panelTicket?.phase, applyPanelPhase]
+  )
+
+  const handleCommentImagePaste = useCallback(
+    async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const imageItem = Array.from(e.clipboardData.items).find(
+        (item) => item.kind === 'file' && item.type.startsWith('image/'),
+      )
+      if (!imageItem) return
+      const file = imageItem.getAsFile()
+      if (!file) return
+      e.preventDefault()
+      const { uploadTicketImage } = await import('@/lib/upload-ticket-image')
+      const result = await uploadTicketImage(file)
+      if (!result.ok) {
+        toast.error(result.error ?? 'Image upload failed')
+        return
+      }
+      setPanelCommentDraft((d) => d + `![](${result.url})`)
+    },
+    [],
+  )
+
+  const handleBucketsChange = useCallback(
+    async (updates: Array<{ ticket_id: string; bucket: DesignerBucket; order_index: number }>) => {
+      if (!viewingDesignerId) return
+      await fetch('/api/works/buckets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ updates }),
+      })
+    },
+    [viewingDesignerId],
   )
 
   const commitPanelCategories = useCallback(
@@ -925,9 +1039,9 @@ export default function WorksPage() {
     [backlogSorted, displayTz],
   )
 
-  // In Queue tab: all Triage tickets split by current Sun–Sat week (uses created_at)
+  // In Queue: Triage tickets + null/empty phase (Slack submissions)
   const inQueueTickets = useMemo(() => {
-    const list = tickets.filter(isTriagePhase)
+    const list = tickets.filter((t) => isTriagePhase(t) || !t.phase?.trim())
     const q = filterSearch.trim().toLowerCase()
     if (!q) return list
     return list.filter((t) => {
@@ -936,6 +1050,23 @@ export default function WorksPage() {
       return title.includes(q) || tid.includes(q)
     })
   }, [tickets, filterSearch])
+
+  // Unscoped tab: Triage / Backlog / Unscoped phase tickets
+  const unscopedTickets = useMemo(() => {
+    const list = tickets.filter((t) => isUnscopedPhaseLabel(t.phase))
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [tickets])
+
+  // Set of ticket IDs assigned to the viewing designer
+  const viewingDesignerAssignedIds = useMemo(() => {
+    if (!viewingDesignerId) return new Set<string>()
+    return new Set(
+      tickets
+        .filter((t) => (t.assignees ?? []).some((a) => a.user_id === viewingDesignerId))
+        .map((t) => t.id),
+    )
+  }, [tickets, viewingDesignerId])
 
   const inQueueWeekBounds = useMemo(() => {
     const now = new Date()
@@ -1010,8 +1141,6 @@ export default function WorksPage() {
         key={t.id}
         ticketId={t.ticket_id}
         title={t.title}
-        checkpointDate={t.checkpoint_date}
-        createdAt={t.created_at}
         phase={t.phase}
         tagPills={categoryPills}
         assignees={assignees}
@@ -1131,14 +1260,14 @@ export default function WorksPage() {
         <div className="flex items-baseline gap-8">
           {(
             [
-              { key: 'current' as WorksTab, label: 'Current', count: currentCount },
-              { key: 'upcoming' as WorksTab, label: 'Upcoming', count: upcomingCount },
-              { key: 'backlog' as WorksTab, label: 'Backlog', count: backlogCount },
-              ...(isAdmin || viewRole === 'designer'
-                ? [{ key: 'in_queue' as WorksTab, label: 'In Queue', count: inQueueCount }]
+              { key: 'work' as WorksTab, label: 'Work', count: null },
+              { key: 'team' as WorksTab, label: 'Team', count: null },
+              { key: 'unscoped' as WorksTab, label: 'Unscoped', count: unscopedTickets.length },
+              ...(inQueueCount > 0
+                ? [{ key: 'in_queue' as WorksTab, label: 'In Queue', count: inQueueCount, badge: true }]
                 : []),
             ]
-          ).map(({ key, label, count }) => (
+          ).map(({ key, label, count, badge }) => (
             <button
               key={key}
               type="button"
@@ -1146,15 +1275,13 @@ export default function WorksPage() {
               className={`flex items-start gap-1 text-4xl font-semibold tracking-tight transition-opacity ${worksTab === key ? 'opacity-100' : 'opacity-20 hover:opacity-40'}`}
             >
               {label}
-              {key === 'in_queue' ? (
-                inQueueCount > 0 && (
-                  <span className="mt-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
-                    {inQueueCount > 99 ? '99+' : inQueueCount}
-                  </span>
-                )
-              ) : (
+              {badge ? (
+                <span className="mt-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
+                  {count! > 99 ? '99+' : count}
+                </span>
+              ) : count !== null ? (
                 <span className="mt-1 text-sm font-medium">{count}</span>
-              )}
+              ) : null}
             </button>
           ))}
         </div>
@@ -1165,104 +1292,140 @@ export default function WorksPage() {
       </div>
 
       <div className="w-full px-6 pb-16">
-        {/* Filter row: designer avatars (left col) + filter chips (right) */}
-        <div className="grid w-full grid-cols-12 gap-x-8 pb-6">
-          <div className="col-span-12 md:col-span-2">
-            <DesignerProfileRow
-              designers={workspaceDesigners}
-              selectedIds={filterDesignerIds}
-              onFaceClick={(id) =>
-                setFilterDesignerIds((prev) =>
-                  prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-                )
-              }
-            />
+        {/* Filter row per tab */}
+        {(worksTab === 'work' || worksTab === 'team') && (
+          <div className="flex items-center gap-4 pb-6">
+            <select
+              value={viewingDesignerId ?? ''}
+              onChange={(e) => setViewingDesignerId(e.target.value || null)}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Select designer"
+            >
+              {workspaceDesigners.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.first_name && d.last_name
+                    ? `${d.first_name} ${d.last_name}`
+                    : d.name ?? d.email ?? d.id}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="col-span-12 min-w-0 md:col-span-10">
+        )}
+
+        {worksTab === 'unscoped' && isAdmin && (
+          <div className="grid w-full grid-cols-12 gap-x-8 pb-6">
+            <div className="col-span-12 md:col-span-2">
+              <DesignerProfileRow
+                designers={workspaceDesigners}
+                selectedIds={filterDesignerIds}
+                onFaceClick={(id) =>
+                  setFilterDesignerIds((prev) =>
+                    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+                  )
+                }
+              />
+            </div>
+            <div className="col-span-12 min-w-0 md:col-span-10">
+              <WorksFilterBar
+                searchQuery={filterSearch}
+                onSearchChange={setFilterSearch}
+                projects={projects}
+                selectedProjectIds={filterProjectIds}
+                onProjectsChange={setFilterProjectIds}
+                phaseOptions={boardStatusPhaseOptions}
+                selectedPhases={filterPhases}
+                onPhasesChange={setFilterPhases}
+                categoryOptions={workspaceSettings?.team_categories ?? []}
+                selectedCategories={filterCategories}
+                onCategoriesChange={setFilterCategories}
+                designers={workspaceDesigners}
+                selectedDesignerIds={filterDesignerIds}
+                onDesignersChange={setFilterDesignerIds}
+                submitters={submitterProfiles}
+                selectedSubmitterIds={filterSubmitterIds}
+                onSubmittersChange={setFilterSubmitterIds}
+                hideDesigners
+              />
+            </div>
+          </div>
+        )}
+
+        {worksTab === 'in_queue' && (
+          <div className="pb-6">
             <WorksFilterBar
               searchQuery={filterSearch}
               onSearchChange={setFilterSearch}
-              projects={projects}
-              selectedProjectIds={filterProjectIds}
-              onProjectsChange={setFilterProjectIds}
-              phaseOptions={boardStatusPhaseOptions}
-              selectedPhases={filterPhases}
-              onPhasesChange={setFilterPhases}
-              categoryOptions={workspaceSettings?.team_categories ?? []}
-              selectedCategories={filterCategories}
-              onCategoriesChange={setFilterCategories}
-              designers={workspaceDesigners}
-              selectedDesignerIds={filterDesignerIds}
-              onDesignersChange={setFilterDesignerIds}
-              submitters={submitterProfiles}
-              selectedSubmitterIds={filterSubmitterIds}
-              onSubmittersChange={setFilterSubmitterIds}
+              projects={[]}
+              selectedProjectIds={[]}
+              onProjectsChange={() => {}}
+              phaseOptions={[]}
+              selectedPhases={[]}
+              onPhasesChange={() => {}}
+              categoryOptions={[]}
+              selectedCategories={[]}
+              onCategoriesChange={() => {}}
+              designers={[]}
+              selectedDesignerIds={[]}
+              onDesignersChange={() => {}}
+              submitters={[]}
+              selectedSubmitterIds={[]}
+              onSubmittersChange={() => {}}
               hideDesigners
             />
           </div>
-        </div>
+        )}
 
         <div className="w-full space-y-10">
           {loading ? (
             <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading tickets…</div>
           ) : (
             <>
-              {/* ── Current tab ── */}
-              {worksTab === 'current' && (
-                <>
-                  {sectionRow('Needs Review', 'TRIAGE', needsReviewSorted, 'Needs review')}
-                  {sectionRow('Needs Update', 'Passed Checkpoints', needsUpdateSorted, 'Needs update')}
-                  {sectionRow('This Week', scheduleLabels.thisWeek, thisWeekSorted)}
-                  {sectionRow('Next Week', scheduleLabels.nextWeek, nextWeekSorted)}
-                  {sectionRow('Unscheduled', null, unscheduledSorted, 'Unscheduled tickets')}
-                  {currentCount === 0 && (
-                    <p className="py-16 text-center text-muted-foreground">
-                      {tickets.length === 0
-                        ? 'No tickets yet. Create a project in Admin settings, then submit a ticket.'
-                        : 'No active tickets in this filter.'}
-                    </p>
-                  )}
-                </>
+              {/* ── Work tab ── */}
+              {worksTab === 'work' && (
+                bucketsLoading ? (
+                  <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
+                ) : viewingDesignerId ? (
+                  <WorksDesignerBoard
+                    tickets={tickets}
+                    buckets={designerBuckets}
+                    assignedTicketIds={viewingDesignerAssignedIds}
+                    displayTimeZone={profile?.timezone ?? null}
+                    onTicketClick={(t) => setPanelTicket(t)}
+                    onBucketsChange={(updates) => void handleBucketsChange(updates)}
+                  />
+                ) : (
+                  <p className="py-16 text-center text-muted-foreground">Select a designer above.</p>
+                )
               )}
 
-              {/* ── Upcoming tab ── */}
-              {worksTab === 'upcoming' && (
-                <>
-                  {upcomingByMonth.map(({ key, monthLabel, dateRange, tickets: grpTickets }) => (
-                    <section key={key} className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start">
-                      <div className="col-span-12 md:col-span-2">
-                        <TimelineIndicator heading={monthLabel} dateRange={dateRange} />
-                      </div>
-                      <div className="col-span-12 min-w-0 md:col-span-10">
-                        {cardGrid(grpTickets)}
-                      </div>
-                    </section>
-                  ))}
-                  {upcomingCount === 0 && (
-                    <p className="py-16 text-center text-muted-foreground">No upcoming tickets beyond the next two weeks.</p>
-                  )}
-                </>
+              {/* ── Team tab (read-only) ── */}
+              {worksTab === 'team' && (
+                bucketsLoading ? (
+                  <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
+                ) : viewingDesignerId ? (
+                  <WorksDesignerBoard
+                    tickets={tickets}
+                    buckets={designerBuckets}
+                    assignedTicketIds={viewingDesignerAssignedIds}
+                    readOnly
+                    displayTimeZone={profile?.timezone ?? null}
+                    onTicketClick={(t) => setPanelTicket(t)}
+                    onBucketsChange={() => {}}
+                  />
+                ) : (
+                  <p className="py-16 text-center text-muted-foreground">Select a designer above.</p>
+                )
               )}
 
-              {/* ── Backlog tab ── */}
-              {worksTab === 'backlog' && (
+              {/* ── Unscoped tab ── */}
+              {worksTab === 'unscoped' && (
                 <>
-                  {sectionRow('Paused', 'ON HOLD', pausedSorted, 'Paused tickets')}
-                  {backlogByMonth.map(({ key, monthLabel, dateRange, tickets: grpTickets }) => (
-                    <section key={key} className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start">
-                      <div className="col-span-12 md:col-span-2">
-                        <TimelineIndicator heading={monthLabel} dateRange={dateRange} />
-                      </div>
-                      <div className="col-span-12 min-w-0 md:col-span-10">
-                        {cardGrid(grpTickets)}
-                      </div>
-                    </section>
-                  ))}
-                  {completedSectionTickets.length > 0 && (
-                    sectionRow('Completed', null, completedSectionTickets, 'Completed tickets')
-                  )}
-                  {backlogCount === 0 && completedSectionTickets.length === 0 && (
-                    <p className="py-16 text-center text-muted-foreground">No backlog tickets.</p>
+                  {unscopedTickets.length > 0 ? (
+                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+                      {unscopedTickets.map(renderCard)}
+                    </div>
+                  ) : (
+                    <p className="py-16 text-center text-muted-foreground">No unscoped tickets.</p>
                   )}
                 </>
               )}
@@ -1273,7 +1436,7 @@ export default function WorksPage() {
                   {sectionRow('This week', inQueueWeekLabel, inQueueThisWeek, 'This week')}
                   {sectionRow('All others', null, inQueueAllOthers, 'All others')}
                   {inQueueCount === 0 && (
-                    <p className="py-16 text-center text-muted-foreground">No tickets in triage.</p>
+                    <p className="py-16 text-center text-muted-foreground">No tickets in queue.</p>
                   )}
                 </>
               )}
@@ -1281,6 +1444,13 @@ export default function WorksPage() {
           )}
         </div>
       </div>
+
+      <TicketPhaseNoteModal
+        open={!!phaseNoteModal}
+        targetPhase={phaseNoteModal?.targetPhase ?? ''}
+        onConfirm={(note) => phaseNoteModal?.onConfirm(note)}
+        onCancel={() => setPhaseNoteModal(null)}
+      />
 
       <TicketSubmitModal
         open={submitOpen}
@@ -1451,6 +1621,7 @@ export default function WorksPage() {
                             variant="embedded"
                             value={panelCommentDraft}
                             onChange={(e) => setPanelCommentDraft(e.target.value)}
+                            onPaste={(e) => void handleCommentImagePaste(e)}
                             onKeyDown={(e) => {
                               if (e.key !== 'Enter' || commentPosting) return
                               if (e.metaKey || e.ctrlKey) {

@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { CalendarCheck, ChevronDown, CircleUser, Layers, Tags, Undo2, Users } from 'lucide-react'
+import { CalendarCheck, ChevronDown, Layers, Tags, Undo2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -132,7 +132,7 @@ export function WorksTicketPanelMetadata({
   assigneePickerDesigners,
   onAssigneesCommit,
   assigneeSaving = false,
-  hideCheckpointRow = false,
+  hideCheckpointRow = true,
   actionStyle = 'panel',
   hidePhaseRow = false,
   metadataLayout = 'panel',
@@ -269,11 +269,6 @@ export function WorksTicketPanelMetadata({
     const s = parseCategoryCsv(teamCategory)
     return s.size > 0 ? [...s].sort() : []
   }, [teamCategory])
-
-  const driAssignee = React.useMemo(
-    () => designerAssignees?.find((a) => a.role === 'lead'),
-    [designerAssignees],
-  )
 
   return (
     <div className="flex w-full flex-col" data-name="Metadata" data-node-id="227:3402">
@@ -421,71 +416,6 @@ export function WorksTicketPanelMetadata({
           )}
         </div>
 
-        <div
-          className={cn(
-            'flex w-full items-center justify-between gap-2 border-t border-slate-200 dark:border-zinc-700',
-            rowPad,
-          )}
-        >
-          <div className="flex min-h-7 items-center gap-2 py-px">
-            <CircleUser className="size-4 shrink-0 text-neutral-500" aria-hidden />
-            <span className={cn('font-medium leading-snug text-neutral-500', labelClass)}>Directly responsible</span>
-          </div>
-          {canEdit && onAssigneesCommit && assigneePickerDesigners && assigneePickerDesigners.length > 0 ? (
-            <button
-              type="button"
-              className="flex max-w-[min(100%,16rem)] cursor-pointer items-center gap-1.5 rounded-md py-1 pl-1 pr-0.5 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-              aria-label="Edit directly responsible individual"
-              onClick={() => handleAssignOpenChange(true)}
-            >
-              {driAssignee?.profile ? (
-                <>
-                  <ProfileImage
-                    pathname={driAssignee.profile.avatar_url}
-                    alt={formatProfileLabel(driAssignee.profile) ?? 'DRI'}
-                    size="figma-md"
-                    className="size-6 shrink-0 ring-2 ring-white dark:ring-zinc-950"
-                    fallback={
-                      (driAssignee.profile.first_name?.[0] ??
-                        driAssignee.profile.email?.[0] ??
-                        '?').toUpperCase()
-                    }
-                    profile={driAssignee.profile}
-                    viewerTimeZone={displayTimeZone}
-                  />
-                  <span className="truncate text-xs font-semibold leading-snug text-foreground">
-                    {formatProfileLabel(driAssignee.profile)}
-                  </span>
-                  <ChevronDown className="size-4 shrink-0 text-neutral-500 opacity-70" aria-hidden />
-                </>
-              ) : (
-                <>
-                  <span className="text-xs font-semibold leading-snug text-foreground">—</span>
-                  <ChevronDown className="size-4 shrink-0 text-neutral-500 opacity-70" aria-hidden />
-                </>
-              )}
-            </button>
-          ) : driAssignee?.profile ? (
-            <div className="flex min-w-0 items-center gap-1.5 pr-1">
-              <ProfileImage
-                pathname={driAssignee.profile.avatar_url}
-                alt={formatProfileLabel(driAssignee.profile) ?? 'DRI'}
-                size="figma-md"
-                className="size-6 shrink-0"
-                fallback={
-                  (driAssignee.profile.first_name?.[0] ?? driAssignee.profile.email?.[0] ?? '?').toUpperCase()
-                }
-                profile={driAssignee.profile}
-                viewerTimeZone={displayTimeZone}
-              />
-              <span className="truncate text-xs font-semibold leading-snug text-foreground">
-                {formatProfileLabel(driAssignee.profile)}
-              </span>
-            </div>
-          ) : (
-            <span className="text-xs font-semibold leading-snug text-foreground">—</span>
-          )}
-        </div>
         </>
       ) : null}
 
