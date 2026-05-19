@@ -25,7 +25,7 @@ export function normalizePhaseLabel(phase: string | null | undefined): string {
 }
 
 /** Terminal / hold state — selectable in UI but excluded from linear “next phase” advance (`getNextPhaseLabel`). */
-export const PAUSED_PHASE_LABEL = 'Paused' as const
+export const PAUSED_PHASE_LABEL = 'Standby' as const
 
 /**
  * Terminal **done** state — **not** in manual phase `<Select>` lists except when already set.
@@ -58,7 +58,8 @@ function appendPausedOnce(phases: string[]): string[] {
 }
 
 export function isPausedPhaseLabel(phase: string | null | undefined): boolean {
-  return norm(phase ?? '') === norm(PAUSED_PHASE_LABEL)
+  const n = norm(phase ?? '')
+  return n === norm(PAUSED_PHASE_LABEL) || n === 'paused'
 }
 
 export function isCompletedPhaseLabel(phase: string | null | undefined): boolean {

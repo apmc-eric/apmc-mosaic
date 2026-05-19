@@ -121,7 +121,7 @@ function insertCompletedBeforePausedForStatus(phases: string[]): string[] {
 
 type WorksTab = 'work' | 'team' | 'unscoped' | 'in_queue'
 
-const PHASE_NOTE_TRIGGERS = ['Build', 'Completed', 'Paused']
+const PHASE_NOTE_TRIGGERS = ['Build', 'Completed', PAUSED_PHASE_LABEL]
 
 type MonthGroup = {
   key: string
@@ -812,6 +812,27 @@ export default function WorksPage() {
   const handleBucketsChange = useCallback(
     async (updates: Array<{ ticket_id: string; bucket: DesignerBucket; order_index: number }>) => {
       if (!viewingDesignerId) return
+      // Optimistic update so layout persists when switching tabs
+      setDesignerBuckets((prev) => {
+        const map = new Map(prev.map((b) => [b.ticket_id, b]))
+        for (const u of updates) {
+          const existing = map.get(u.ticket_id)
+          if (existing) {
+            map.set(u.ticket_id, { ...existing, bucket: u.bucket, order_index: u.order_index })
+          } else {
+            map.set(u.ticket_id, {
+              id: '',
+              designer_id: viewingDesignerId,
+              ticket_id: u.ticket_id,
+              bucket: u.bucket,
+              order_index: u.order_index,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+          }
+        }
+        return [...map.values()]
+      })
       await fetch('/api/works/buckets', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1058,15 +1079,31 @@ export default function WorksPage() {
     return list
   }, [tickets])
 
-  // Set of ticket IDs assigned to the viewing designer
+  // Active-phase tickets for Work/Team boards (Concept/Design/Build/Completed/Standby only)
+  const boardTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      const p = t.phase
+      if (!p || isUnscopedPhaseLabel(p) || isTriagePhase(t) || isBacklogPhase(t)) return false
+      return true
+    })
+  }, [tickets])
+
+  // Standby tickets for Unscoped tab secondary section
+  const standbyTickets = useMemo(() => {
+    const list = tickets.filter((t) => isPausedPhaseLabel(t.phase))
+    list.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    return list
+  }, [tickets])
+
+  // Set of ticket IDs assigned to the viewing designer (active phases only)
   const viewingDesignerAssignedIds = useMemo(() => {
     if (!viewingDesignerId) return new Set<string>()
     return new Set(
-      tickets
+      boardTickets
         .filter((t) => (t.assignees ?? []).some((a) => a.user_id === viewingDesignerId))
         .map((t) => t.id),
     )
-  }, [tickets, viewingDesignerId])
+  }, [boardTickets, viewingDesignerId])
 
   const inQueueWeekBounds = useMemo(() => {
     const now = new Date()
@@ -1403,7 +1440,7 @@ export default function WorksPage() {
                   <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
                 ) : viewingDesignerId ? (
                   <WorksDesignerBoard
-                    tickets={tickets}
+                    tickets={boardTickets}
                     buckets={designerBuckets}
                     assignedTicketIds={viewingDesignerAssignedIds}
                     displayTimeZone={profile?.timezone ?? null}
@@ -1421,7 +1458,7 @@ export default function WorksPage() {
                   <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
                 ) : viewingDesignerId ? (
                   <WorksDesignerBoard
-                    tickets={tickets}
+                    tickets={boardTickets}
                     buckets={designerBuckets}
                     assignedTicketIds={viewingDesignerAssignedIds}
                     readOnly
@@ -1436,15 +1473,13 @@ export default function WorksPage() {
 
               {/* ── Unscoped tab ── */}
               {worksTab === 'unscoped' && (
-                <>
-                  {unscopedTickets.length > 0 ? (
-                    <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
-                      {unscopedTickets.map(renderCard)}
-                    </div>
-                  ) : (
+                <div className="space-y-10">
+                  {sectionRow('Unscoped', null, unscopedTickets, 'Unscoped')}
+                  {sectionRow('Standby', null, standbyTickets, 'Standby')}
+                  {unscopedTickets.length === 0 && standbyTickets.length === 0 && (
                     <p className="py-16 text-center text-muted-foreground">No unscoped tickets.</p>
                   )}
-                </>
+                </div>
               )}
 
               {/* ── In Queue tab ── */}

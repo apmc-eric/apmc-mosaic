@@ -18,7 +18,7 @@ function norm(s: string) {
 export function normalizeToStandardPhase(phase: string): StandardWorkflowPhase | null {
   const n = norm(phase)
   if (isUnscopedPhaseLabel(phase)) return UNSCOPED_PHASE_LABEL
-  if (n === PAUSED_PHASE_LABEL.toLowerCase()) return PAUSED_PHASE_LABEL
+  if (n === PAUSED_PHASE_LABEL.toLowerCase() || n === 'paused') return PAUSED_PHASE_LABEL
   if (n === norm(COMPLETED_PHASE_LABEL)) return COMPLETED_PHASE_LABEL
   for (const p of DEFAULT_PHASE_PIPELINE) {
     if (p.toLowerCase() === n) return p
