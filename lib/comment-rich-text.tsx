@@ -1,15 +1,18 @@
 import * as React from 'react'
 
-const URL_RE = /https?:\/\/[^\s<>"']+/gi
-
-function splitUrls(text: string): { type: 'text' | 'url'; value: string }[] {
-  const out: { type: 'text' | 'url'; value: string }[] = []
+function splitSegments(text: string): { type: 'text' | 'url' | 'image'; value: string }[] {
+  const out: { type: 'text' | 'url' | 'image'; value: string }[] = []
+  // image tokens ![](url) take priority over bare URLs
+  const combined = /!\[\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"']+)/gi
   let last = 0
   let m: RegExpExecArray | null
-  const re = new RegExp(URL_RE.source, URL_RE.flags)
-  while ((m = re.exec(text)) !== null) {
+  while ((m = combined.exec(text)) !== null) {
     if (m.index > last) out.push({ type: 'text', value: text.slice(last, m.index) })
-    out.push({ type: 'url', value: m[0] })
+    if (m[1]) {
+      out.push({ type: 'image', value: m[1] })
+    } else {
+      out.push({ type: 'url', value: m[0] })
+    }
     last = m.index + m[0].length
   }
   if (last < text.length) out.push({ type: 'text', value: text.slice(last) })
@@ -92,8 +95,25 @@ function richNodes(tokens: RichToken[], keyBase: string): React.ReactNode[] {
 }
 
 export function commentBodyToReact(text: string): React.ReactNode {
-  const chunks = splitUrls(text)
+  const chunks = splitSegments(text)
   return chunks.map((c, i) => {
+    if (c.type === 'image') {
+      return (
+        <a
+          key={`img-${i}`}
+          href={c.value}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block"
+        >
+          <img
+            src={c.value}
+            alt="attachment"
+            style={{ maxWidth: 200, maxHeight: 200, display: 'block', borderRadius: 6 }}
+          />
+        </a>
+      )
+    }
     if (c.type === 'url') {
       return (
         <a

@@ -1,59 +1,18 @@
 'use client'
 
 import * as React from 'react'
-import { parseISO } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import { ExternalLink, Flag } from 'lucide-react'
 
 import { ProfileImage } from '@/components/profile-image'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { Badge } from '@/components/ui/badge'
-import { formatTicketCheckpointLabel } from '@/lib/format-ticket-checkpoint'
 import { formatProfileLabel } from '@/lib/format-profile'
 import { cn } from '@/lib/utils'
 import type { TicketAssigneeRow } from '@/lib/types'
 import { TicketCategoryTag } from '@/components/ticket-category-tag'
 
-function isCheckpointToday(checkpointDate: string, timeZone?: string | null): boolean {
-  try {
-    const date = parseISO(checkpointDate)
-    const tz = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
-    return (
-      formatInTimeZone(date, tz, 'yyyy-MM-dd') ===
-      formatInTimeZone(new Date(), tz, 'yyyy-MM-dd')
-    )
-  } catch {
-    return false
-  }
-}
-
-/** Returns the checkpoint label only when it falls on today in the viewer's timezone; null otherwise. */
-export function formatTicketCardScheduleLine(
-  checkpointDate: string | null,
-  createdAt: string,
-  timeZone?: string | null,
-): string {
-  if (checkpointDate && isCheckpointToday(checkpointDate, timeZone)) {
-    return formatTicketCheckpointLabel(checkpointDate, timeZone)
-  }
-  try {
-    const c = parseISO(createdAt)
-    if (Number.isNaN(c.getTime())) return '—'
-    const tz = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
-    return `Created ${formatInTimeZone(c, tz, 'MMM d, yyyy')}`
-  } catch {
-    return '—'
-  }
-}
-
-function showCheckpointHeader(checkpointDate: string | null, timeZone?: string | null): boolean {
-  return Boolean(checkpointDate && isCheckpointToday(checkpointDate, timeZone))
-}
-
 export type TicketCardProps = Omit<React.ComponentPropsWithoutRef<'button'>, 'children'> & {
   title: string
-  checkpointDate: string | null
-  createdAt: string
   phase: string
   /** Category chips only; omitted when empty. */
   tagPills?: string[]
@@ -63,8 +22,12 @@ export type TicketCardProps = Omit<React.ComponentPropsWithoutRef<'button'>, 'ch
   flagLabel?: string | null
   /** Read aloud for accessibility */
   ticketId: string
-  /** IANA zone for schedule / created line (viewer profile). */
+  /** IANA zone for assignee tooltips (viewer profile). */
   displayTimeZone?: string | null
+  /** When true, whole card is draggable (cursor-move), drag indicator shown on hover. */
+  draggable?: boolean
+  /** dnd-kit pointer/touch listeners — spread onto the card button when draggable. */
+  dragListeners?: React.HTMLAttributes<HTMLElement>
 }
 
 export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
@@ -72,8 +35,6 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
     {
       className,
       title,
-      checkpointDate,
-      createdAt,
       phase,
       tagPills = [],
       assignees,
@@ -81,6 +42,8 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
       flagLabel,
       ticketId,
       displayTimeZone,
+      draggable = false,
+      dragListeners,
       type = 'button',
       ...props
     },
@@ -88,10 +51,6 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
   ) => {
     const showFlag = Boolean(flagLabel && flagLabel !== 'standard')
     const categoryPills = tagPills.map((s) => s.trim()).filter(Boolean)
-    const hasCheckpointHeader = showCheckpointHeader(checkpointDate, displayTimeZone)
-    const checkpointLabel = hasCheckpointHeader
-      ? formatTicketCheckpointLabel(checkpointDate!, displayTimeZone)
-      : null
 
     return (
       <button
@@ -100,12 +59,14 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         data-name="TicketCard"
         data-node-id="199:1222"
         className={cn(
-          'group relative z-0 flex h-[160px] w-full cursor-pointer flex-col overflow-hidden rounded-[10px] border-[1.5px] border-black/10 bg-white text-left transition-[border-color] duration-150 ease-out motion-reduce:transition-none',
+          'group relative z-0 flex h-[160px] w-full flex-col overflow-hidden rounded-[10px] border border-black/10 bg-white text-left transition-[border-color] duration-150 ease-out motion-reduce:transition-none',
+          draggable ? 'cursor-move' : 'cursor-pointer',
           'hover:z-[2] hover:border-neutral-900',
           'dark:bg-zinc-900 dark:border-zinc-700 dark:hover:border-zinc-300',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           className,
         )}
+        {...(draggable && dragListeners ? dragListeners : {})}
         {...props}
       >
         <span className="sr-only">
@@ -122,12 +83,16 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
           </Badge>
         ) : null}
 
-        {/* Checkpoint header strip — only shown when checkpoint is today */}
-        {hasCheckpointHeader && (
-          <div className="shrink-0 bg-neutral-100 px-3.5 py-[7px] dark:bg-zinc-800" data-name="Header">
-            <p className="truncate text-[10px] leading-none text-zinc-500 dark:text-zinc-400">
-              {checkpointLabel}
-            </p>
+        {/* Drag indicator — two horizontal lines shown on hover when draggable */}
+        {draggable && (
+          <div
+            className="pointer-events-none absolute left-1/2 top-[7px] z-20 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 motion-reduce:transition-none"
+            aria-hidden
+          >
+            <div className="flex flex-col gap-[3px]">
+              <div className="h-[2px] w-4 rounded-full bg-neutral-300 dark:bg-zinc-500" />
+              <div className="h-[2px] w-4 rounded-full bg-neutral-300 dark:bg-zinc-500" />
+            </div>
           </div>
         )}
 
@@ -174,9 +139,9 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
           </div>
         </div>
 
-        {/* Hover CTA bar */}
+        {/* Hover CTA bar — cursor-pointer overrides card's cursor-move */}
         <div
-          className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black px-3.5 py-[10px] opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-pointer items-center justify-between bg-black px-3.5 py-[10px] opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:opacity-100 group-focus-visible:opacity-100"
           aria-hidden
           data-name="HoverCTA"
         >

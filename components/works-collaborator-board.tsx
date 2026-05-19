@@ -98,8 +98,6 @@ export function WorksCollaboratorBoard({
         key={t.id}
         ticketId={t.ticket_id}
         title={t.title}
-        checkpointDate={t.checkpoint_date}
-        createdAt={t.created_at}
         phase={t.phase}
         tagPills={categoryPills}
         assignees={assignees}

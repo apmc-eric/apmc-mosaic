@@ -196,6 +196,18 @@ export interface TicketComment {
   profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role' | 'email' | 'timezone'>
 }
 
+export type DesignerBucket = 'live_work' | 'deprioritized' | 'unfocused'
+
+export interface TicketDesignerBucket {
+  id: string
+  designer_id: string
+  ticket_id: string
+  bucket: DesignerBucket
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
 export interface AuditLogEntry {
   id: string
   ticket_id: string

@@ -4,7 +4,9 @@ import { cn } from '@/lib/utils'
 import {
   COMPLETED_PHASE_LABEL,
   DEFAULT_PHASE_PIPELINE,
+  isUnscopedPhaseLabel,
   PAUSED_PHASE_LABEL,
+  UNSCOPED_PHASE_LABEL,
   type StandardWorkflowPhase,
 } from '@/lib/mosaic-project-phases'
 
@@ -15,7 +17,8 @@ function norm(s: string) {
 /** Resolves stored phase text to a canonical pipeline label, or `null` if unknown (e.g. legacy custom). */
 export function normalizeToStandardPhase(phase: string): StandardWorkflowPhase | null {
   const n = norm(phase)
-  if (n === PAUSED_PHASE_LABEL.toLowerCase()) return PAUSED_PHASE_LABEL
+  if (isUnscopedPhaseLabel(phase)) return UNSCOPED_PHASE_LABEL
+  if (n === PAUSED_PHASE_LABEL.toLowerCase() || n === 'paused') return PAUSED_PHASE_LABEL
   if (n === norm(COMPLETED_PHASE_LABEL)) return COMPLETED_PHASE_LABEL
   for (const p of DEFAULT_PHASE_PIPELINE) {
     if (p.toLowerCase() === n) return p
@@ -31,8 +34,7 @@ type PhaseDotStyle =
   | { kind: 'completed' }
 
 export const WORKFLOW_PHASE_TAG_DOT: Record<StandardWorkflowPhase, PhaseDotStyle> = {
-  Triage: { kind: 'triangle' },
-  Backlog: {
+  [UNSCOPED_PHASE_LABEL]: {
     kind: 'ring',
     className: 'border border-neutral-400 bg-transparent dark:border-neutral-500',
   },

@@ -5,15 +5,27 @@ import type { Project } from '@/lib/types'
  * **Triage** is first — lightweight planning; downstream phases expect fuller ticket detail (templating later).
  */
 export const DEFAULT_PHASE_PIPELINE = [
-  'Triage',
-  'Backlog',
+  'Unscoped',
   'Concept',
   'Design',
   'Build',
 ] as const
 
+/** Legacy phase labels that map to 'Unscoped' in display. */
+export const UNSCOPED_ALIASES = ['Triage', 'Backlog'] as const
+export const UNSCOPED_PHASE_LABEL = 'Unscoped' as const
+
+export function isUnscopedPhaseLabel(phase: string | null | undefined): boolean {
+  const n = norm(phase ?? '')
+  return n === 'unscoped' || n === 'triage' || n === 'backlog'
+}
+
+export function normalizePhaseLabel(phase: string | null | undefined): string {
+  return isUnscopedPhaseLabel(phase) ? UNSCOPED_PHASE_LABEL : (phase ?? '')
+}
+
 /** Terminal / hold state — selectable in UI but excluded from linear “next phase” advance (`getNextPhaseLabel`). */
-export const PAUSED_PHASE_LABEL = 'Paused' as const
+export const PAUSED_PHASE_LABEL = 'Standby' as const
 
 /**
  * Terminal **done** state — **not** in manual phase `<Select>` lists except when already set.
@@ -46,7 +58,8 @@ function appendPausedOnce(phases: string[]): string[] {
 }
 
 export function isPausedPhaseLabel(phase: string | null | undefined): boolean {
-  return norm(phase ?? '') === norm(PAUSED_PHASE_LABEL)
+  const n = norm(phase ?? '')
+  return n === norm(PAUSED_PHASE_LABEL) || n === 'paused'
 }
 
 export function isCompletedPhaseLabel(phase: string | null | undefined): boolean {
@@ -58,14 +71,17 @@ export function isCompletedPhaseLabel(phase: string | null | undefined): boolean
  * legacy value not in the pipeline, it is prepended so Radix `value` stays valid until the user picks a standard phase.
  */
 export function phaseSelectOptions(currentPhase: string | undefined | null): string[] {
-  const base = appendPausedOnce([...DEFAULT_PHASE_PIPELINE])
+  const base = appendCompletedBeforePaused(appendPausedOnce([...DEFAULT_PHASE_PIPELINE]))
   const cur = currentPhase?.trim()
-  if (!cur) return base
-  if (norm(cur) === norm(COMPLETED_PHASE_LABEL)) {
-    return appendPausedOnce([COMPLETED_PHASE_LABEL, ...DEFAULT_PHASE_PIPELINE])
-  }
-  if (base.some((p) => norm(p) === norm(cur))) return base
-  return appendPausedOnce([cur, ...DEFAULT_PHASE_PIPELINE])
+  if (!cur || isUnscopedPhaseLabel(cur) || base.some((p) => norm(p) === norm(cur))) return base
+  return appendCompletedBeforePaused(appendPausedOnce([cur, ...DEFAULT_PHASE_PIPELINE]))
+}
+
+function appendCompletedBeforePaused(phases: string[]): string[] {
+  if (phases.some((p) => norm(p) === norm(COMPLETED_PHASE_LABEL))) return phases
+  const pi = phases.findIndex((p) => norm(p) === norm(PAUSED_PHASE_LABEL))
+  if (pi === -1) return [...phases, COMPLETED_PHASE_LABEL]
+  return [...phases.slice(0, pi), COMPLETED_PHASE_LABEL, ...phases.slice(pi)]
 }
 
 /** Phase lists in workspace_settings are keyed by team id; projects expose access via team_access. */
