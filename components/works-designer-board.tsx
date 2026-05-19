@@ -3,6 +3,7 @@
 import * as React from 'react'
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   useDroppable,
   useSensor,
@@ -71,16 +72,14 @@ function DraggableTicketCard({
   displayTimeZone?: string | null
   onTicketClick: (t: Ticket) => void
 }) {
-  const { listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
+  const { listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: ticket.id })
 
-  // Apply transform directly to the element — the transform IS the exact pointer
-  // delta so the card follows the cursor with zero offset. No DragOverlay needed.
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    zIndex: isDragging ? 20 : undefined,
-    position: 'relative',
-  }
+  // When this card IS the active drag: hide it (DragOverlay shows the copy).
+  // Other items still receive their shift transforms from rectSortingStrategy.
+  const style: React.CSSProperties = isDragging
+    ? { opacity: 0, transition }
+    : { transform: CSS.Transform.toString(transform), transition, position: 'relative' }
 
   const assignees = (ticket.assignees ?? []).slice(0, 3)
   const overflow = Math.max(0, (ticket.assignees?.length ?? 0) - 3)
@@ -99,9 +98,7 @@ function DraggableTicketCard({
         flagLabel={ticket.flag}
         displayTimeZone={displayTimeZone}
         draggable
-        dragHandleProps={{ ...listeners }}
-        dragHandleRef={setActivatorNodeRef}
-        className={isDragging ? 'shadow-2xl rotate-[1.5deg] cursor-grabbing' : undefined}
+        dragListeners={listeners}
         onClick={() => { if (!isDragging) onTicketClick(ticket) }}
       />
     </div>
@@ -232,6 +229,7 @@ export function WorksDesignerBoard({
   const layoutRef = React.useRef(layout)
   layoutRef.current = layout
 
+  const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
   const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
 
   // distance:1 activates on first movement so the grab point matches the click
@@ -241,10 +239,16 @@ export function WorksDesignerBoard({
   )
 
   function handleDragStart({ active }: DragStartEvent) {
-    dragOriginBucket.current = bucketOf(active.id as string, layoutRef.current)
+    const origin = bucketOf(active.id as string, layoutRef.current)
+    dragOriginBucket.current = origin
+    if (origin) {
+      const t = layoutRef.current[origin].find((t) => t.id === active.id) ?? null
+      setActiveTicket(t)
+    }
   }
 
   function handleDragEnd({ active, over }: DragEndEvent) {
+    setActiveTicket(null)
     const originBucket = dragOriginBucket.current
     dragOriginBucket.current = null
 
@@ -288,6 +292,11 @@ export function WorksDesignerBoard({
     ])
   }
 
+  const overlayAssignees = (activeTicket?.assignees ?? []).slice(0, 3)
+  const overlayOverflow = Math.max(0, (activeTicket?.assignees?.length ?? 0) - 3)
+  const overlayCategoryPills =
+    activeTicket?.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
+
   return (
     <DndContext
       sensors={sensors}
@@ -307,6 +316,22 @@ export function WorksDesignerBoard({
           />
         ))}
       </div>
+
+      <DragOverlay dropAnimation={null}>
+        {activeTicket ? (
+          <TicketCard
+            ticketId={activeTicket.ticket_id}
+            title={activeTicket.title}
+            phase={activeTicket.phase}
+            tagPills={overlayCategoryPills}
+            assignees={overlayAssignees}
+            assigneeOverflow={overlayOverflow}
+            flagLabel={activeTicket.flag}
+            displayTimeZone={displayTimeZone}
+            className="shadow-2xl rotate-[1.5deg] cursor-grabbing"
+          />
+        ) : null}
+      </DragOverlay>
     </DndContext>
   )
 }

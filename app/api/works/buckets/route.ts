@@ -80,13 +80,24 @@ export async function PATCH(req: NextRequest) {
   if (authErr || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
+    designer_id?: string
     updates?: Array<{ ticket_id: string; bucket: DesignerBucket; order_index: number }>
   }
   const updates = body.updates ?? []
   if (!updates.length) return NextResponse.json({ ok: true })
 
+  // Allow admins to save buckets on behalf of another designer
+  let targetDesignerId = user.id
+  if (body.designer_id && body.designer_id !== user.id) {
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+    if (profile?.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    targetDesignerId = body.designer_id
+  }
+
   const rows = updates.map((u) => ({
-    designer_id: user.id,
+    designer_id: targetDesignerId,
     ticket_id: u.ticket_id,
     bucket: u.bucket,
     order_index: u.order_index,

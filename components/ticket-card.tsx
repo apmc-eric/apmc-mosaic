@@ -24,12 +24,10 @@ export type TicketCardProps = Omit<React.ComponentPropsWithoutRef<'button'>, 'ch
   ticketId: string
   /** IANA zone for assignee tooltips (viewer profile). */
   displayTimeZone?: string | null
-  /** When true, shows the drag handle indicator on hover (Works page). */
+  /** When true, whole card is draggable (cursor-move), drag indicator shown on hover. */
   draggable?: boolean
-  /** Forwarded from dnd-kit drag handle — attach to the grip element. */
-  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>
-  /** setActivatorNodeRef from useSortable — tells dnd-kit the exact grab point. */
-  dragHandleRef?: React.Ref<HTMLDivElement>
+  /** dnd-kit pointer/touch listeners — spread onto the card button when draggable. */
+  dragListeners?: React.HTMLAttributes<HTMLElement>
 }
 
 export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
@@ -45,8 +43,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
       ticketId,
       displayTimeZone,
       draggable = false,
-      dragHandleProps,
-      dragHandleRef,
+      dragListeners,
       type = 'button',
       ...props
     },
@@ -62,12 +59,14 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         data-name="TicketCard"
         data-node-id="199:1222"
         className={cn(
-          'group relative z-0 flex h-[160px] w-full cursor-pointer flex-col overflow-hidden rounded-[10px] border border-black/10 bg-white text-left transition-[border-color] duration-150 ease-out motion-reduce:transition-none',
+          'group relative z-0 flex h-[160px] w-full flex-col overflow-hidden rounded-[10px] border border-black/10 bg-white text-left transition-[border-color] duration-150 ease-out motion-reduce:transition-none',
+          draggable ? 'cursor-move' : 'cursor-pointer',
           'hover:z-[2] hover:border-neutral-900',
           'dark:bg-zinc-900 dark:border-zinc-700 dark:hover:border-zinc-300',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           className,
         )}
+        {...(draggable && dragListeners ? dragListeners : {})}
         {...props}
       >
         <span className="sr-only">
@@ -84,26 +83,15 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
           </Badge>
         ) : null}
 
-        {/* Drag handle — shown on hover when draggable */}
+        {/* Drag indicator — two horizontal lines shown on hover when draggable */}
         {draggable && (
           <div
-            ref={dragHandleRef}
-            {...dragHandleProps}
-            className="absolute left-1/2 top-2 z-20 -translate-x-1/2 cursor-grab opacity-0 transition-opacity duration-150 group-hover:opacity-100 motion-reduce:transition-none active:cursor-grabbing"
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Drag to reorder"
+            className="pointer-events-none absolute left-1/2 top-[7px] z-20 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 motion-reduce:transition-none"
+            aria-hidden
           >
             <div className="flex flex-col gap-[3px]">
-              <div className="flex gap-[3px]">
-                <div className="size-[3px] rounded-full bg-neutral-400" />
-                <div className="size-[3px] rounded-full bg-neutral-400" />
-                <div className="size-[3px] rounded-full bg-neutral-400" />
-              </div>
-              <div className="flex gap-[3px]">
-                <div className="size-[3px] rounded-full bg-neutral-400" />
-                <div className="size-[3px] rounded-full bg-neutral-400" />
-                <div className="size-[3px] rounded-full bg-neutral-400" />
-              </div>
+              <div className="h-[2px] w-4 rounded-full bg-neutral-300 dark:bg-zinc-500" />
+              <div className="h-[2px] w-4 rounded-full bg-neutral-300 dark:bg-zinc-500" />
             </div>
           </div>
         )}
@@ -151,9 +139,9 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
           </div>
         </div>
 
-        {/* Hover CTA bar */}
+        {/* Hover CTA bar — cursor-pointer overrides card's cursor-move */}
         <div
-          className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black px-3.5 py-[10px] opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:opacity-100 group-focus-visible:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-pointer items-center justify-between bg-black px-3.5 py-[10px] opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:opacity-100 group-focus-visible:opacity-100"
           aria-hidden
           data-name="HoverCTA"
         >

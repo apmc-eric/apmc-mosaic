@@ -837,7 +837,7 @@ export default function WorksPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ updates }),
+        body: JSON.stringify({ designer_id: viewingDesignerId, updates }),
       })
     },
     [viewingDesignerId],
@@ -1105,6 +1105,14 @@ export default function WorksPage() {
     )
   }, [boardTickets, viewingDesignerId])
 
+  // Total tickets shown in the designer board (assigned + explicitly bucketed)
+  const boardCount = useMemo(() => {
+    if (!viewingDesignerId) return null
+    const bucketedIds = new Set(designerBuckets.map((b) => b.ticket_id))
+    const allIds = new Set([...bucketedIds, ...viewingDesignerAssignedIds])
+    return boardTickets.filter((t) => allIds.has(t.id)).length
+  }, [boardTickets, designerBuckets, viewingDesignerAssignedIds, viewingDesignerId])
+
   const inQueueWeekBounds = useMemo(() => {
     const now = new Date()
     return {
@@ -1297,9 +1305,9 @@ export default function WorksPage() {
         <div className="flex items-baseline gap-8">
           {(
             [
-              { key: 'work' as WorksTab, label: 'Work', count: null },
-              { key: 'team' as WorksTab, label: 'Team', count: null },
-              { key: 'unscoped' as WorksTab, label: 'Unscoped', count: unscopedTickets.length },
+              { key: 'work' as WorksTab, label: 'Work', count: boardCount },
+              { key: 'team' as WorksTab, label: 'Team', count: boardCount },
+              { key: 'unscoped' as WorksTab, label: 'Pending', count: unscopedTickets.length + standbyTickets.length },
               ...(inQueueCount > 0
                 ? [{ key: 'in_queue' as WorksTab, label: 'In Queue', count: inQueueCount, badge: true }]
                 : []),
