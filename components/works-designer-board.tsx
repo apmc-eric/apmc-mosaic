@@ -12,7 +12,6 @@ import {
   rectIntersection,
   type DragStartEvent,
   type DragEndEvent,
-  type DragOverEvent,
   type CollisionDetection,
 } from '@dnd-kit/core'
 import {
@@ -57,11 +56,10 @@ function bucketOf(id: string, layout: BucketLayout): DesignerBucket | null {
   return null
 }
 
-// Prefer pointer-within for empty containers, fall back to rect intersection.
+// Prefer pointer-within first (reliable for empty containers), then rect intersection.
 const collisionDetection: CollisionDetection = (args) => {
-  const pointerHits = pointerWithin(args)
-  if (pointerHits.length > 0) return pointerHits
-  return rectIntersection(args)
+  const hits = pointerWithin(args)
+  return hits.length > 0 ? hits : rectIntersection(args)
 }
 
 // ─── Draggable card ───────────────────────────────────────────────────────────
@@ -75,14 +73,8 @@ function DraggableTicketCard({
   displayTimeZone?: string | null
   onTicketClick: (t: Ticket) => void
 }) {
-  const {
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: ticket.id })
+  const { listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: ticket.id })
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -93,10 +85,7 @@ function DraggableTicketCard({
   const assignees = (ticket.assignees ?? []).slice(0, 3)
   const overflow = Math.max(0, (ticket.assignees?.length ?? 0) - 3)
   const categoryPills =
-    ticket.team_category
-      ?.split(/[,;]/)
-      .map((s) => s.trim())
-      .filter(Boolean) ?? []
+    ticket.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -118,23 +107,12 @@ function DraggableTicketCard({
   )
 }
 
-// Static card used inside DragOverlay — does NOT call useSortable so there's
-// no id conflict with the real card, which is what caused the position jumps.
-function OverlayCard({
-  ticket,
-  displayTimeZone,
-}: {
-  ticket: Ticket
-  displayTimeZone?: string | null
-}) {
+// Static card for DragOverlay — must NOT call useSortable (same id as real card = position chaos).
+function OverlayCard({ ticket, displayTimeZone }: { ticket: Ticket; displayTimeZone?: string | null }) {
   const assignees = (ticket.assignees ?? []).slice(0, 3)
   const overflow = Math.max(0, (ticket.assignees?.length ?? 0) - 3)
   const categoryPills =
-    ticket.team_category
-      ?.split(/[,;]/)
-      .map((s) => s.trim())
-      .filter(Boolean) ?? []
-
+    ticket.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
   return (
     <TicketCard
       ticketId={ticket.ticket_id}
@@ -272,13 +250,13 @@ export function WorksDesignerBoard({
     setLayout(buildLayout(tickets, bucketMap, assignedTicketIds))
   }, [tickets, bucketMap, assignedTicketIds])
 
-  const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
-  // Bucket the card started in — set once at drag start, read at drag end.
-  const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
-  // Keep a ref in sync so handleDragStart can read current layout without
-  // calling setLayout (which would trigger a re-render and loop).
+  // Ref stays in sync each render so event handlers can read current layout
+  // without triggering state updates (which would cause re-render loops).
   const layoutRef = React.useRef(layout)
   layoutRef.current = layout
+
+  const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
+  const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -290,36 +268,6 @@ export function WorksDesignerBoard({
     dragOriginBucket.current = bucketOf(active.id as string, layoutRef.current)
   }
 
-  function handleDragOver({ active, over }: DragOverEvent) {
-    if (!over) return
-
-    setLayout((prev) => {
-      const fromBucket = bucketOf(active.id as string, prev)
-      // over.id is either a bucket name (empty droppable) or a ticket id
-      const toBucket = isBucketId(over.id as string)
-        ? (over.id as DesignerBucket)
-        : bucketOf(over.id as string, prev)
-
-      if (!fromBucket || !toBucket || fromBucket === toBucket) return prev
-
-      const ticket = prev[fromBucket].find((t) => t.id === active.id)
-      if (!ticket) return prev
-
-      const overIndex = prev[toBucket].findIndex((t) => t.id === over.id)
-      const insertAt = overIndex === -1 ? prev[toBucket].length : overIndex
-
-      return {
-        ...prev,
-        [fromBucket]: prev[fromBucket].filter((t) => t.id !== active.id),
-        [toBucket]: [
-          ...prev[toBucket].slice(0, insertAt),
-          ticket,
-          ...prev[toBucket].slice(insertAt),
-        ],
-      }
-    })
-  }
-
   function handleDragEnd({ active, over }: DragEndEvent) {
     setActiveTicket(null)
     const originBucket = dragOriginBucket.current
@@ -327,33 +275,45 @@ export function WorksDesignerBoard({
 
     if (!over || !originBucket) return
 
-    setLayout((prev) => {
-      const currentBucket = bucketOf(active.id as string, prev)
-      if (!currentBucket) return prev
+    const prev = layoutRef.current
+    const ticket = prev[originBucket].find((t) => t.id === active.id)
+    if (!ticket) return
 
-      const droppedOnBucket = isBucketId(over.id as string)
+    // Resolve target bucket: over.id is either a bucket name (empty droppable) or a ticket id
+    const targetBucket: DesignerBucket =
+      isBucketId(over.id as string)
+        ? (over.id as DesignerBucket)
+        : (bucketOf(over.id as string, prev) ?? originBucket)
 
-      if (originBucket === currentBucket && !droppedOnBucket) {
-        // Same-bucket reorder
-        const oldIndex = prev[currentBucket].findIndex((t) => t.id === active.id)
-        const newIndex = prev[currentBucket].findIndex((t) => t.id === over.id)
-        if (oldIndex === newIndex || newIndex === -1) return prev
-        const reordered = arrayMove(prev[currentBucket], oldIndex, newIndex)
-        onBucketsChange(computeOrderUpdates(currentBucket, reordered))
-        return { ...prev, [currentBucket]: reordered }
-      }
+    if (originBucket === targetBucket) {
+      // Same-bucket reorder
+      const oldIndex = prev[originBucket].findIndex((t) => t.id === active.id)
+      const newIndex = prev[originBucket].findIndex((t) => t.id === over.id)
+      if (oldIndex === newIndex || newIndex === -1) return
+      const reordered = arrayMove(prev[originBucket], oldIndex, newIndex)
+      setLayout((l) => ({ ...l, [originBucket]: reordered }))
+      onBucketsChange(computeOrderUpdates(originBucket, reordered))
+      return
+    }
 
-      // Cross-bucket: handleDragOver already updated the layout.
-      // Persist both the vacated bucket and the new bucket.
-      const updates = [
-        ...computeOrderUpdates(originBucket, prev[originBucket]),
-        ...(currentBucket !== originBucket
-          ? computeOrderUpdates(currentBucket, prev[currentBucket])
-          : []),
-      ]
-      onBucketsChange(updates)
-      return prev
-    })
+    // Cross-bucket move: insert at the position of the hovered ticket (or end)
+    const overIndex = isBucketId(over.id as string)
+      ? prev[targetBucket].length
+      : prev[targetBucket].findIndex((t) => t.id === over.id)
+    const insertAt = overIndex === -1 ? prev[targetBucket].length : overIndex
+
+    const newOrigin = prev[originBucket].filter((t) => t.id !== active.id)
+    const newTarget = [
+      ...prev[targetBucket].slice(0, insertAt),
+      ticket,
+      ...prev[targetBucket].slice(insertAt),
+    ]
+
+    setLayout((l) => ({ ...l, [originBucket]: newOrigin, [targetBucket]: newTarget }))
+    onBucketsChange([
+      ...computeOrderUpdates(originBucket, newOrigin),
+      ...computeOrderUpdates(targetBucket, newTarget),
+    ])
   }
 
   return (
@@ -361,7 +321,6 @@ export function WorksDesignerBoard({
       sensors={sensors}
       collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
       <div className="w-full space-y-10">
