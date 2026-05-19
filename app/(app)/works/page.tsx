@@ -60,7 +60,6 @@ import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { DesignerProfileRow } from '@/components/designer-profile-row'
 import { ProfileImage } from '@/components/profile-image'
 import { formatProfileLabel } from '@/lib/format-profile'
-import { ClearableInput } from '@/components/clearable-input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -225,7 +224,6 @@ export default function WorksPage() {
     targetPhase: string
     onConfirm: (note: string) => void
   } | null>(null)
-  const [teamSearch, setTeamSearch] = useState('')
 
   const load = useCallback(async () => {
     if (!profile?.id) {
@@ -1208,18 +1206,8 @@ export default function WorksPage() {
     return boardTickets.filter((t) => allIds.has(t.id)).length
   }, [boardTickets, designerBuckets, viewingDesignerAssignedIds, viewingDesignerId])
 
-  // Team tab ticket pool: admins get the globally-filtered set so the filter bar narrows results;
-  // non-admins get boardTickets filtered by their search input.
-  const teamBoardTickets = useMemo(() => {
-    if (isAdminUi) return prePhaseFiltered
-    const q = teamSearch.trim().toLowerCase()
-    if (!q) return boardTickets
-    return boardTickets.filter(
-      (t) =>
-        (t.title ?? '').toLowerCase().includes(q) ||
-        (t.ticket_id ?? '').toLowerCase().includes(q),
-    )
-  }, [isAdminUi, prePhaseFiltered, boardTickets, teamSearch])
+  // Team tab ticket pool: use the globally-filtered set for all roles so the filter bar works for everyone.
+  const teamBoardTickets = useMemo(() => prePhaseFiltered, [prePhaseFiltered])
 
   const selectedDesigner = useMemo(
     () => workspaceDesigners.find((d) => d.id === viewingDesignerId) ?? null,
@@ -1539,39 +1527,29 @@ export default function WorksPage() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Right side: filter bar for admins, search input for everyone else */}
-            {isAdminUi ? (
-              <div className="flex-1 min-w-0">
-                <WorksFilterBar
-                  searchQuery={filterSearch}
-                  onSearchChange={setFilterSearch}
-                  projects={projects}
-                  selectedProjectIds={filterProjectIds}
-                  onProjectsChange={setFilterProjectIds}
-                  phaseOptions={boardStatusPhaseOptions}
-                  selectedPhases={filterPhases}
-                  onPhasesChange={setFilterPhases}
-                  categoryOptions={workspaceSettings?.team_categories ?? []}
-                  selectedCategories={filterCategories}
-                  onCategoriesChange={setFilterCategories}
-                  designers={workspaceDesigners}
-                  selectedDesignerIds={filterDesignerIds}
-                  onDesignersChange={setFilterDesignerIds}
-                  submitters={submitterProfiles}
-                  selectedSubmitterIds={filterSubmitterIds}
-                  onSubmittersChange={setFilterSubmitterIds}
-                  hideDesigners
-                />
-              </div>
-            ) : (
-              <ClearableInput
-                aria-label="Search tickets"
-                placeholder="Search here..."
-                value={teamSearch}
-                onChange={(e) => setTeamSearch(e.target.value)}
-                onClear={() => setTeamSearch('')}
+            {/* Filter bar — all roles see phase/project/category filters + search */}
+            <div className="flex-1 min-w-0">
+              <WorksFilterBar
+                searchQuery={filterSearch}
+                onSearchChange={setFilterSearch}
+                projects={projects}
+                selectedProjectIds={filterProjectIds}
+                onProjectsChange={setFilterProjectIds}
+                phaseOptions={boardStatusPhaseOptions}
+                selectedPhases={filterPhases}
+                onPhasesChange={setFilterPhases}
+                categoryOptions={workspaceSettings?.team_categories ?? []}
+                selectedCategories={filterCategories}
+                onCategoriesChange={setFilterCategories}
+                designers={workspaceDesigners}
+                selectedDesignerIds={filterDesignerIds}
+                onDesignersChange={setFilterDesignerIds}
+                submitters={submitterProfiles}
+                selectedSubmitterIds={filterSubmitterIds}
+                onSubmittersChange={setFilterSubmitterIds}
+                hideDesigners
               />
-            )}
+            </div>
           </div>
         )}
 
