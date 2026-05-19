@@ -1206,8 +1206,6 @@ export default function WorksPage() {
     return boardTickets.filter((t) => allIds.has(t.id)).length
   }, [boardTickets, designerBuckets, viewingDesignerAssignedIds, viewingDesignerId])
 
-  // Team tab ticket pool: use the globally-filtered set for all roles so the filter bar works for everyone.
-  const teamBoardTickets = useMemo(() => prePhaseFiltered, [prePhaseFiltered])
 
   const selectedDesigner = useMemo(
     () => workspaceDesigners.find((d) => d.id === viewingDesignerId) ?? null,
@@ -1632,13 +1630,14 @@ export default function WorksPage() {
                   <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
                 ) : viewingDesignerId ? (
                   <WorksDesignerBoard
-                    tickets={teamBoardTickets}
+                    key={viewingDesignerId}
+                    tickets={boardTickets}
                     buckets={designerBuckets}
                     assignedTicketIds={viewingDesignerAssignedIds}
                     readOnly={!isAdminUi}
                     displayTimeZone={profile?.timezone ?? null}
                     onTicketClick={(t) => setPanelTicket(t)}
-                    onBucketsChange={isAdminUi ? (updates) => void handleBucketsChange(updates) : () => {}}
+                    onBucketsChange={(updates) => void handleBucketsChange(updates)}
                   />
                 ) : (
                   <p className="py-16 text-center text-muted-foreground">Select a designer above.</p>
