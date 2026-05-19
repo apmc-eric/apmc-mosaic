@@ -8,15 +8,18 @@ import {
   useDroppable,
   useSensor,
   useSensors,
-  closestCenter,
+  pointerWithin,
+  rectIntersection,
+  getFirstCollision,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
+  type CollisionDetection,
 } from '@dnd-kit/core'
 import {
   SortableContext,
   useSortable,
-  verticalListSortingStrategy,
+  rectSortingStrategy,
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -48,21 +51,32 @@ function isBucketId(id: string): id is DesignerBucket {
   return (ALL_BUCKETS as readonly string[]).includes(id)
 }
 
+function bucketOf(id: string, layout: BucketLayout): DesignerBucket | null {
+  for (const b of ALL_BUCKETS) {
+    if (layout[b].some((t) => t.id === id)) return b
+  }
+  return null
+}
+
+// Prefer pointer-within for empty containers, fall back to rect intersection.
+const collisionDetection: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args)
+  if (pointerHits.length > 0) return pointerHits
+  return rectIntersection(args)
+}
+
 // ─── Draggable card ───────────────────────────────────────────────────────────
 
 function DraggableTicketCard({
   ticket,
   displayTimeZone,
   onTicketClick,
-  isOverlay = false,
 }: {
   ticket: Ticket
   displayTimeZone?: string | null
   onTicketClick: (t: Ticket) => void
-  isOverlay?: boolean
 }) {
   const {
-    attributes,
     listeners,
     setNodeRef,
     setActivatorNodeRef,
@@ -86,7 +100,7 @@ function DraggableTicketCard({
       .filter(Boolean) ?? []
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style}>
       <TicketCard
         ticketId={ticket.ticket_id}
         title={ticket.title}
@@ -96,13 +110,45 @@ function DraggableTicketCard({
         assigneeOverflow={overflow}
         flagLabel={ticket.flag}
         displayTimeZone={displayTimeZone}
-        draggable={!isOverlay}
+        draggable
         dragHandleProps={{ ...listeners }}
         dragHandleRef={setActivatorNodeRef}
         onClick={() => onTicketClick(ticket)}
-        className={isOverlay ? 'shadow-lg rotate-[1deg]' : undefined}
       />
     </div>
+  )
+}
+
+// Static card used inside DragOverlay — does NOT call useSortable so there's
+// no id conflict with the real card, which is what caused the position jumps.
+function OverlayCard({
+  ticket,
+  displayTimeZone,
+}: {
+  ticket: Ticket
+  displayTimeZone?: string | null
+}) {
+  const assignees = (ticket.assignees ?? []).slice(0, 3)
+  const overflow = Math.max(0, (ticket.assignees?.length ?? 0) - 3)
+  const categoryPills =
+    ticket.team_category
+      ?.split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean) ?? []
+
+  return (
+    <TicketCard
+      ticketId={ticket.ticket_id}
+      title={ticket.title}
+      phase={ticket.phase}
+      tagPills={categoryPills}
+      assignees={assignees}
+      assigneeOverflow={overflow}
+      flagLabel={ticket.flag}
+      displayTimeZone={displayTimeZone}
+      className="shadow-xl rotate-[1deg] cursor-grabbing"
+      onClick={() => {}}
+    />
   )
 }
 
@@ -180,7 +226,7 @@ function BucketSection({
             })}
           </div>
         ) : (
-          <SortableContext items={ids} strategy={verticalListSortingStrategy} id={bucket}>
+          <SortableContext items={ids} strategy={rectSortingStrategy} id={bucket}>
             {tickets.length === 0 ? (
               <DroppableEmptyBucket bucket={bucket} />
             ) : (
@@ -227,44 +273,42 @@ export function WorksDesignerBoard({
     setLayout(buildLayout(tickets, bucketMap, assignedTicketIds))
   }, [tickets, bucketMap, assignedTicketIds])
 
-  const [activeId, setActiveId] = React.useState<string | null>(null)
-  // Track the bucket where the drag started so handleDragEnd can distinguish
-  // cross-bucket moves from same-bucket reorders after handleDragOver mutates layout.
+  const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
+  // Bucket the card started in — set once at drag start, read at drag end.
   const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
-
-  const activeTicket = activeId ? tickets.find((t) => t.id === activeId) ?? null : null
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   )
 
-  function bucketOf(id: string, l: BucketLayout): DesignerBucket | null {
-    for (const b of ALL_BUCKETS) {
-      if (l[b].some((t) => t.id === id)) return b
-    }
-    return null
-  }
-
   function handleDragStart({ active }: DragStartEvent) {
-    setActiveId(active.id as string)
-    dragOriginBucket.current = bucketOf(active.id as string, layout)
+    const t = tickets.find((t) => t.id === active.id) ?? null
+    setActiveTicket(t)
+    // Capture origin using current layout state (not stale closure)
+    setLayout((prev) => {
+      dragOriginBucket.current = bucketOf(active.id as string, prev)
+      return prev
+    })
   }
 
   function handleDragOver({ active, over }: DragOverEvent) {
     if (!over) return
-    // Resolve destination: either a ticket's bucket or an empty-bucket droppable id
-    const fromBucket = bucketOf(active.id as string, layout)
-    const toBucket = isBucketId(over.id as string)
-      ? (over.id as DesignerBucket)
-      : bucketOf(over.id as string, layout)
-
-    if (!fromBucket || !toBucket || fromBucket === toBucket) return
 
     setLayout((prev) => {
+      const fromBucket = bucketOf(active.id as string, prev)
+      // over.id is either a bucket name (empty droppable) or a ticket id
+      const toBucket = isBucketId(over.id as string)
+        ? (over.id as DesignerBucket)
+        : bucketOf(over.id as string, prev)
+
+      if (!fromBucket || !toBucket || fromBucket === toBucket) return prev
+
       const ticket = prev[fromBucket].find((t) => t.id === active.id)
       if (!ticket) return prev
+
       const overIndex = prev[toBucket].findIndex((t) => t.id === over.id)
       const insertAt = overIndex === -1 ? prev[toBucket].length : overIndex
+
       return {
         ...prev,
         [fromBucket]: prev[fromBucket].filter((t) => t.id !== active.id),
@@ -278,21 +322,20 @@ export function WorksDesignerBoard({
   }
 
   function handleDragEnd({ active, over }: DragEndEvent) {
-    setActiveId(null)
+    setActiveTicket(null)
     const originBucket = dragOriginBucket.current
     dragOriginBucket.current = null
 
     if (!over || !originBucket) return
 
     setLayout((prev) => {
-      // Where the ticket is now (may have moved during handleDragOver)
       const currentBucket = bucketOf(active.id as string, prev)
       if (!currentBucket) return prev
 
       const droppedOnBucket = isBucketId(over.id as string)
 
       if (originBucket === currentBucket && !droppedOnBucket) {
-        // Pure same-bucket reorder: over.id is a sibling ticket
+        // Same-bucket reorder
         const oldIndex = prev[currentBucket].findIndex((t) => t.id === active.id)
         const newIndex = prev[currentBucket].findIndex((t) => t.id === over.id)
         if (oldIndex === newIndex || newIndex === -1) return prev
@@ -301,8 +344,8 @@ export function WorksDesignerBoard({
         return { ...prev, [currentBucket]: reordered }
       }
 
-      // Cross-bucket move: layout was already updated by handleDragOver.
-      // Persist both the source bucket (now missing the card) and dest bucket.
+      // Cross-bucket: handleDragOver already updated the layout.
+      // Persist both the vacated bucket and the new bucket.
       const updates = [
         ...computeOrderUpdates(originBucket, prev[originBucket]),
         ...(currentBucket !== originBucket
@@ -317,7 +360,7 @@ export function WorksDesignerBoard({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
@@ -336,12 +379,7 @@ export function WorksDesignerBoard({
       </div>
       <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>
         {activeTicket ? (
-          <DraggableTicketCard
-            ticket={activeTicket}
-            displayTimeZone={displayTimeZone}
-            onTicketClick={() => {}}
-            isOverlay
-          />
+          <OverlayCard ticket={activeTicket} displayTimeZone={displayTimeZone} />
         ) : null}
       </DragOverlay>
     </DndContext>
