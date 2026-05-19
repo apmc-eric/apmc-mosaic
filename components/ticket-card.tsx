@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { ExternalLink, Flag, GripVertical } from 'lucide-react'
+import { ExternalLink, Flag } from 'lucide-react'
 
 import { ProfileImage } from '@/components/profile-image'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
@@ -28,6 +28,8 @@ export type TicketCardProps = Omit<React.ComponentPropsWithoutRef<'button'>, 'ch
   draggable?: boolean
   /** Forwarded from dnd-kit drag handle — attach to the grip element. */
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>
+  /** setActivatorNodeRef from useSortable — tells dnd-kit the exact grab point. */
+  dragHandleRef?: React.Ref<HTMLDivElement>
 }
 
 export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
@@ -44,6 +46,7 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
       displayTimeZone,
       draggable = false,
       dragHandleProps,
+      dragHandleRef,
       type = 'button',
       ...props
     },
@@ -84,12 +87,24 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
         {/* Drag handle — shown on hover when draggable */}
         {draggable && (
           <div
+            ref={dragHandleRef}
             {...dragHandleProps}
-            className="absolute left-1/2 top-2 z-20 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100 motion-reduce:transition-none"
+            className="absolute left-1/2 top-2 z-20 -translate-x-1/2 cursor-grab opacity-0 transition-opacity duration-150 group-hover:opacity-100 motion-reduce:transition-none active:cursor-grabbing"
             onClick={(e) => e.stopPropagation()}
             aria-label="Drag to reorder"
           >
-            <GripVertical className="size-4 text-neutral-400" />
+            <div className="flex flex-col gap-[3px]">
+              <div className="flex gap-[3px]">
+                <div className="size-[3px] rounded-full bg-neutral-400" />
+                <div className="size-[3px] rounded-full bg-neutral-400" />
+                <div className="size-[3px] rounded-full bg-neutral-400" />
+              </div>
+              <div className="flex gap-[3px]">
+                <div className="size-[3px] rounded-full bg-neutral-400" />
+                <div className="size-[3px] rounded-full bg-neutral-400" />
+                <div className="size-[3px] rounded-full bg-neutral-400" />
+              </div>
+            </div>
           </div>
         )}
 

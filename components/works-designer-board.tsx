@@ -24,19 +24,6 @@ import { TicketCard } from '@/components/ticket-card'
 import type { Ticket, TicketDesignerBucket, DesignerBucket } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
-// ─── Fractional index helpers ────────────────────────────────────────────────
-
-function midpoint(a: number, b: number) {
-  return (a + b) / 2
-}
-
-function orderIndexForInsert(before: number | null, after: number | null): number {
-  if (before === null && after === null) return 0
-  if (before === null) return after! - 1
-  if (after === null) return before + 1
-  return midpoint(before, after)
-}
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type BucketLayout = {
@@ -55,6 +42,12 @@ export type WorksDesignerBoardProps = {
   onBucketsChange: (updates: Array<{ ticket_id: string; bucket: DesignerBucket; order_index: number }>) => void
 }
 
+const ALL_BUCKETS = ['live_work', 'deprioritized', 'unfocused'] as const
+
+function isBucketId(id: string): id is DesignerBucket {
+  return (ALL_BUCKETS as readonly string[]).includes(id)
+}
+
 // ─── Draggable card ───────────────────────────────────────────────────────────
 
 function DraggableTicketCard({
@@ -68,9 +61,15 @@ function DraggableTicketCard({
   onTicketClick: (t: Ticket) => void
   isOverlay?: boolean
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: ticket.id,
-  })
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: ticket.id })
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -87,7 +86,7 @@ function DraggableTicketCard({
       .filter(Boolean) ?? []
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} {...attributes}>
       <TicketCard
         ticketId={ticket.ticket_id}
         title={ticket.title}
@@ -98,7 +97,8 @@ function DraggableTicketCard({
         flagLabel={ticket.flag}
         displayTimeZone={displayTimeZone}
         draggable={!isOverlay}
-        dragHandleProps={{ ...attributes, ...listeners }}
+        dragHandleProps={{ ...listeners }}
+        dragHandleRef={setActivatorNodeRef}
         onClick={() => onTicketClick(ticket)}
         className={isOverlay ? 'shadow-lg rotate-[1deg]' : undefined}
       />
@@ -213,14 +213,12 @@ export function WorksDesignerBoard({
   onTicketClick,
   onBucketsChange,
 }: WorksDesignerBoardProps) {
-  // Build a lookup: ticket_id → bucket row
   const bucketMap = React.useMemo(() => {
     const m = new Map<string, TicketDesignerBucket>()
     for (const b of buckets) m.set(b.ticket_id, b)
     return m
   }, [buckets])
 
-  // Compute bucket layout
   const [layout, setLayout] = React.useState<BucketLayout>(() =>
     buildLayout(tickets, bucketMap, assignedTicketIds),
   )
@@ -230,28 +228,37 @@ export function WorksDesignerBoard({
   }, [tickets, bucketMap, assignedTicketIds])
 
   const [activeId, setActiveId] = React.useState<string | null>(null)
+  // Track the bucket where the drag started so handleDragEnd can distinguish
+  // cross-bucket moves from same-bucket reorders after handleDragOver mutates layout.
+  const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
+
   const activeTicket = activeId ? tickets.find((t) => t.id === activeId) ?? null : null
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   )
 
-  function findBucketForTicket(id: string): DesignerBucket | null {
-    for (const b of (['live_work', 'deprioritized', 'unfocused'] as DesignerBucket[])) {
-      if (layout[b].some((t) => t.id === id)) return b
+  function bucketOf(id: string, l: BucketLayout): DesignerBucket | null {
+    for (const b of ALL_BUCKETS) {
+      if (l[b].some((t) => t.id === id)) return b
     }
     return null
   }
 
   function handleDragStart({ active }: DragStartEvent) {
     setActiveId(active.id as string)
+    dragOriginBucket.current = bucketOf(active.id as string, layout)
   }
 
   function handleDragOver({ active, over }: DragOverEvent) {
     if (!over) return
-    const fromBucket = findBucketForTicket(active.id as string)
-    const toBucket = findBucketForTicket(over.id as string) ?? (over.id as DesignerBucket)
-    if (!fromBucket || fromBucket === toBucket) return
+    // Resolve destination: either a ticket's bucket or an empty-bucket droppable id
+    const fromBucket = bucketOf(active.id as string, layout)
+    const toBucket = isBucketId(over.id as string)
+      ? (over.id as DesignerBucket)
+      : bucketOf(over.id as string, layout)
+
+    if (!fromBucket || !toBucket || fromBucket === toBucket) return
 
     setLayout((prev) => {
       const ticket = prev[fromBucket].find((t) => t.id === active.id)
@@ -272,28 +279,37 @@ export function WorksDesignerBoard({
 
   function handleDragEnd({ active, over }: DragEndEvent) {
     setActiveId(null)
-    if (!over) return
+    const originBucket = dragOriginBucket.current
+    dragOriginBucket.current = null
 
-    const fromBucket = findBucketForTicket(active.id as string)
-    if (!fromBucket) return
+    if (!over || !originBucket) return
 
     setLayout((prev) => {
-      const toBucket = findBucketForTicket(over.id as string) ?? fromBucket
-      if (fromBucket === toBucket) {
-        const oldIndex = prev[fromBucket].findIndex((t) => t.id === active.id)
-        const newIndex = prev[fromBucket].findIndex((t) => t.id === over.id)
-        if (oldIndex === newIndex) return prev
-        const reordered = arrayMove(prev[fromBucket], oldIndex, newIndex)
-        const updates = computeOrderUpdates(fromBucket, reordered)
-        onBucketsChange(updates)
-        return { ...prev, [fromBucket]: reordered }
+      // Where the ticket is now (may have moved during handleDragOver)
+      const currentBucket = bucketOf(active.id as string, prev)
+      if (!currentBucket) return prev
+
+      const droppedOnBucket = isBucketId(over.id as string)
+
+      if (originBucket === currentBucket && !droppedOnBucket) {
+        // Pure same-bucket reorder: over.id is a sibling ticket
+        const oldIndex = prev[currentBucket].findIndex((t) => t.id === active.id)
+        const newIndex = prev[currentBucket].findIndex((t) => t.id === over.id)
+        if (oldIndex === newIndex || newIndex === -1) return prev
+        const reordered = arrayMove(prev[currentBucket], oldIndex, newIndex)
+        onBucketsChange(computeOrderUpdates(currentBucket, reordered))
+        return { ...prev, [currentBucket]: reordered }
       }
-      // Cross-bucket move already applied in handleDragOver
-      const allUpdates = [
-        ...computeOrderUpdates(fromBucket, prev[fromBucket]),
-        ...computeOrderUpdates(toBucket, prev[toBucket]),
+
+      // Cross-bucket move: layout was already updated by handleDragOver.
+      // Persist both the source bucket (now missing the card) and dest bucket.
+      const updates = [
+        ...computeOrderUpdates(originBucket, prev[originBucket]),
+        ...(currentBucket !== originBucket
+          ? computeOrderUpdates(currentBucket, prev[currentBucket])
+          : []),
       ]
-      onBucketsChange(allUpdates)
+      onBucketsChange(updates)
       return prev
     })
   }
@@ -307,7 +323,7 @@ export function WorksDesignerBoard({
       onDragEnd={handleDragEnd}
     >
       <div className="w-full space-y-10">
-        {(['live_work', 'deprioritized', 'unfocused'] as DesignerBucket[]).map((bucket) => (
+        {ALL_BUCKETS.map((bucket) => (
           <BucketSection
             key={bucket}
             bucket={bucket}
@@ -341,20 +357,21 @@ function buildLayout(
 ): BucketLayout {
   const layout: BucketLayout = { live_work: [], deprioritized: [], unfocused: [] }
 
-  // Tickets with an explicit bucket assignment
   const bucketed = [...bucketMap.values()].sort((a, b) => a.order_index - b.order_index)
   for (const row of bucketed) {
     const ticket = tickets.find((t) => t.id === row.ticket_id)
     if (ticket) layout[row.bucket as DesignerBucket].push(ticket)
   }
 
-  // Assigned tickets not yet bucketed → unfocused by default
   for (const id of assignedTicketIds) {
     if (!bucketMap.has(id)) {
       const ticket = tickets.find((t) => t.id === id)
-      if (ticket && !layout.live_work.some((t) => t.id === id)
-        && !layout.deprioritized.some((t) => t.id === id)
-        && !layout.unfocused.some((t) => t.id === id)) {
+      if (
+        ticket &&
+        !layout.live_work.some((t) => t.id === id) &&
+        !layout.deprioritized.some((t) => t.id === id) &&
+        !layout.unfocused.some((t) => t.id === id)
+      ) {
         layout.unfocused.push(ticket)
       }
     }
