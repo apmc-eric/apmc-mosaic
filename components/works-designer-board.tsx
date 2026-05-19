@@ -10,7 +10,6 @@ import {
   useSensors,
   pointerWithin,
   rectIntersection,
-  getFirstCollision,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
@@ -276,6 +275,10 @@ export function WorksDesignerBoard({
   const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
   // Bucket the card started in — set once at drag start, read at drag end.
   const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
+  // Keep a ref in sync so handleDragStart can read current layout without
+  // calling setLayout (which would trigger a re-render and loop).
+  const layoutRef = React.useRef(layout)
+  layoutRef.current = layout
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -284,11 +287,7 @@ export function WorksDesignerBoard({
   function handleDragStart({ active }: DragStartEvent) {
     const t = tickets.find((t) => t.id === active.id) ?? null
     setActiveTicket(t)
-    // Capture origin using current layout state (not stale closure)
-    setLayout((prev) => {
-      dragOriginBucket.current = bucketOf(active.id as string, prev)
-      return prev
-    })
+    dragOriginBucket.current = bucketOf(active.id as string, layoutRef.current)
   }
 
   function handleDragOver({ active, over }: DragOverEvent) {
