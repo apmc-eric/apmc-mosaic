@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { DesignerBucket } from '@/lib/types'
 
 /**
@@ -103,7 +104,10 @@ export async function PATCH(req: NextRequest) {
     order_index: u.order_index,
   }))
 
-  const { error } = await supabase
+  // Use the admin client when saving on behalf of another designer so the
+  // write_own RLS policy (designer_id = auth.uid()) doesn't block the upsert.
+  const writeClient = targetDesignerId !== user.id ? createAdminClient() : supabase
+  const { error } = await writeClient
     .from('ticket_designer_buckets')
     .upsert(rows, { onConflict: 'designer_id,ticket_id' })
 

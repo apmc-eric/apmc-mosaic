@@ -1,26 +1,21 @@
 'use client'
 
 import * as React from 'react'
+import { createRoot } from 'react-dom/client'
 import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useDroppable,
-  useSensor,
-  useSensors,
-  pointerWithin,
-  rectIntersection,
-  type DragStartEvent,
-  type DragEndEvent,
-  type CollisionDetection,
-} from '@dnd-kit/core'
+  draggable,
+  dropTargetForElements,
+  monitorForElements,
+} from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
+import { setCustomNativeDragPreview } from '@atlaskit/pragmatic-drag-and-drop/element/set-custom-native-drag-preview'
+import { preserveOffsetOnSource } from '@atlaskit/pragmatic-drag-and-drop/element/preserve-offset-on-source'
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine'
+import { reorder } from '@atlaskit/pragmatic-drag-and-drop/reorder'
 import {
-  SortableContext,
-  useSortable,
-  rectSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+  attachClosestEdge,
+  extractClosestEdge,
+  type Edge,
+} from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge'
 import { TicketCard } from '@/components/ticket-card'
 import type { Ticket, TicketDesignerBucket, DesignerBucket } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -45,80 +40,239 @@ export type WorksDesignerBoardProps = {
 
 const ALL_BUCKETS = ['live_work', 'deprioritized', 'unfocused'] as const
 
-function isBucketId(id: string): id is DesignerBucket {
-  return (ALL_BUCKETS as readonly string[]).includes(id)
-}
+// ─── Drop indicator line ──────────────────────────────────────────────────────
 
-function bucketOf(id: string, layout: BucketLayout): DesignerBucket | null {
-  for (const b of ALL_BUCKETS) {
-    if (layout[b].some((t) => t.id === id)) return b
-  }
-  return null
-}
-
-const collisionDetection: CollisionDetection = (args) => {
-  const hits = pointerWithin(args)
-  return hits.length > 0 ? hits : rectIntersection(args)
+function DropIndicator({ edge }: { edge: Edge }) {
+  return (
+    <div
+      className={cn(
+        'pointer-events-none absolute left-0 right-0 z-10 h-0.5 rounded-full bg-blue-500',
+        edge === 'top' ? '-top-[5px]' : '-bottom-[5px]',
+      )}
+    />
+  )
 }
 
 // ─── Draggable card ───────────────────────────────────────────────────────────
 
-function DraggableTicketCard({
+type CardState =
+  | { type: 'idle' }
+  | { type: 'dragging' }
+  | { type: 'over'; edge: Edge | null }
+
+const DraggableTicketCard = React.memo(function DraggableTicketCard({
   ticket,
+  bucket,
   displayTimeZone,
   onTicketClick,
 }: {
   ticket: Ticket
+  bucket: DesignerBucket
   displayTimeZone?: string | null
   onTicketClick: (t: Ticket) => void
 }) {
-  const { listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: ticket.id })
+  const ref = React.useRef<HTMLDivElement>(null)
+  const [cardState, setCardState] = React.useState<CardState>({ type: 'idle' })
 
-  // When this card IS the active drag: hide it (DragOverlay shows the copy).
-  // Other items still receive their shift transforms from rectSortingStrategy.
-  const style: React.CSSProperties = isDragging
-    ? { opacity: 0, transition }
-    : { transform: CSS.Transform.toString(transform), transition, position: 'relative' }
+  // Keep refs so the drag callbacks always have fresh values without re-running
+  // the effect (avoid tearing down / re-attaching listeners on every render).
+  const ticketRef = React.useRef(ticket)
+  ticketRef.current = ticket
+  const bucketRef = React.useRef(bucket)
+  bucketRef.current = bucket
+  const displayTzRef = React.useRef(displayTimeZone)
+  displayTzRef.current = displayTimeZone
 
-  const assignees = (ticket.assignees ?? []).slice(0, 3)
-  const overflow = Math.max(0, (ticket.assignees?.length ?? 0) - 3)
+  React.useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    return combine(
+      draggable({
+        element: el,
+        getInitialData: () => ({
+          type: 'ticket',
+          ticketId: ticketRef.current.id,
+          sourceBucket: bucketRef.current,
+        }),
+        onGenerateDragPreview({ nativeSetDragImage, location }) {
+          const t = ticketRef.current
+          const rect = el.getBoundingClientRect()
+          const categoryPills =
+            t.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
+          const assignees = (t.assignees ?? []).slice(0, 3)
+          const overflow = Math.max(0, (t.assignees?.length ?? 0) - 3)
+
+          setCustomNativeDragPreview({
+            nativeSetDragImage,
+            getOffset: preserveOffsetOnSource({ element: el, input: location.current.input }),
+            render({ container }) {
+              container.style.width = `${rect.width}px`
+              container.style.transform = 'rotate(1.5deg)'
+              const root = createRoot(container)
+              root.render(
+                <TicketCard
+                  ticketId={t.ticket_id}
+                  title={t.title}
+                  phase={t.phase}
+                  tagPills={categoryPills}
+                  assignees={assignees}
+                  assigneeOverflow={overflow}
+                  flagLabel={t.flag}
+                  displayTimeZone={null}
+                  draggable
+                  className="shadow-2xl"
+                />,
+              )
+              return () => root.unmount()
+            },
+          })
+        },
+        onDragStart() {
+          setCardState({ type: 'dragging' })
+        },
+        onDrop() {
+          setCardState({ type: 'idle' })
+        },
+      }),
+      dropTargetForElements({
+        element: el,
+        canDrop({ source }) {
+          return (
+            source.data.type === 'ticket' &&
+            source.data.ticketId !== ticketRef.current.id
+          )
+        },
+        getData({ input }) {
+          const t = ticketRef.current
+          const b = bucketRef.current
+          return attachClosestEdge(
+            { type: 'ticket', ticketId: t.id, bucket: b },
+            { element: el, input, allowedEdges: ['top', 'bottom'] },
+          )
+        },
+        onDrag({ self }) {
+          const edge = extractClosestEdge(self.data)
+          setCardState((prev) => {
+            if (prev.type === 'over' && prev.edge === edge) return prev
+            return { type: 'over', edge }
+          })
+        },
+        onDragLeave() {
+          setCardState({ type: 'idle' })
+        },
+        onDrop() {
+          setCardState({ type: 'idle' })
+        },
+      }),
+    )
+  // Effect only needs to run once — fresh values come from refs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const t = ticket
+  const assignees = (t.assignees ?? []).slice(0, 3)
+  const overflow = Math.max(0, (t.assignees?.length ?? 0) - 3)
   const categoryPills =
-    ticket.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
+    t.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div
+      ref={ref}
+      className={cn('relative', cardState.type === 'dragging' && 'opacity-30')}
+    >
+      {cardState.type === 'over' && cardState.edge != null && (
+        <DropIndicator edge={cardState.edge} />
+      )}
       <TicketCard
-        ticketId={ticket.ticket_id}
-        title={ticket.title}
-        phase={ticket.phase}
+        ticketId={t.ticket_id}
+        title={t.title}
+        phase={t.phase}
         tagPills={categoryPills}
         assignees={assignees}
         assigneeOverflow={overflow}
-        flagLabel={ticket.flag}
+        flagLabel={t.flag}
         displayTimeZone={displayTimeZone}
         draggable
-        dragListeners={listeners}
-        onClick={() => { if (!isDragging) onTicketClick(ticket) }}
+        onClick={() => {
+          if (cardState.type !== 'dragging') onTicketClick(t)
+        }}
       />
     </div>
   )
-}
+})
 
-// ─── Droppable empty zone ─────────────────────────────────────────────────────
+// ─── Droppable bucket zone ────────────────────────────────────────────────────
+// Wraps the bucket content area. `getIsSticky` keeps it active when the pointer
+// is over a child card, so drops between cards (and on empty buckets) always
+// have a valid target.
 
-function DroppableEmptyBucket({ bucket }: { bucket: DesignerBucket }) {
-  const { setNodeRef, isOver } = useDroppable({ id: bucket })
+function BucketDropZone({
+  bucket,
+  children,
+  isEmpty,
+}: {
+  bucket: DesignerBucket
+  children?: React.ReactNode
+  isEmpty: boolean
+}) {
+  const ref = React.useRef<HTMLDivElement>(null)
+  const [isOver, setIsOver] = React.useState(false)
+  const bucketRef = React.useRef(bucket)
+  bucketRef.current = bucket
+
+  React.useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    return dropTargetForElements({
+      element: el,
+      canDrop({ source }) {
+        return source.data.type === 'ticket'
+      },
+      getData() {
+        return { type: 'bucket', bucket: bucketRef.current }
+      },
+      getIsSticky() {
+        return true
+      },
+      onDragEnter() {
+        setIsOver(true)
+      },
+      onDragLeave() {
+        setIsOver(false)
+      },
+      onDrop() {
+        setIsOver(false)
+      },
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (isEmpty) {
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          'h-[160px] w-full rounded-[10px] border-2 border-dashed transition-colors duration-150',
+          isOver
+            ? 'border-neutral-400 bg-neutral-50 dark:border-zinc-500 dark:bg-zinc-800/40'
+            : 'border-neutral-200 dark:border-zinc-700',
+        )}
+      />
+    )
+  }
+
   return (
     <div
-      ref={setNodeRef}
+      ref={ref}
       className={cn(
-        'h-[160px] w-full rounded-[10px] border-2 border-dashed transition-colors duration-150',
-        isOver
-          ? 'border-neutral-400 bg-neutral-50 dark:border-zinc-500 dark:bg-zinc-800/40'
-          : 'border-neutral-200 dark:border-zinc-700',
+        'w-full rounded-[10px] transition-colors duration-150',
+        isOver && 'ring-2 ring-neutral-300 ring-offset-2 dark:ring-zinc-600',
       )}
-    />
+    >
+      {children}
+    </div>
   )
 }
 
@@ -130,7 +284,7 @@ const BUCKET_META: Record<DesignerBucket, { heading: string; subheading: string 
   unfocused: { heading: 'Unfocused Tickets', subheading: 'SUPPORTING OR WATCHING' },
 }
 
-function BucketSection({
+const BucketSection = React.memo(function BucketSection({
   bucket,
   tickets,
   readOnly,
@@ -144,7 +298,6 @@ function BucketSection({
   onTicketClick: (t: Ticket) => void
 }) {
   const { heading, subheading } = BUCKET_META[bucket]
-  const ids = tickets.map((t) => t.id)
 
   return (
     <section className="grid grid-cols-12 gap-x-8 gap-y-6 md:items-start" aria-label={heading}>
@@ -179,27 +332,26 @@ function BucketSection({
             })}
           </div>
         ) : (
-          <SortableContext items={ids} strategy={rectSortingStrategy} id={bucket}>
-            {tickets.length === 0 ? (
-              <DroppableEmptyBucket bucket={bucket} />
-            ) : (
+          <BucketDropZone bucket={bucket} isEmpty={tickets.length === 0}>
+            {tickets.length > 0 && (
               <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
                 {tickets.map((t) => (
                   <DraggableTicketCard
                     key={t.id}
                     ticket={t}
+                    bucket={bucket}
                     displayTimeZone={displayTimeZone}
                     onTicketClick={onTicketClick}
                   />
                 ))}
               </div>
             )}
-          </SortableContext>
+          </BucketDropZone>
         )}
       </div>
     </section>
   )
-}
+})
 
 // ─── Board ────────────────────────────────────────────────────────────────────
 
@@ -222,117 +374,120 @@ export function WorksDesignerBoard({
     buildLayout(tickets, bucketMap, assignedTicketIds),
   )
 
-  React.useEffect(() => {
-    setLayout(buildLayout(tickets, bucketMap, assignedTicketIds))
-  }, [tickets, bucketMap, assignedTicketIds])
-
   const layoutRef = React.useRef(layout)
   layoutRef.current = layout
 
-  const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
-  const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
+  const isDraggingRef = React.useRef(false)
 
-  // distance:1 activates on first movement so the grab point matches the click
-  // point exactly rather than drifting 8px before the drag begins.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 1 } }),
-  )
+  // Sync external ticket/bucket data into layout whenever it changes, but not
+  // during an active drag (would reset in-flight state).
+  React.useEffect(() => {
+    if (isDraggingRef.current) return
+    setLayout(buildLayout(tickets, bucketMap, assignedTicketIds))
+  }, [tickets, bucketMap, assignedTicketIds])
 
-  function handleDragStart({ active }: DragStartEvent) {
-    const origin = bucketOf(active.id as string, layoutRef.current)
-    dragOriginBucket.current = origin
-    if (origin) {
-      const t = layoutRef.current[origin].find((t) => t.id === active.id) ?? null
-      setActiveTicket(t)
-    }
-  }
+  // Board-level monitor: handles all drops and updates layout state.
+  React.useEffect(() => {
+    if (readOnly) return
 
-  function handleDragEnd({ active, over }: DragEndEvent) {
-    setActiveTicket(null)
-    const originBucket = dragOriginBucket.current
-    dragOriginBucket.current = null
+    return monitorForElements({
+      onDragStart() {
+        isDraggingRef.current = true
+      },
+      onDrop({ source, location }) {
+        isDraggingRef.current = false
 
-    if (!over || !originBucket) return
+        const { dropTargets } = location.current
+        if (!dropTargets.length) return
 
-    const prev = layoutRef.current
-    const ticket = prev[originBucket].find((t) => t.id === active.id)
-    if (!ticket) return
+        const sourceData = source.data
+        if (sourceData.type !== 'ticket') return
 
-    const targetBucket: DesignerBucket =
-      isBucketId(over.id as string)
-        ? (over.id as DesignerBucket)
-        : (bucketOf(over.id as string, prev) ?? originBucket)
+        const ticketId = sourceData.ticketId as string
+        const sourceBucket = sourceData.sourceBucket as DesignerBucket
 
-    if (originBucket === targetBucket) {
-      const oldIndex = prev[originBucket].findIndex((t) => t.id === active.id)
-      const newIndex = prev[originBucket].findIndex((t) => t.id === over.id)
-      if (oldIndex === newIndex || newIndex === -1) return
-      const reordered = arrayMove(prev[originBucket], oldIndex, newIndex)
-      setLayout((l) => ({ ...l, [originBucket]: reordered }))
-      onBucketsChange(computeOrderUpdates(originBucket, reordered))
-      return
-    }
+        // The innermost target is always [0] — could be a card or a bucket zone.
+        const [innermostTarget] = dropTargets
+        const targetData = innermostTarget.data
 
-    const overIndex = isBucketId(over.id as string)
-      ? prev[targetBucket].length
-      : prev[targetBucket].findIndex((t) => t.id === over.id)
-    const insertAt = overIndex === -1 ? prev[targetBucket].length : overIndex
+        const prev = layoutRef.current
 
-    const newOrigin = prev[originBucket].filter((t) => t.id !== active.id)
-    const newTarget = [
-      ...prev[targetBucket].slice(0, insertAt),
-      ticket,
-      ...prev[targetBucket].slice(insertAt),
-    ]
+        if (targetData.type === 'ticket') {
+          // ── Dropped on a card (same or different bucket) ───────────────────
+          const targetTicketId = targetData.ticketId as string
+          const targetBucket = targetData.bucket as DesignerBucket
+          const edge = extractClosestEdge(targetData)
 
-    setLayout((l) => ({ ...l, [originBucket]: newOrigin, [targetBucket]: newTarget }))
-    onBucketsChange([
-      ...computeOrderUpdates(originBucket, newOrigin),
-      ...computeOrderUpdates(targetBucket, newTarget),
-    ])
-  }
+          if (targetBucket === sourceBucket) {
+            // Same-bucket reorder
+            const list = prev[sourceBucket]
+            const startIndex = list.findIndex((t) => t.id === ticketId)
+            const indexOfTarget = list.findIndex((t) => t.id === targetTicketId)
+            if (startIndex === -1 || indexOfTarget === -1) return
 
-  const overlayAssignees = (activeTicket?.assignees ?? []).slice(0, 3)
-  const overlayOverflow = Math.max(0, (activeTicket?.assignees?.length ?? 0) - 3)
-  const overlayCategoryPills =
-    activeTicket?.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
+            // Compute the finish index accounting for removal of the dragged item.
+            const finishIndex = edgeToFinishIndex(startIndex, indexOfTarget, edge)
+            if (finishIndex === startIndex) return
+            const reordered = reorder({ list, startIndex, finishIndex })
+            setLayout((l) => ({ ...l, [sourceBucket]: reordered }))
+            onBucketsChange(computeOrderUpdates(sourceBucket, reordered))
+          } else {
+            // Cross-bucket move: insert before/after the target card
+            const ticket = prev[sourceBucket].find((t) => t.id === ticketId)
+            if (!ticket) return
+
+            const indexOfTarget = prev[targetBucket].findIndex((t) => t.id === targetTicketId)
+            const insertAt = edge === 'bottom'
+              ? Math.min(indexOfTarget + 1, prev[targetBucket].length)
+              : Math.max(0, indexOfTarget)
+
+            const newSource = prev[sourceBucket].filter((t) => t.id !== ticketId)
+            const newTarget = [
+              ...prev[targetBucket].slice(0, insertAt),
+              ticket,
+              ...prev[targetBucket].slice(insertAt),
+            ]
+
+            setLayout((l) => ({ ...l, [sourceBucket]: newSource, [targetBucket]: newTarget }))
+            onBucketsChange([
+              ...computeOrderUpdates(sourceBucket, newSource),
+              ...computeOrderUpdates(targetBucket, newTarget),
+            ])
+          }
+        } else if (targetData.type === 'bucket') {
+          // ── Dropped on bucket zone (empty bucket or open space) ────────────
+          const targetBucket = targetData.bucket as DesignerBucket
+          if (targetBucket === sourceBucket) return
+
+          const ticket = prev[sourceBucket].find((t) => t.id === ticketId)
+          if (!ticket) return
+
+          const newSource = prev[sourceBucket].filter((t) => t.id !== ticketId)
+          const newTarget = [...prev[targetBucket], ticket]
+
+          setLayout((l) => ({ ...l, [sourceBucket]: newSource, [targetBucket]: newTarget }))
+          onBucketsChange([
+            ...computeOrderUpdates(sourceBucket, newSource),
+            ...computeOrderUpdates(targetBucket, newTarget),
+          ])
+        }
+      },
+    })
+  }, [readOnly, onBucketsChange])
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetection}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
-      <div className="w-full space-y-10">
-        {ALL_BUCKETS.map((bucket) => (
-          <BucketSection
-            key={bucket}
-            bucket={bucket}
-            tickets={layout[bucket]}
-            readOnly={readOnly}
-            displayTimeZone={displayTimeZone}
-            onTicketClick={onTicketClick}
-          />
-        ))}
-      </div>
-
-      <DragOverlay dropAnimation={null}>
-        {activeTicket ? (
-          <TicketCard
-            ticketId={activeTicket.ticket_id}
-            title={activeTicket.title}
-            phase={activeTicket.phase}
-            tagPills={overlayCategoryPills}
-            assignees={overlayAssignees}
-            assigneeOverflow={overlayOverflow}
-            flagLabel={activeTicket.flag}
-            displayTimeZone={displayTimeZone}
-            className="shadow-2xl rotate-[1.5deg] cursor-grabbing"
-          />
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    <div className="w-full space-y-10">
+      {ALL_BUCKETS.map((bucket) => (
+        <BucketSection
+          key={bucket}
+          bucket={bucket}
+          tickets={layout[bucket]}
+          readOnly={readOnly}
+          displayTimeZone={displayTimeZone}
+          onTicketClick={onTicketClick}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -366,6 +521,26 @@ function buildLayout(
   }
 
   return layout
+}
+
+/**
+ * Translates a closest-edge drop into a finishIndex for `reorder()`.
+ * Accounts for the fact that removing the item at `startIndex` shifts indices.
+ *
+ * 'top'    → insert before target
+ * 'bottom' → insert after target
+ */
+function edgeToFinishIndex(
+  startIndex: number,
+  indexOfTarget: number,
+  edge: Edge | null,
+): number {
+  if (edge === 'top') {
+    // insert before target: if we were above the target, final slot is one less
+    return startIndex < indexOfTarget ? indexOfTarget - 1 : indexOfTarget
+  }
+  // insert after target: if we were below the target, final slot is one more
+  return startIndex > indexOfTarget ? indexOfTarget + 1 : indexOfTarget
 }
 
 function computeOrderUpdates(
