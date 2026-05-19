@@ -1476,8 +1476,8 @@ export default function WorksPage() {
       <div className="w-full px-6 pb-16">
 
         {worksTab === 'team' && (
-          <div className="flex items-center gap-4 pb-6 pt-1">
-            {/* Profile switcher — left, same styling as before */}
+          <div className="flex items-center gap-6 pb-6 pt-5">
+            {/* Profile switcher — left */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -1526,7 +1526,7 @@ export default function WorksPage() {
             </DropdownMenu>
 
             {/* Filter bar — all roles see phase/project/category filters + search */}
-            <div className="flex-1 min-w-0">
+            <div className="flex flex-1 min-w-0 items-center">
               <WorksFilterBar
                 searchQuery={filterSearch}
                 onSearchChange={setFilterSearch}
@@ -1634,7 +1634,7 @@ export default function WorksPage() {
                     tickets={boardTickets}
                     buckets={designerBuckets}
                     assignedTicketIds={viewingDesignerAssignedIds}
-                    readOnly={!isAdminUi}
+                    readOnly={!isAdmin}
                     displayTimeZone={profile?.timezone ?? null}
                     onTicketClick={(t) => setPanelTicket(t)}
                     onBucketsChange={(updates) => void handleBucketsChange(updates)}

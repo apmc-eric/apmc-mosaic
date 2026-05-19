@@ -439,7 +439,7 @@ export function WorksFilterBar({
         </div>
       </div>
 
-      <div className="shrink-0 self-end md:self-auto">
+      <div className="shrink-0">
         <ClearableInput
           aria-label="Search tickets by title or id"
           placeholder="Search tickets…"
