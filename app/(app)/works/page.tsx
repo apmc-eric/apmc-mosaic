@@ -400,7 +400,7 @@ export default function WorksPage() {
       ])
       if (cancelled) return
       if (commentsRes.data) setPanelComments(commentsRes.data as TicketComment[])
-      if (auditRes.data) setPanelAudit(auditRes.data as WorksActivityAudit[])
+      if (auditRes.data) setPanelAudit(auditRes.data as unknown as WorksActivityAudit[])
       setPanelCreatorProfile(
         creatorRes.data
           ? (creatorRes.data as Pick<
@@ -1294,21 +1294,38 @@ export default function WorksPage() {
       <div className="w-full px-6 pb-16">
         {/* Filter row per tab */}
         {(worksTab === 'work' || worksTab === 'team') && (
-          <div className="flex items-center gap-4 pb-6">
-            <select
-              value={viewingDesignerId ?? ''}
-              onChange={(e) => setViewingDesignerId(e.target.value || null)}
-              className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label="Select designer"
-            >
-              {workspaceDesigners.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.first_name && d.last_name
-                    ? `${d.first_name} ${d.last_name}`
-                    : d.name ?? d.email ?? d.id}
-                </option>
-              ))}
-            </select>
+          <div className="grid w-full grid-cols-12 gap-x-8 pb-6">
+            <div className="col-span-12 md:col-span-2">
+              <DesignerProfileRow
+                designers={workspaceDesigners}
+                selectedIds={viewingDesignerId ? [viewingDesignerId] : []}
+                onFaceClick={(id) => setViewingDesignerId(id)}
+              />
+            </div>
+            {isAdmin && worksTab === 'work' && (
+              <div className="col-span-12 min-w-0 md:col-span-10">
+                <WorksFilterBar
+                  searchQuery={filterSearch}
+                  onSearchChange={setFilterSearch}
+                  projects={projects}
+                  selectedProjectIds={filterProjectIds}
+                  onProjectsChange={setFilterProjectIds}
+                  phaseOptions={boardStatusPhaseOptions}
+                  selectedPhases={filterPhases}
+                  onPhasesChange={setFilterPhases}
+                  categoryOptions={workspaceSettings?.team_categories ?? []}
+                  selectedCategories={filterCategories}
+                  onCategoriesChange={setFilterCategories}
+                  designers={workspaceDesigners}
+                  selectedDesignerIds={filterDesignerIds}
+                  onDesignersChange={setFilterDesignerIds}
+                  submitters={submitterProfiles}
+                  selectedSubmitterIds={filterSubmitterIds}
+                  onSubmittersChange={setFilterSubmitterIds}
+                  hideDesigners
+                />
+              </div>
+            )}
           </div>
         )}
 

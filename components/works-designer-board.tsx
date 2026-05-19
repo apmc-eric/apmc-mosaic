@@ -5,6 +5,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   closestCenter,
@@ -105,6 +106,23 @@ function DraggableTicketCard({
   )
 }
 
+// ─── Droppable empty zone ─────────────────────────────────────────────────────
+
+function DroppableEmptyBucket({ bucket }: { bucket: DesignerBucket }) {
+  const { setNodeRef, isOver } = useDroppable({ id: bucket })
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'h-[160px] w-full rounded-[10px] border-2 border-dashed transition-colors duration-150',
+        isOver
+          ? 'border-neutral-400 bg-neutral-50 dark:border-zinc-500 dark:bg-zinc-800/40'
+          : 'border-neutral-200 dark:border-zinc-700',
+      )}
+    />
+  )
+}
+
 // ─── Bucket section ───────────────────────────────────────────────────────────
 
 const BUCKET_META: Record<DesignerBucket, { heading: string; subheading: string }> = {
@@ -163,22 +181,20 @@ function BucketSection({
           </div>
         ) : (
           <SortableContext items={ids} strategy={verticalListSortingStrategy} id={bucket}>
-            <div
-              className={cn(
-                'grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4',
-                tickets.length === 0 &&
-                  'min-h-[80px] rounded-xl border-2 border-dashed border-neutral-200 dark:border-zinc-700',
-              )}
-            >
-              {tickets.map((t) => (
-                <DraggableTicketCard
-                  key={t.id}
-                  ticket={t}
-                  displayTimeZone={displayTimeZone}
-                  onTicketClick={onTicketClick}
-                />
-              ))}
-            </div>
+            {tickets.length === 0 ? (
+              <DroppableEmptyBucket bucket={bucket} />
+            ) : (
+              <div className="grid w-full grid-cols-1 gap-x-5 gap-y-6 min-[640px]:grid-cols-2 min-[1024px]:max-[1439px]:grid-cols-3 min-[1440px]:grid-cols-4">
+                {tickets.map((t) => (
+                  <DraggableTicketCard
+                    key={t.id}
+                    ticket={t}
+                    displayTimeZone={displayTimeZone}
+                    onTicketClick={onTicketClick}
+                  />
+                ))}
+              </div>
+            )}
           </SortableContext>
         )}
       </div>

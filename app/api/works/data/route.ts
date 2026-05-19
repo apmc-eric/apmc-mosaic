@@ -210,7 +210,7 @@ export async function GET(request: Request) {
       }
 
       for (const a of assignRows ?? []) {
-        const row = a as TicketAssigneeRow & { profile?: TicketAssigneeRow['profile'] }
+        const row = a as unknown as TicketAssigneeRow & { profile?: TicketAssigneeRow['profile'] }
         const normalized: TicketAssigneeRow = {
           id: row.id,
           ticket_id: row.ticket_id,
