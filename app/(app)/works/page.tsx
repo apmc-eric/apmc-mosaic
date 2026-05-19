@@ -216,6 +216,10 @@ export default function WorksPage() {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [worksTab, setWorksTab] = useState<WorksTab>('work')
   const [viewingDesignerId, setViewingDesignerId] = useState<string | null>(null)
+  // Work tab: always the current user's own board
+  const [workBuckets, setWorkBuckets] = useState<TicketDesignerBucket[]>([])
+  const [workBucketsLoading, setWorkBucketsLoading] = useState(false)
+  // Team tab: the selected designer's board
   const [designerBuckets, setDesignerBuckets] = useState<TicketDesignerBucket[]>([])
   const [bucketsLoading, setBucketsLoading] = useState(false)
   const [phaseNoteModal, setPhaseNoteModal] = useState<{
@@ -285,22 +289,29 @@ export default function WorksPage() {
     setFilterDesignerIds((prev) => (prev.length === 0 ? [selfId] : prev))
   }, [profile?.id, profile?.role])
 
-  // Auto-set viewing designer.
-  // - Designer role (or admin previewing as designer): default to self.
-  // - Admin: default to self if in the workspace list, otherwise first designer alphabetically.
-  // Reset whenever viewRole changes so the preview immediately locks to the right person.
+  // Auto-set Team tab viewing designer.
+  // Default to self if in the list, otherwise first designer alphabetically.
   useEffect(() => {
     if (!profile?.id) return
-    if (profile.role === 'designer' || viewRole === 'designer') {
-      setViewingDesignerId(profile.id)
-    } else if (isAdmin && workspaceDesigners.length > 0) {
-      if (viewingDesignerId) return // already set; don't override manual selections
+    if (viewingDesignerId) return // don't override manual selections
+    if (workspaceDesigners.length > 0) {
       const self = workspaceDesigners.find((d) => d.id === profile.id)
       setViewingDesignerId(self?.id ?? workspaceDesigners[0]!.id)
     }
-  }, [profile?.id, profile?.role, isAdmin, viewRole, workspaceDesigners])
+  }, [profile?.id, workspaceDesigners, viewingDesignerId])
 
-  // Load buckets when viewing designer changes
+  // Work tab: load own buckets whenever profile changes
+  useEffect(() => {
+    if (!profile?.id) return
+    setWorkBucketsLoading(true)
+    fetch(`/api/works/buckets?designer_id=${profile.id}`, { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then(({ buckets }) => { if (buckets) setWorkBuckets(buckets as TicketDesignerBucket[]) })
+      .catch(() => {})
+      .finally(() => setWorkBucketsLoading(false))
+  }, [profile?.id])
+
+  // Team tab: load buckets when viewing designer changes
   useEffect(() => {
     if (!viewingDesignerId) return
     setBucketsLoading(true)
@@ -869,6 +880,48 @@ export default function WorksPage() {
     [viewingDesignerId],
   )
 
+  // Work tab: saves buckets for the current user only
+  const handleWorkBucketsChange = useCallback(
+    async (updates: Array<{ ticket_id: string; bucket: DesignerBucket; order_index: number }>) => {
+      if (!profile?.id) return
+      setWorkBuckets((prev) => {
+        const map = new Map(prev.map((b) => [b.ticket_id, b]))
+        for (const u of updates) {
+          const existing = map.get(u.ticket_id)
+          if (existing) {
+            map.set(u.ticket_id, { ...existing, bucket: u.bucket, order_index: u.order_index })
+          } else {
+            map.set(u.ticket_id, {
+              id: '',
+              designer_id: profile.id,
+              ticket_id: u.ticket_id,
+              bucket: u.bucket,
+              order_index: u.order_index,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+          }
+        }
+        return [...map.values()]
+      })
+      const res = await fetch('/api/works/buckets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ designer_id: profile.id, updates }),
+      })
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        toast.error((json as { error?: string }).error || 'Could not save bucket layout')
+        fetch(`/api/works/buckets?designer_id=${profile.id}`, { credentials: 'same-origin' })
+          .then((r) => r.json())
+          .then(({ buckets }) => { if (buckets) setWorkBuckets(buckets as TicketDesignerBucket[]) })
+          .catch(() => {})
+      }
+    },
+    [profile?.id],
+  )
+
   const commitPanelCategories = useCallback(
     async (commaSeparated: string | null) => {
       if (!profile?.id || !panelTicket?.id) return
@@ -1120,7 +1173,25 @@ export default function WorksPage() {
     return list
   }, [tickets])
 
-  // Set of ticket IDs assigned to the viewing designer (active phases only)
+  // Work tab: tickets assigned to the current user
+  const selfAssignedIds = useMemo(() => {
+    if (!profile?.id) return new Set<string>()
+    return new Set(
+      boardTickets
+        .filter((t) => (t.assignees ?? []).some((a) => a.user_id === profile.id))
+        .map((t) => t.id),
+    )
+  }, [boardTickets, profile?.id])
+
+  // Work tab board count (own tickets)
+  const workBoardCount = useMemo(() => {
+    if (!profile?.id) return null
+    const bucketedIds = new Set(workBuckets.map((b) => b.ticket_id))
+    const allIds = new Set([...bucketedIds, ...selfAssignedIds])
+    return boardTickets.filter((t) => allIds.has(t.id)).length
+  }, [boardTickets, workBuckets, selfAssignedIds, profile?.id])
+
+  // Team tab: tickets assigned to the viewing designer
   const viewingDesignerAssignedIds = useMemo(() => {
     if (!viewingDesignerId) return new Set<string>()
     return new Set(
@@ -1130,7 +1201,7 @@ export default function WorksPage() {
     )
   }, [boardTickets, viewingDesignerId])
 
-  // Total tickets shown in the designer board (assigned + explicitly bucketed)
+  // Team tab board count (selected designer)
   const boardCount = useMemo(() => {
     if (!viewingDesignerId) return null
     const bucketedIds = new Set(designerBuckets.map((b) => b.ticket_id))
@@ -1138,12 +1209,10 @@ export default function WorksPage() {
     return boardTickets.filter((t) => allIds.has(t.id)).length
   }, [boardTickets, designerBuckets, viewingDesignerAssignedIds, viewingDesignerId])
 
-  const selectedDesigner = useMemo(
-    () => workspaceDesigners.find((d) => d.id === viewingDesignerId) ?? null,
-    [workspaceDesigners, viewingDesignerId],
-  )
-
-  const teamFilteredBoardTickets = useMemo(() => {
+  // Team tab ticket pool: admins get the globally-filtered set so the filter bar narrows results;
+  // non-admins get boardTickets filtered by their search input.
+  const teamBoardTickets = useMemo(() => {
+    if (isAdminUi) return prePhaseFiltered
     const q = teamSearch.trim().toLowerCase()
     if (!q) return boardTickets
     return boardTickets.filter(
@@ -1151,7 +1220,13 @@ export default function WorksPage() {
         (t.title ?? '').toLowerCase().includes(q) ||
         (t.ticket_id ?? '').toLowerCase().includes(q),
     )
-  }, [boardTickets, teamSearch])
+  }, [isAdminUi, prePhaseFiltered, boardTickets, teamSearch])
+
+  const selectedDesigner = useMemo(
+    () => workspaceDesigners.find((d) => d.id === viewingDesignerId) ?? null,
+    [workspaceDesigners, viewingDesignerId],
+  )
+
 
   const inQueueWeekBounds = useMemo(() => {
     const now = new Date()
@@ -1381,7 +1456,7 @@ export default function WorksPage() {
         <div className="flex items-baseline gap-8">
           {(
             [
-              { key: 'work' as WorksTab, label: 'Work', count: boardCount },
+              { key: 'work' as WorksTab, label: 'Work', count: workBoardCount },
               { key: 'team' as WorksTab, label: 'Team', count: boardCount },
               { key: 'unscoped' as WorksTab, label: 'Pending', count: unscopedTickets.length + standbyTickets.length },
               { key: 'all' as WorksTab, label: 'All', count: allTabCount },
@@ -1414,52 +1489,15 @@ export default function WorksPage() {
       </div>
 
       <div className="w-full px-6 pb-16">
-        {/* Filter row per tab */}
-        {worksTab === 'work' && (
-          <div className="grid w-full grid-cols-12 gap-x-8 pb-6">
-            {isAdminUi && (
-              <div className="col-span-12 md:col-span-2">
-                <DesignerProfileRow
-                  designers={workspaceDesigners}
-                  selectedIds={viewingDesignerId ? [viewingDesignerId] : []}
-                  onFaceClick={(id) => setViewingDesignerId(id)}
-                />
-              </div>
-            )}
-            {isAdminUi && (
-              <div className="col-span-12 min-w-0 md:col-span-10">
-                <WorksFilterBar
-                  searchQuery={filterSearch}
-                  onSearchChange={setFilterSearch}
-                  projects={projects}
-                  selectedProjectIds={filterProjectIds}
-                  onProjectsChange={setFilterProjectIds}
-                  phaseOptions={boardStatusPhaseOptions}
-                  selectedPhases={filterPhases}
-                  onPhasesChange={setFilterPhases}
-                  categoryOptions={workspaceSettings?.team_categories ?? []}
-                  selectedCategories={filterCategories}
-                  onCategoriesChange={setFilterCategories}
-                  designers={workspaceDesigners}
-                  selectedDesignerIds={filterDesignerIds}
-                  onDesignersChange={setFilterDesignerIds}
-                  submitters={submitterProfiles}
-                  selectedSubmitterIds={filterSubmitterIds}
-                  onSubmittersChange={setFilterSubmitterIds}
-                  hideDesigners
-                />
-              </div>
-            )}
-          </div>
-        )}
 
         {worksTab === 'team' && (
-          <div className="flex items-center justify-between pb-6 pt-1">
+          <div className="flex items-center gap-4 pb-6 pt-1">
+            {/* Profile switcher — left, same styling as before */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex max-w-[239px] min-w-px items-center justify-between gap-1.5 rounded-[6px] border border-black/10 px-2.5 py-2 dark:border-zinc-700 hover:border-black/20 dark:hover:border-zinc-500 transition-colors"
+                  className="flex shrink-0 max-w-[239px] min-w-px items-center justify-between gap-1.5 rounded-[6px] border border-black/10 px-2.5 py-2 dark:border-zinc-700 hover:border-black/20 dark:hover:border-zinc-500 transition-colors"
                 >
                   <div className="flex items-center gap-1.5 min-w-0">
                     {selectedDesigner && (
@@ -1501,13 +1539,40 @@ export default function WorksPage() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <ClearableInput
-              aria-label="Search tickets"
-              placeholder="Search here..."
-              value={teamSearch}
-              onChange={(e) => setTeamSearch(e.target.value)}
-              onClear={() => setTeamSearch('')}
-            />
+
+            {/* Right side: filter bar for admins, search input for everyone else */}
+            {isAdminUi ? (
+              <div className="flex-1 min-w-0">
+                <WorksFilterBar
+                  searchQuery={filterSearch}
+                  onSearchChange={setFilterSearch}
+                  projects={projects}
+                  selectedProjectIds={filterProjectIds}
+                  onProjectsChange={setFilterProjectIds}
+                  phaseOptions={boardStatusPhaseOptions}
+                  selectedPhases={filterPhases}
+                  onPhasesChange={setFilterPhases}
+                  categoryOptions={workspaceSettings?.team_categories ?? []}
+                  selectedCategories={filterCategories}
+                  onCategoriesChange={setFilterCategories}
+                  designers={workspaceDesigners}
+                  selectedDesignerIds={filterDesignerIds}
+                  onDesignersChange={setFilterDesignerIds}
+                  submitters={submitterProfiles}
+                  selectedSubmitterIds={filterSubmitterIds}
+                  onSubmittersChange={setFilterSubmitterIds}
+                  hideDesigners
+                />
+              </div>
+            ) : (
+              <ClearableInput
+                aria-label="Search tickets"
+                placeholder="Search here..."
+                value={teamSearch}
+                onChange={(e) => setTeamSearch(e.target.value)}
+                onClear={() => setTeamSearch('')}
+              />
+            )}
           </div>
         )}
 
@@ -1568,37 +1633,35 @@ export default function WorksPage() {
             <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading tickets…</div>
           ) : (
             <>
-              {/* ── Work tab ── */}
+              {/* ── Work tab: always the current user's own board, no switcher ── */}
               {worksTab === 'work' && (
-                bucketsLoading ? (
+                workBucketsLoading ? (
                   <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
-                ) : viewingDesignerId ? (
+                ) : profile?.id ? (
                   <WorksDesignerBoard
                     tickets={boardTickets}
-                    buckets={designerBuckets}
-                    assignedTicketIds={viewingDesignerAssignedIds}
+                    buckets={workBuckets}
+                    assignedTicketIds={selfAssignedIds}
                     displayTimeZone={profile?.timezone ?? null}
                     onTicketClick={(t) => setPanelTicket(t)}
-                    onBucketsChange={(updates) => void handleBucketsChange(updates)}
+                    onBucketsChange={(updates) => void handleWorkBucketsChange(updates)}
                   />
-                ) : (
-                  <p className="py-16 text-center text-muted-foreground">Select a designer above.</p>
-                )
+                ) : null
               )}
 
-              {/* ── Team tab (read-only) ── */}
+              {/* ── Team tab: view any designer; admins can drag, others read-only ── */}
               {worksTab === 'team' && (
                 bucketsLoading ? (
                   <div className="flex justify-center py-20 text-sm text-muted-foreground">Loading…</div>
                 ) : viewingDesignerId ? (
                   <WorksDesignerBoard
-                    tickets={teamFilteredBoardTickets}
+                    tickets={teamBoardTickets}
                     buckets={designerBuckets}
                     assignedTicketIds={viewingDesignerAssignedIds}
-                    readOnly
+                    readOnly={!isAdminUi}
                     displayTimeZone={profile?.timezone ?? null}
                     onTicketClick={(t) => setPanelTicket(t)}
-                    onBucketsChange={() => {}}
+                    onBucketsChange={isAdminUi ? (updates) => void handleBucketsChange(updates) : () => {}}
                   />
                 ) : (
                   <p className="py-16 text-center text-muted-foreground">Select a designer above.</p>
