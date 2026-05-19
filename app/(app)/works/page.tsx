@@ -32,7 +32,6 @@ import { TicketTitleEditor } from '@/components/ticket-title-editor'
 import { WorksTicketPanelMetadata } from '@/components/works-ticket-panel-metadata'
 import { TicketSubmitModal } from '@/components/ticket-submit-modal'
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
-import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
 import type { Project, Profile, Ticket, TicketComment } from '@/lib/types'
 import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
 import {
@@ -1784,22 +1783,6 @@ export default function WorksPage() {
                       title={panelTicket.title}
                       canEdit={panelCanCompleteCheckpoint}
                       onSave={(t) => void savePanelTitle(t)}
-                    />
-                  </div>
-                  <div className="w-full min-w-0" data-name="CheckpointController">
-                    <TicketCheckpointIndicator
-                      className="w-full max-w-full"
-                      checkpointDate={panelTicket.checkpoint_date}
-                      checkpointMeetLink={panelTicket.checkpoint_meet_link ?? null}
-                      requestSubmittedAt={panelTicket.created_at}
-                      phase={panelTicket.phase}
-                      displayTimeZone={profile?.timezone ?? null}
-                      canEdit={panelCanCompleteCheckpoint}
-                      onCheckpointCommit={commitPanelCheckpoint}
-                      onCompleteCheckpoint={() => setCheckpointModalOpen(true)}
-                      onPauseRequest={
-                        panelCanCompleteCheckpoint ? () => setPauseModalOpen(true) : undefined
-                      }
                     />
                   </div>
                 </header>

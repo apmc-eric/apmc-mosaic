@@ -41,7 +41,6 @@ import {
 import { TicketCheckpointModal } from '@/components/ticket-checkpoint-modal'
 import { mergeCheckpointDateFromDateInput } from '@/lib/ticket-checkpoint-date-input'
 import { updateTicketCheckpointFields } from '@/lib/update-ticket-checkpoint'
-import { TicketCheckpointIndicator } from '@/components/ticket-checkpoint-indicator'
 import { WorkflowPhaseTag } from '@/components/workflow-phase-tag'
 import { ArrowLeft, MoreHorizontal, History } from 'lucide-react'
 import { toast } from 'sonner'
@@ -599,23 +598,6 @@ export default function TicketDetailPage() {
           Post Comment
         </Button>
       </div>
-
-      {canEditAssignees && (
-        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-background/95 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
-            <TicketCheckpointIndicator
-              checkpointDate={ticket.checkpoint_date}
-              checkpointMeetLink={ticket.checkpoint_meet_link ?? null}
-              requestSubmittedAt={ticket.created_at}
-              phase={ticket.phase}
-              displayTimeZone={profile?.timezone ?? null}
-              canEdit
-              onCheckpointCommit={commitTicketCheckpoint}
-              onCompleteCheckpoint={() => setCheckpointModalOpen(true)}
-            />
-          </div>
-        </div>
-      )}
 
       <TicketCheckpointModal
         open={checkpointModalOpen}

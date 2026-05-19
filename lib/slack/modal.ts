@@ -24,8 +24,7 @@ export function buildMosaicModal(params: {
 
   const titleValue = v.title_block?.title_input?.value ?? undefined
   const descValue = v.description_block?.description_input?.value ?? undefined
-  const availDate = v.availability_date_block?.availability_date?.selected_date ?? undefined
-  const availTime = v.availability_time_block?.availability_time?.selected_time ?? undefined
+  const linksValue = v.links_block?.links_input?.value ?? undefined
 
   const selectedProject = selectedProjectId
     ? projects.find((p) => p.id === selectedProjectId)
@@ -113,29 +112,16 @@ export function buildMosaicModal(params: {
     designersBlock,
     {
       type: 'input',
-      block_id: 'availability_date_block',
-      label: {
-        type: 'plain_text',
-        text: 'When are you available for a 15–30 min follow-up if needed?',
-      },
+      block_id: 'links_block',
+      label: { type: 'plain_text', text: 'Any links to add?' },
+      hint: { type: 'plain_text', text: 'Paste one URL per line. These will be attached to your ticket.' },
       optional: true,
       element: {
-        type: 'datepicker',
-        action_id: 'availability_date',
-        placeholder: { type: 'plain_text', text: 'Select date' },
-        ...(availDate ? { initial_date: availDate } : {}),
-      },
-    },
-    {
-      type: 'input',
-      block_id: 'availability_time_block',
-      label: { type: 'plain_text', text: 'Follow-up Time' },
-      optional: true,
-      element: {
-        type: 'timepicker',
-        action_id: 'availability_time',
-        placeholder: { type: 'plain_text', text: 'Select time' },
-        ...(availTime ? { initial_time: availTime } : {}),
+        type: 'plain_text_input',
+        action_id: 'links_input',
+        multiline: true,
+        placeholder: { type: 'plain_text', text: 'https://...' },
+        ...(linksValue ? { initial_value: linksValue } : {}),
       },
     },
   ]
