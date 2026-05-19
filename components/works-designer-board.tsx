@@ -3,7 +3,6 @@
 import * as React from 'react'
 import {
   DndContext,
-  DragOverlay,
   PointerSensor,
   useDroppable,
   useSensor,
@@ -56,7 +55,6 @@ function bucketOf(id: string, layout: BucketLayout): DesignerBucket | null {
   return null
 }
 
-// Prefer pointer-within first (reliable for empty containers), then rect intersection.
 const collisionDetection: CollisionDetection = (args) => {
   const hits = pointerWithin(args)
   return hits.length > 0 ? hits : rectIntersection(args)
@@ -73,13 +71,15 @@ function DraggableTicketCard({
   displayTimeZone?: string | null
   onTicketClick: (t: Ticket) => void
 }) {
-  const { listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+  const { listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
     useSortable({ id: ticket.id })
 
+  // Apply transform directly to the element — the transform IS the exact pointer
+  // delta so the card follows the cursor with zero offset. No DragOverlay needed.
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0 : 1,
+    zIndex: isDragging ? 20 : undefined,
+    position: 'relative',
   }
 
   const assignees = (ticket.assignees ?? []).slice(0, 3)
@@ -101,31 +101,10 @@ function DraggableTicketCard({
         draggable
         dragHandleProps={{ ...listeners }}
         dragHandleRef={setActivatorNodeRef}
-        onClick={() => onTicketClick(ticket)}
+        className={isDragging ? 'shadow-2xl rotate-[1.5deg] cursor-grabbing' : undefined}
+        onClick={() => { if (!isDragging) onTicketClick(ticket) }}
       />
     </div>
-  )
-}
-
-// Static card for DragOverlay — must NOT call useSortable (same id as real card = position chaos).
-function OverlayCard({ ticket, displayTimeZone }: { ticket: Ticket; displayTimeZone?: string | null }) {
-  const assignees = (ticket.assignees ?? []).slice(0, 3)
-  const overflow = Math.max(0, (ticket.assignees?.length ?? 0) - 3)
-  const categoryPills =
-    ticket.team_category?.split(/[,;]/).map((s) => s.trim()).filter(Boolean) ?? []
-  return (
-    <TicketCard
-      ticketId={ticket.ticket_id}
-      title={ticket.title}
-      phase={ticket.phase}
-      tagPills={categoryPills}
-      assignees={assignees}
-      assigneeOverflow={overflow}
-      flagLabel={ticket.flag}
-      displayTimeZone={displayTimeZone}
-      className="shadow-xl rotate-[1deg] cursor-grabbing"
-      onClick={() => {}}
-    />
   )
 }
 
@@ -250,26 +229,22 @@ export function WorksDesignerBoard({
     setLayout(buildLayout(tickets, bucketMap, assignedTicketIds))
   }, [tickets, bucketMap, assignedTicketIds])
 
-  // Ref stays in sync each render so event handlers can read current layout
-  // without triggering state updates (which would cause re-render loops).
   const layoutRef = React.useRef(layout)
   layoutRef.current = layout
 
-  const [activeTicket, setActiveTicket] = React.useState<Ticket | null>(null)
   const dragOriginBucket = React.useRef<DesignerBucket | null>(null)
 
+  // distance:1 activates on first movement so the grab point matches the click
+  // point exactly rather than drifting 8px before the drag begins.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 1 } }),
   )
 
   function handleDragStart({ active }: DragStartEvent) {
-    const t = tickets.find((t) => t.id === active.id) ?? null
-    setActiveTicket(t)
     dragOriginBucket.current = bucketOf(active.id as string, layoutRef.current)
   }
 
   function handleDragEnd({ active, over }: DragEndEvent) {
-    setActiveTicket(null)
     const originBucket = dragOriginBucket.current
     dragOriginBucket.current = null
 
@@ -279,14 +254,12 @@ export function WorksDesignerBoard({
     const ticket = prev[originBucket].find((t) => t.id === active.id)
     if (!ticket) return
 
-    // Resolve target bucket: over.id is either a bucket name (empty droppable) or a ticket id
     const targetBucket: DesignerBucket =
       isBucketId(over.id as string)
         ? (over.id as DesignerBucket)
         : (bucketOf(over.id as string, prev) ?? originBucket)
 
     if (originBucket === targetBucket) {
-      // Same-bucket reorder
       const oldIndex = prev[originBucket].findIndex((t) => t.id === active.id)
       const newIndex = prev[originBucket].findIndex((t) => t.id === over.id)
       if (oldIndex === newIndex || newIndex === -1) return
@@ -296,7 +269,6 @@ export function WorksDesignerBoard({
       return
     }
 
-    // Cross-bucket move: insert at the position of the hovered ticket (or end)
     const overIndex = isBucketId(over.id as string)
       ? prev[targetBucket].length
       : prev[targetBucket].findIndex((t) => t.id === over.id)
@@ -335,11 +307,6 @@ export function WorksDesignerBoard({
           />
         ))}
       </div>
-      <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>
-        {activeTicket ? (
-          <OverlayCard ticket={activeTicket} displayTimeZone={displayTimeZone} />
-        ) : null}
-      </DragOverlay>
     </DndContext>
   )
 }
