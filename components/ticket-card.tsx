@@ -50,7 +50,13 @@ export const TicketCard = React.forwardRef<HTMLButtonElement, TicketCardProps>(
     ref,
   ) => {
     const showFlag = Boolean(flagLabel && flagLabel !== 'standard')
-    const categoryPills = tagPills.map((s) => s.trim()).filter(Boolean)
+    const PLATFORM_TAGS = ['ctv', 'mobile', 'web']
+    const rawPills = tagPills.map((s) => s.trim()).filter(Boolean)
+    const lowerPills = rawPills.map((s) => s.toLowerCase())
+    const hasAllPlatforms = PLATFORM_TAGS.every((p) => lowerPills.includes(p))
+    const categoryPills = hasAllPlatforms
+      ? ['All Platforms', ...rawPills.filter((s) => !PLATFORM_TAGS.includes(s.toLowerCase()))]
+      : rawPills
 
     return (
       <button
