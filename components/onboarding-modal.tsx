@@ -27,9 +27,11 @@ interface OnboardingModalProps {
   teams: Team[]
   profile: Profile | null
   onComplete: () => void
+  /** When true, shows "Edit Profile" copy and hides the Teams section. */
+  isEditing?: boolean
 }
 
-export function OnboardingModal({ open, teams, profile, onComplete }: OnboardingModalProps) {
+export function OnboardingModal({ open, teams, profile, onComplete, isEditing = false }: OnboardingModalProps) {
   const timeZoneChoices = useMemo(() => {
     const b = defaultProfileTimeZone()
     const list = [...PROFILE_TIMEZONE_CHOICES]
@@ -42,8 +44,8 @@ export function OnboardingModal({ open, teams, profile, onComplete }: Onboarding
   const [firstName, setFirstName] = useState(profile?.first_name ?? '')
   const [lastName, setLastName] = useState(profile?.last_name ?? '')
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([])
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [timeZone, setTimeZone] = useState(() => defaultProfileTimeZone())
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url ?? null)
+  const [timeZone, setTimeZone] = useState(() => profile?.timezone ?? defaultProfileTimeZone())
   const [isUploading, setIsUploading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -135,7 +137,7 @@ export function OnboardingModal({ open, teams, profile, onComplete }: Onboarding
     }
 
     setIsSubmitting(false)
-    toast.success('Welcome to Mosaic!')
+    toast.success(isEditing ? 'Profile updated!' : 'Welcome to Mosaic!')
     onComplete()
   }
 
@@ -143,9 +145,13 @@ export function OnboardingModal({ open, teams, profile, onComplete }: Onboarding
     <Dialog open={open}>
       <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle className="text-2xl font-sans">Welcome to Mosaic</DialogTitle>
+          <DialogTitle className="text-2xl font-sans">
+            {isEditing ? 'Edit Profile' : 'Welcome to Mosaic'}
+          </DialogTitle>
           <DialogDescription>
-            Let&apos;s set up your profile to get started.
+            {isEditing
+              ? 'Update your profile details.'
+              : "Let's set up your profile to get started."}
           </DialogDescription>
         </DialogHeader>
 
@@ -220,7 +226,7 @@ export function OnboardingModal({ open, teams, profile, onComplete }: Onboarding
             </div>
           </div>
 
-          {teams.length > 0 && (
+          {!isEditing && teams.length > 0 && (
             <div className="space-y-3">
               <Label>Teams (Optional)</Label>
               <div className="space-y-2 max-h-32 overflow-y-auto">
@@ -244,7 +250,7 @@ export function OnboardingModal({ open, teams, profile, onComplete }: Onboarding
           )}
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? 'Saving...' : 'Get Started'}
+            {isSubmitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Get Started'}
           </Button>
         </form>
       </DialogContent>

@@ -3,7 +3,7 @@
 import { useAuth } from '@/lib/auth-context'
 import { GlobalNav } from '@/components/global-nav'
 
-export function AppHeader() {
+export function AppHeader({ onEditProfile }: { onEditProfile?: () => void }) {
   const { profile, isAdmin, isGuest, viewRole, signOut } = useAuth()
   const hideNav = isGuest || viewRole === 'collaborator' || viewRole === 'guest'
 
@@ -13,6 +13,7 @@ export function AppHeader() {
       profile={profile}
       isAdmin={isAdmin}
       signOut={signOut}
+      onEditProfile={onEditProfile}
     />
   )
 }

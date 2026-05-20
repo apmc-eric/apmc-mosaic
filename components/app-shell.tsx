@@ -16,6 +16,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isPublicTicketPath = pathname?.startsWith('/tickets/')
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
 
   useEffect(() => {
     if (!isLoading && !user && !isPublicTicketPath) {
@@ -32,6 +33,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const handleOnboardingComplete = async () => {
     await refreshProfile()
     setShowOnboarding(false)
+    setIsEditingProfile(false)
+  }
+
+  const handleEditProfile = () => {
+    setIsEditingProfile(true)
+    setShowOnboarding(true)
   }
 
   // Auth still resolving — hard block before rendering anything
@@ -59,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <AppHeader />
+      <AppHeader onEditProfile={handleEditProfile} />
       <main className="flex-1 pt-[40px]">
         <RoleGate>
           {/*
@@ -87,10 +94,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {showOnboarding && (
         <OnboardingModal
+          key={isEditingProfile ? 'edit' : 'onboard'}
           open={showOnboarding}
           teams={teams}
           profile={profile}
           onComplete={handleOnboardingComplete}
+          isEditing={isEditingProfile}
         />
       )}
     </div>
