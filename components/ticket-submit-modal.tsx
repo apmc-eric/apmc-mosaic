@@ -16,16 +16,13 @@ import {
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
 import { ProfileImage } from '@/components/profile-image'
 import { TicketTitleEditor } from '@/components/ticket-title-editor'
 import { TicketDescriptionEditor } from '@/components/ticket-description-editor'
 import { ContextLink } from '@/components/context-link'
 import { HorizontalScrollFade } from '@/components/horizontal-scroll-fade'
-import { CheckpointDatetimePickerBody } from '@/components/checkpoint-datetime-picker-body'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import type { Profile, Project } from '@/lib/types'
-import type { TimeSlot } from '@/lib/google-calendar'
 import { DEFAULT_NEW_TICKET_PHASE } from '@/lib/mosaic-project-phases'
 import { formatProfileLabel } from '@/lib/format-profile'
 import {
@@ -33,18 +30,13 @@ import {
   sanitizeDescriptionHtml,
 } from '@/lib/sanitize-ticket-description-html'
 import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
-import { addCivilDaysYmd } from '@/lib/calendar-civil-date'
-import { parseISO } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import { toast } from 'sonner'
-import { CalendarSearch, ChevronDown, Folder, Loader2, Search, Tag, Users, X } from 'lucide-react'
+import { ChevronDown, Folder, Search, Tag, Users, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const supabase = createClient()
 
 const CREATE_PHASE = DEFAULT_NEW_TICKET_PHASE
-
-type SlotsStatus = 'idle' | 'loading' | 'found' | 'none' | 'error'
 
 type AssignableProfile = Pick<
   Profile,
@@ -55,13 +47,6 @@ interface TicketSubmitModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated?: () => void
-}
-
-function checkpointDateForRpc(iso: string | null): string | null {
-  if (!iso) return null
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return null
-  return new Date(t).toISOString()
 }
 
 function assigneeKey(ids: string[]) {
@@ -82,36 +67,14 @@ function initialsForProfile(d: AssignableProfile): string {
   return (d.email?.[0] ?? '?').toUpperCase()
 }
 
-function formatTime(iso: string, timeZone: string): string {
-  return formatInTimeZone(parseISO(iso), timeZone, 'h:mm a')
-}
-
-function formatSlotDateLabel(dateStr: string, timeZone: string): string {
-  const d = new Date(`${dateStr}T12:00:00Z`)
-  return formatInTimeZone(d, timeZone, 'EEEE, MMMM d, yyyy')
-}
-
-function slotSearchAnchorYmd(iso: string | null, displayTz: string): string {
-  const raw = iso?.trim()
-  if (raw) {
-    try {
-      const p = parseISO(raw)
-      if (!Number.isNaN(p.getTime())) return formatInTimeZone(p, displayTz, 'yyyy-MM-dd')
-    } catch { /* use today */ }
-  }
-  return formatInTimeZone(new Date(), displayTz, 'yyyy-MM-dd')
-}
-
 export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmitModalProps) {
-  const { profile, workspaceSettings, hasGoogleToken } = useAuth()
-  const displayTz = profile?.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone
+  const { profile, workspaceSettings } = useAuth()
 
   const [draftSession, setDraftSession] = useState(0)
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2>(1)
   const [title, setTitle] = useState('')
   const [descriptionHtml, setDescriptionHtml] = useState('')
   const [projectId, setProjectId] = useState('')
-  const [checkpointIso, setCheckpointIso] = useState<string | null>(null)
   const [selectedCategories, setSelectedCategories] = useState<string[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -124,17 +87,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
   const [designerPopoverOpen, setDesignerPopoverOpen] = useState(false)
   const [designerSearch, setDesignerSearch] = useState('')
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
-
-  // Step 3 state
-  const [step3Tab, setStep3Tab] = useState<'pick' | 'recommend'>('pick')
-  const [sendCalendarInvite, setSendCalendarInvite] = useState(true)
-  const [slotsStatus, setSlotsStatus] = useState<SlotsStatus>('idle')
-  const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([])
-  const [slotsDate, setSlotsDate] = useState<string | null>(null)
-  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
-  const [usersWithoutGoogle, setUsersWithoutGoogle] = useState<string[]>([])
-  const [slotsErrorDetail, setSlotsErrorDetail] = useState<string | null>(null)
-  const [searchPage, setSearchPage] = useState(0)
 
   const categoryOptions = workspaceSettings?.team_categories ?? []
   const teamCategoryCsv = selectedCategories.length > 0 ? selectedCategories.join(',') : null
@@ -168,11 +120,10 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     if (title.trim() !== '') return true
     if (desc !== '') return true
     if (projectId !== '') return true
-    if (checkpointIso != null) return true
     if (selectedCategories.length > 0) return true
     if (assigneeKey(assigneeIds) !== baselineAssigneeKey) return true
     return false
-  }, [step, title, descriptionHtml, projectId, checkpointIso, selectedCategories, assigneeIds, baselineAssigneeKey])
+  }, [step, title, descriptionHtml, projectId, selectedCategories, assigneeIds, baselineAssigneeKey])
 
   const requestClose = useCallback(() => {
     if (!isDirty) { onOpenChange(false); return }
@@ -214,21 +165,12 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     setTitle('')
     setDescriptionHtml('')
     setProjectId('')
-    setCheckpointIso(null)
     setSelectedCategories([])
     setProjectPopoverOpen(false)
     setCategoryPopoverOpen(false)
     setDesignerPopoverOpen(false)
     setDesignerSearch('')
     setExitConfirmOpen(false)
-    setSendCalendarInvite(true)
-    setSlotsStatus('idle')
-    setAvailableSlots([])
-    setSlotsDate(null)
-    setSelectedSlot(null)
-    setUsersWithoutGoogle([])
-    setSlotsErrorDetail(null)
-    setSearchPage(0)
     const initialIds = profile?.id ? [profile.id] : []
     setAssigneeIds(initialIds)
     setBaselineAssigneeKey(assigneeKey(initialIds))
@@ -249,62 +191,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     setStep(2)
   }
 
-  const goStep3 = () => {
-    if (!projectId) { toast.error('Select a project to continue'); return }
-    setSlotsStatus('idle')
-    setAvailableSlots([])
-    setSlotsDate(null)
-    setSelectedSlot(null)
-    setUsersWithoutGoogle([])
-    setSlotsErrorDetail(null)
-    setSearchPage(0)
-    setStep3Tab('pick')
-    setStep(3)
-  }
-
-  const findAvailableTimesPage = async (page: number) => {
-    setSlotsStatus('loading')
-    setSelectedSlot(null)
-    setAvailableSlots([])
-    setSlotsDate(null)
-    setUsersWithoutGoogle([])
-    setSlotsErrorDetail(null)
-    setSearchPage(page)
-
-    const anchor = slotSearchAnchorYmd(checkpointIso, displayTz)
-    const searchFrom = addCivilDaysYmd(anchor, page * 14, displayTz)
-
-    try {
-      const res = await fetch('/api/calendar/freebusy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assigneeProfileIds: assigneeIds.length > 0 ? assigneeIds : undefined,
-          searchFrom,
-          workTimeZone: displayTz,
-          preferredCheckpointIso: checkpointIso,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok || data.error) {
-        setSlotsStatus('error')
-        setSlotsErrorDetail(typeof data.detail === 'string' ? data.detail : null)
-        return
-      }
-      setUsersWithoutGoogle(data.usersWithoutGoogle ?? [])
-      if (data.slots?.length > 0) {
-        setAvailableSlots(data.slots)
-        setSlotsDate(data.slotsDate)
-        setSlotsStatus('found')
-      } else {
-        setSlotsStatus('none')
-      }
-    } catch {
-      setSlotsStatus('error')
-      setSlotsErrorDetail('Request failed — check your network and try again.')
-    }
-  }
-
   const handleSubmit = async () => {
     if (!profile?.id || !projectId || !title.trim()) {
       toast.error('Title and project are required')
@@ -313,7 +199,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     const proj = projects.find((p) => p.id === projectId)
     if (!proj) { toast.error('Invalid project'); return }
 
-    const finalCheckpointIso = selectedSlot ? selectedSlot.start : checkpointIso
     const support = assigneeIds.slice(1).filter((id) => id !== leadId)
     const cleanDesc = sanitizeDescriptionHtml(descriptionHtml).trim()
     const fromLinks = extractUrlsFromDescriptionHtml(cleanDesc)
@@ -331,7 +216,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
           p_team_category: teamCategoryCsv,
           p_project_id: projectId,
           p_phase: CREATE_PHASE,
-          p_checkpoint_date: checkpointDateForRpc(finalCheckpointIso),
+          p_checkpoint_date: null,
           p_flag: 'standard',
           p_lead_id: leadId || null,
           p_support_ids: support,
@@ -349,22 +234,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
         return
       }
 
-      const newTicketId = result.id
-      if (newTicketId && selectedSlot && sendCalendarInvite) {
-        const eventRes = await fetch('/api/calendar/event', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticketId: newTicketId, ticketTitle: title.trim(), slot: selectedSlot }),
-        })
-        if (!eventRes.ok) {
-          toast.warning('Ticket created — calendar invite could not be sent')
-        } else {
-          toast.success('Ticket created with calendar invite')
-        }
-      } else {
-        toast.success('Ticket created')
-      }
-
+      toast.success('Ticket created')
       onOpenChange(false)
       onCreated?.()
     } catch (e) {
@@ -375,21 +245,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
       setSubmitting(false)
     }
   }
-
-  // Checkpoint preview for Step 3 Tab 1
-  const checkpointPreviewIso = selectedSlot?.start ?? checkpointIso
-  const checkpointPreview = useMemo(() => {
-    if (!checkpointPreviewIso) return null
-    try {
-      const inst = parseISO(checkpointPreviewIso)
-      if (Number.isNaN(inst.getTime())) return null
-      return {
-        month: formatInTimeZone(inst, displayTz, 'MMMM').toUpperCase(),
-        day: formatInTimeZone(inst, displayTz, 'd'),
-        label: formatInTimeZone(inst, displayTz, 'EEEE, h:mm a'),
-      }
-    } catch { return null }
-  }, [checkpointPreviewIso, displayTz])
 
   return (
     <>
@@ -429,7 +284,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                   <div className="flex flex-col gap-8">
                     {/* Step header */}
                     <div className="flex flex-col gap-3.5">
-                      <p className="text-xs font-medium leading-none text-neutral-400">Step 1 of 3</p>
+                      <p className="text-xs font-medium leading-none text-neutral-400">Step 1 of 2</p>
                       <h2 className="text-4xl font-semibold leading-[1.1] tracking-[-0.015em] text-neutral-900">
                         Let&apos;s create your design request.
                       </h2>
@@ -489,7 +344,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                   <div className="flex flex-col gap-8" data-node-id="294:6249">
                     {/* Step header */}
                     <div className="flex flex-col gap-3.5" data-node-id="369:6317">
-                      <p className="text-xs font-medium leading-none text-neutral-400">Step 2 of 3</p>
+                      <p className="text-xs font-medium leading-none text-neutral-400">Step 2 of 2</p>
                       <h2 className="text-4xl font-semibold leading-[1.1] tracking-[-0.015em] text-neutral-900">
                         What type of request is this?
                       </h2>
@@ -655,195 +510,6 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                   </div>
                 )}
 
-                {/* ── Step 3 ── */}
-                {step === 3 && (
-                  <div className="flex flex-col gap-8">
-                    <div className="flex flex-col gap-3.5">
-                      <p className="text-xs font-medium leading-none text-neutral-400">Step 3 of 3</p>
-                      <h2 className="text-4xl font-semibold leading-[1.1] tracking-[-0.015em] text-neutral-900">
-                        Let&apos;s set an initial checkpoint.
-                      </h2>
-                      <p className="text-sm leading-snug text-neutral-500">
-                        While not required, doing this will allow us to prioritize your request.<br />
-                        It is highly recommended to ensure timely follow-up.
-                      </p>
-                    </div>
-
-                    {/* Underline tab bar */}
-                    <div className="flex flex-col gap-5">
-                      <div className="flex gap-6 border-b border-neutral-200">
-                        <button
-                          type="button"
-                          onClick={() => setStep3Tab('pick')}
-                          className={cn(
-                            'py-4 text-sm font-medium leading-none whitespace-nowrap transition-colors',
-                            step3Tab === 'pick'
-                              ? 'border-b-2 border-black text-black -mb-px'
-                              : 'text-neutral-400',
-                          )}
-                        >
-                          Pick a date &amp; time
-                        </button>
-                        {hasGoogleToken && (
-                          <button
-                            type="button"
-                            onClick={() => setStep3Tab('recommend')}
-                            className={cn(
-                              'py-4 text-sm font-medium leading-none whitespace-nowrap transition-colors',
-                              step3Tab === 'recommend'
-                                ? 'border-b-2 border-black text-black -mb-px'
-                                : 'text-neutral-400',
-                            )}
-                          >
-                            Recommend a time
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Tab 1: Pick a date & time */}
-                      {step3Tab === 'pick' && (
-                        <div className="flex flex-col gap-5">
-                          <div className="flex gap-6 items-start">
-                            <div className="overflow-hidden rounded-lg border border-border shrink-0">
-                              <CheckpointDatetimePickerBody
-                                open={step === 3}
-                                checkpointDate={checkpointIso}
-                                timeZone={profile?.timezone ?? null}
-                                onCommit={async (iso) => { setCheckpointIso(iso); setSelectedSlot(null) }}
-                                onRequestClose={() => {}}
-                                commitOnChange
-                              />
-                            </div>
-                            {checkpointPreview && (
-                              <div className="flex shrink-0 flex-col gap-3 rounded-md border border-neutral-200 px-6 py-5 w-[216px]">
-                                <div className="flex flex-col gap-1.5">
-                                  <p className="text-xs font-semibold leading-none uppercase text-neutral-600">
-                                    {checkpointPreview.month}
-                                  </p>
-                                  <p className="text-[64px] font-normal leading-none tracking-[-0.015em] text-black tabular-nums">
-                                    {checkpointPreview.day}
-                                  </p>
-                                </div>
-                                <p className="text-xs font-semibold leading-none text-neutral-600">
-                                  {checkpointPreview.label}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                          {(checkpointIso ?? selectedSlot) && (
-                            <div className="flex items-center gap-2.5">
-                              <Checkbox
-                                id="cp-invite"
-                                checked={sendCalendarInvite}
-                                onCheckedChange={(c) => setSendCalendarInvite(c === true)}
-                                className="shrink-0"
-                              />
-                              <Label htmlFor="cp-invite" className="cursor-pointer text-xs font-medium leading-none text-black">
-                                Send Calendar invite to all collaborators
-                              </Label>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Tab 2: Recommend a time */}
-                      {hasGoogleToken && step3Tab === 'recommend' && (
-                        <div className="flex flex-col gap-5">
-                          <p className="text-sm leading-snug text-black">
-                            Uses assignees&apos; calendars that are linked in Mosaic for availability. Suggestions use 6&nbsp;AM–6&nbsp;PM on each searched day in your timezone (weekdays first, then your selected day if the scan had no matches).
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full gap-2"
-                            onClick={() => void findAvailableTimesPage(0)}
-                            disabled={slotsStatus === 'loading'}
-                          >
-                            {slotsStatus === 'loading' ? (
-                              <><Loader2 className="h-4 w-4 animate-spin" />Searching Calendars…</>
-                            ) : (
-                              <><CalendarSearch className="h-4 w-4" />Find Available Times</>
-                            )}
-                          </Button>
-
-                          {usersWithoutGoogle.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              Note: {usersWithoutGoogle.join(', ')}{' '}
-                              {usersWithoutGoogle.length === 1 ? "hasn't" : "haven't"} linked Google Calendar — availability not factored in.
-                            </p>
-                          )}
-
-                          {slotsStatus === 'found' && slotsDate && (
-                            <div className="flex flex-col gap-3">
-                              <p className="text-xs font-medium text-neutral-500">{formatSlotDateLabel(slotsDate, displayTz)}</p>
-                              <div className="flex flex-wrap gap-2">
-                                {availableSlots.map((slot) => {
-                                  const isSelected = selectedSlot?.start === slot.start
-                                  return (
-                                    <button
-                                      key={slot.start}
-                                      type="button"
-                                      onClick={() => { setSelectedSlot(slot); setCheckpointIso(slot.start) }}
-                                      className={cn(
-                                        'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
-                                        isSelected
-                                          ? 'border-black bg-black text-white'
-                                          : 'border-border bg-background hover:border-foreground/50',
-                                      )}
-                                    >
-                                      {formatTime(slot.start, displayTz)} — {formatTime(slot.end, displayTz)}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                              <button
-                                type="button"
-                                className="text-xs text-muted-foreground hover:text-foreground self-start"
-                                onClick={() => void findAvailableTimesPage(searchPage + 1)}
-                              >
-                                Search later →
-                              </button>
-                              {selectedSlot && (
-                                <div className="flex items-center gap-2.5">
-                                  <Checkbox
-                                    id="cp-invite-slot"
-                                    checked={sendCalendarInvite}
-                                    onCheckedChange={(c) => setSendCalendarInvite(c === true)}
-                                    className="shrink-0"
-                                  />
-                                  <Label htmlFor="cp-invite-slot" className="cursor-pointer text-xs font-medium leading-none text-black">
-                                    Send Calendar invite to all collaborators
-                                  </Label>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {slotsStatus === 'none' && (
-                            <div className="flex flex-col gap-2">
-                              <p className="text-sm text-muted-foreground">No available slots found in the next 14 weekdays.</p>
-                              <button type="button" className="text-xs text-muted-foreground hover:text-foreground self-start" onClick={() => void findAvailableTimesPage(searchPage + 1)}>
-                                Search further out →
-                              </button>
-                            </div>
-                          )}
-
-                          {slotsStatus === 'error' && (
-                            <div className="flex flex-col gap-2">
-                              <p className="text-sm text-destructive">
-                                Could not fetch calendar availability. Try again or use the &quot;Pick a date&quot; tab.
-                              </p>
-                              {slotsErrorDetail && (
-                                <p className="break-all font-mono text-xs leading-snug text-muted-foreground">{slotsErrorDetail}</p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
               </div>
             </div>
 
@@ -857,14 +523,9 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                     </Button>
                     <Button type="button" disabled={submitting} onClick={goStep2}>Next</Button>
                   </>
-                ) : step === 2 ? (
-                  <>
-                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(1)}>Previous</Button>
-                    <Button type="button" disabled={submitting} onClick={goStep3}>Next</Button>
-                  </>
                 ) : (
                   <>
-                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(2)}>Previous</Button>
+                    <Button type="button" variant="ghost" disabled={submitting} onClick={() => setStep(1)}>Previous</Button>
                     <Button
                       type="button"
                       disabled={submitting || !projectId || !title.trim()}

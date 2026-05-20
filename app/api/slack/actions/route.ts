@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { fromZonedTime } from 'date-fns-tz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifySlackSignature } from '@/lib/slack/verify'
 import type {
@@ -15,21 +14,12 @@ const BOT_TOKEN = process.env.SLACK_BOT_TOKEN
 const SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mosaic.apmc.design'
 
-function combineDateTime(
-  date: string | null | undefined,
-  time: string | null | undefined,
-  timezone?: string | null,
-): string | null {
-  if (!date) return null
-  const localISO = `${date}T${time ?? '09:00'}:00`
-  if (timezone) {
-    try {
-      return fromZonedTime(localISO, timezone).toISOString()
-    } catch {
-      // fall through
-    }
-  }
-  return new Date(localISO + 'Z').toISOString()
+function parseLinksFromText(text: string | null | undefined): string[] {
+  if (!text?.trim()) return []
+  return text
+    .split(/[\n\r]+/)
+    .map((line) => line.trim())
+    .filter((line) => /^https?:\/\//i.test(line))
 }
 
 function confirmationView(ticketId: string): object {
@@ -92,8 +82,8 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
       ?.map((o) => o.value)
       .filter(Boolean) ?? []
 
-  const availDate = values.availability_date_block?.availability_date?.selected_date
-  const availTime = values.availability_time_block?.availability_time?.selected_time
+  const linksText = values.links_block?.links_input?.value
+  const links = parseLinksFromText(linksText)
 
   const errors: Record<string, string> = {}
   if (!title) errors.title_block = 'Title is required'
@@ -107,7 +97,6 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
     return NextResponse.json({ response_action: 'clear' })
   }
 
-  const checkpointDate = combineDateTime(availDate, availTime, metadata.timezone)
   const leadId = designerIds[0] ?? null
   const supportIds = designerIds.slice(1)
 
@@ -115,11 +104,11 @@ async function handleViewSubmission(payload: SlackViewSubmissionPayload): Promis
   const { data: ticketId, error } = await admin.rpc('create_ticket_from_slack', {
     p_title: title,
     p_description: description,
-    p_urls: null,
+    p_urls: links.length > 0 ? links : null,
     p_team_category: null,
     p_project_id: projectId,
     p_phase: 'Triage',
-    p_checkpoint_date: checkpointDate,
+    p_checkpoint_date: null,
     p_availability_date: null,
     p_flag: 'standard',
     p_created_by: metadata.submitter_id,

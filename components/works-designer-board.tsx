@@ -379,6 +379,12 @@ export function WorksDesignerBoard({
 
   const isDraggingRef = React.useRef(false)
 
+  // Keep a stable ref so the monitor effect never needs to list onBucketsChange
+  // as a dependency — avoids tearing down / re-registering mid-drag whenever
+  // the parent renders with a new inline callback.
+  const onBucketsChangeRef = React.useRef(onBucketsChange)
+  React.useLayoutEffect(() => { onBucketsChangeRef.current = onBucketsChange })
+
   // Sync external ticket/bucket data into layout whenever it changes, but not
   // during an active drag (would reset in-flight state).
   React.useEffect(() => {
@@ -387,6 +393,8 @@ export function WorksDesignerBoard({
   }, [tickets, bucketMap, assignedTicketIds])
 
   // Board-level monitor: handles all drops and updates layout state.
+  // Depends only on readOnly — onBucketsChange is accessed via ref so the
+  // monitor is never torn down mid-drag due to a parent re-render.
   React.useEffect(() => {
     if (readOnly) return
 
@@ -430,7 +438,7 @@ export function WorksDesignerBoard({
             if (finishIndex === startIndex) return
             const reordered = reorder({ list, startIndex, finishIndex })
             setLayout((l) => ({ ...l, [sourceBucket]: reordered }))
-            onBucketsChange(computeOrderUpdates(sourceBucket, reordered))
+            onBucketsChangeRef.current(computeOrderUpdates(sourceBucket, reordered))
           } else {
             // Cross-bucket move: insert before/after the target card
             const ticket = prev[sourceBucket].find((t) => t.id === ticketId)
@@ -449,7 +457,7 @@ export function WorksDesignerBoard({
             ]
 
             setLayout((l) => ({ ...l, [sourceBucket]: newSource, [targetBucket]: newTarget }))
-            onBucketsChange([
+            onBucketsChangeRef.current([
               ...computeOrderUpdates(sourceBucket, newSource),
               ...computeOrderUpdates(targetBucket, newTarget),
             ])
@@ -473,7 +481,8 @@ export function WorksDesignerBoard({
         }
       },
     })
-  }, [readOnly, onBucketsChange])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly])
 
   return (
     <div className="w-full space-y-10">

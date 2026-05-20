@@ -13,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { LogOut, Settings, User } from 'lucide-react'
+import { LogOut, Pencil, Settings, User } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
@@ -39,6 +39,7 @@ type GlobalNavProps = {
   } | null
   isAdmin: boolean
   signOut: () => void | Promise<void>
+  onEditProfile?: () => void
 }
 
 /**
@@ -47,7 +48,7 @@ type GlobalNavProps = {
  * Logo **LogoArea** spans **2** columns; **ControlBar** spans **10** (nav + profile `justify-between`).
  * Nav: Work → `/works`, Inspiration → `/inspire`, Directory → `/team`. Menu icons: **Lucide** (`lucide-react`).
  */
-export function GlobalNav({ variant, profile, isAdmin, signOut }: GlobalNavProps) {
+export function GlobalNav({ variant, profile, isAdmin, signOut, onEditProfile }: GlobalNavProps) {
   const pathname = usePathname()
   const logoHref = variant === 'guest' ? '/submitter' : '/works'
 
@@ -86,6 +87,10 @@ export function GlobalNav({ variant, profile, isAdmin, signOut }: GlobalNavProps
             <User className="mr-2 size-4" />
             Profile
           </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onEditProfile} className="cursor-pointer">
+          <Pencil className="mr-2 size-4" />
+          Edit Profile
         </DropdownMenuItem>
         {isAdmin && (
           <DropdownMenuItem asChild>
