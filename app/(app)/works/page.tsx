@@ -1476,57 +1476,59 @@ export default function WorksPage() {
       <div className="w-full px-6 pb-16">
 
         {worksTab === 'team' && (
-          <div className="flex items-center gap-6 pb-6 pt-5">
-            {/* Profile switcher — left */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex shrink-0 max-w-[239px] min-w-px items-center justify-between gap-1.5 rounded-[6px] border border-black/10 px-2.5 py-2 dark:border-zinc-700 hover:border-black/20 dark:hover:border-zinc-500 transition-colors"
-                >
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {selectedDesigner && (
+          <div className="grid grid-cols-12 gap-x-8 items-center pb-6 pt-5">
+            {/* col 1-2: profile switcher — aligns with the section-label column in BucketSection */}
+            <div className="col-span-12 md:col-span-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-1.5 rounded-[6px] border border-black/10 px-2.5 py-2 dark:border-zinc-700 hover:border-black/20 dark:hover:border-zinc-500 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {selectedDesigner && (
+                        <ProfileImage
+                          pathname={selectedDesigner.avatar_url}
+                          alt={formatProfileLabel(selectedDesigner) ?? selectedDesigner.email}
+                          size="figma-sm"
+                          fallback={(selectedDesigner.first_name?.[0] ?? selectedDesigner.email?.[0] ?? '?').toUpperCase()}
+                          className="shrink-0"
+                        />
+                      )}
+                      <span className="truncate text-xs font-bold leading-4 text-black dark:text-white">
+                        {selectedDesigner
+                          ? (formatProfileLabel(selectedDesigner) ?? selectedDesigner.email)
+                          : 'Select designer'}
+                      </span>
+                    </div>
+                    <ChevronDown className="size-3 shrink-0 text-neutral-500 dark:text-zinc-400" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[200px]">
+                  {workspaceDesigners.map((d) => (
+                    <DropdownMenuItem
+                      key={d.id}
+                      onClick={() => setViewingDesignerId(d.id)}
+                      className="flex items-center gap-2"
+                    >
                       <ProfileImage
-                        pathname={selectedDesigner.avatar_url}
-                        alt={formatProfileLabel(selectedDesigner) ?? selectedDesigner.email}
+                        pathname={d.avatar_url}
+                        alt={formatProfileLabel(d) ?? d.email}
                         size="figma-sm"
-                        fallback={(selectedDesigner.first_name?.[0] ?? selectedDesigner.email?.[0] ?? '?').toUpperCase()}
+                        fallback={(d.first_name?.[0] ?? d.email?.[0] ?? '?').toUpperCase()}
                         className="shrink-0"
                       />
-                    )}
-                    <span className="truncate text-xs font-bold leading-4 text-black dark:text-white">
-                      {selectedDesigner
-                        ? (formatProfileLabel(selectedDesigner) ?? selectedDesigner.email)
-                        : 'Select designer'}
-                    </span>
-                  </div>
-                  <ChevronDown className="size-3 shrink-0 text-neutral-500 dark:text-zinc-400" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[200px]">
-                {workspaceDesigners.map((d) => (
-                  <DropdownMenuItem
-                    key={d.id}
-                    onClick={() => setViewingDesignerId(d.id)}
-                    className="flex items-center gap-2"
-                  >
-                    <ProfileImage
-                      pathname={d.avatar_url}
-                      alt={formatProfileLabel(d) ?? d.email}
-                      size="figma-sm"
-                      fallback={(d.first_name?.[0] ?? d.email?.[0] ?? '?').toUpperCase()}
-                      className="shrink-0"
-                    />
-                    <span className="truncate text-sm">
-                      {formatProfileLabel(d) ?? d.email}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      <span className="truncate text-sm">
+                        {formatProfileLabel(d) ?? d.email}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
-            {/* Filter bar — all roles see phase/project/category filters + search */}
-            <div className="flex flex-1 min-w-0 items-center">
+            {/* col 3-12: filter chips + search — aligns with the card grid in BucketSection */}
+            <div className="col-span-12 min-w-0 md:col-span-10">
               <WorksFilterBar
                 searchQuery={filterSearch}
                 onSearchChange={setFilterSearch}
