@@ -1,15 +1,17 @@
 import * as React from 'react'
 
-function splitSegments(text: string): { type: 'text' | 'url' | 'image'; value: string }[] {
-  const out: { type: 'text' | 'url' | 'image'; value: string }[] = []
-  // image tokens ![](url) take priority over bare URLs
-  const combined = /!\[\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"']+)/gi
+function splitSegments(text: string): { type: 'text' | 'url' | 'image' | 'mention'; value: string }[] {
+  const out: { type: 'text' | 'url' | 'image' | 'mention'; value: string }[] = []
+  // Priority order: image tokens > @mentions > bare URLs
+  const combined = /!\[\]\((https?:\/\/[^\s)]+)\)|@(\w+)|(https?:\/\/[^\s<>"']+)/gi
   let last = 0
   let m: RegExpExecArray | null
   while ((m = combined.exec(text)) !== null) {
     if (m.index > last) out.push({ type: 'text', value: text.slice(last, m.index) })
     if (m[1]) {
       out.push({ type: 'image', value: m[1] })
+    } else if (m[2]) {
+      out.push({ type: 'mention', value: m[2] })
     } else {
       out.push({ type: 'url', value: m[0] })
     }
@@ -97,6 +99,16 @@ function richNodes(tokens: RichToken[], keyBase: string): React.ReactNode[] {
 export function commentBodyToReact(text: string): React.ReactNode {
   const chunks = splitSegments(text)
   return chunks.map((c, i) => {
+    if (c.type === 'mention') {
+      return (
+        <span
+          key={`m-${i}`}
+          className="inline-block rounded bg-blue-50 px-1 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+        >
+          @{c.value}
+        </span>
+      )
+    }
     if (c.type === 'image') {
       return (
         <a

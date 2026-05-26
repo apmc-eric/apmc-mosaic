@@ -192,8 +192,21 @@ export interface TicketComment {
   ticket_id: string
   author_id: string
   body: string
+  mentions?: string[]
   created_at: string
   profile?: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'avatar_url' | 'role' | 'email' | 'timezone'>
+}
+
+export interface AppNotification {
+  id: string
+  user_id: string
+  type: 'assigned' | 'comment_mention' | 'description_mention'
+  actor_id: string
+  ticket_id: string
+  comment_id?: string | null
+  message: string
+  read: boolean
+  created_at: string
 }
 
 export type DesignerBucket = 'live_work' | 'deprioritized' | 'unfocused'

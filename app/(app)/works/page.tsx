@@ -56,7 +56,9 @@ import { WorksDesignerBoard } from '@/components/works-designer-board'
 import { TicketPhaseNoteModal } from '@/components/ticket-phase-note-modal'
 import { addWeeks, endOfWeek, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Search, Trash2 } from 'lucide-react'
+import { Popover, PopoverContent } from '@/components/ui/popover'
+import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { DesignerProfileRow } from '@/components/designer-profile-row'
 import { ProfileImage } from '@/components/profile-image'
 import { formatProfileLabel } from '@/lib/format-profile'
@@ -70,6 +72,7 @@ import { toast } from 'sonner'
 import { TicketIDLabel } from '@/components/ticket-id-label'
 import type { DesignerBucket, TicketDesignerBucket } from '@/lib/types'
 import { isUnscopedPhaseLabel } from '@/lib/mosaic-project-phases'
+import { cn } from '@/lib/utils'
 
 const supabase = createClient()
 
@@ -198,6 +201,12 @@ export default function WorksPage() {
   > | null>(null)
   const [panelCommentDraft, setPanelCommentDraft] = useState('')
   const [commentPosting, setCommentPosting] = useState(false)
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false)
+  const [mentionSearch, setMentionSearch] = useState('')
+  const [mentionSelectedIdx, setMentionSelectedIdx] = useState(0)
+  // name → profile id, populated as users are selected from the picker
+  const mentionMapRef = useRef<Map<string, string>>(new Map())
+  const mentionStartRef = useRef<number>(-1)
   const [workspaceDesigners, setWorkspaceDesigners] = useState<
     Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email' | 'role' | 'avatar_url'>[]
   >([])
@@ -453,16 +462,81 @@ export default function WorksPage() {
     el.style.height = `${Math.min(Math.max(el.scrollHeight, minPx), maxPx)}px`
   }, [panelCommentDraft, panelTicket?.id])
 
+  const handleCommentDraftChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const val = e.target.value
+      const cursor = e.target.selectionStart ?? val.length
+      setPanelCommentDraft(val)
+
+      // Detect @-trigger: @ followed by word chars at the cursor
+      const textBeforeCursor = val.slice(0, cursor)
+      const atMatch = textBeforeCursor.match(/@(\w*)$/)
+      if (atMatch) {
+        mentionStartRef.current = cursor - atMatch[0].length
+        setMentionSearch(atMatch[1] ?? '')
+        setMentionSelectedIdx(0)
+        setMentionPickerOpen(true)
+      } else {
+        setMentionPickerOpen(false)
+      }
+    },
+    [],
+  )
+
+  const selectMention = useCallback(
+    (picked: Pick<Profile, 'id' | 'first_name' | 'last_name' | 'name' | 'email'>) => {
+      const firstName = picked.first_name?.trim() || picked.name?.trim() || picked.email
+      const ta = panelCommentTaRef.current
+      if (!firstName || mentionStartRef.current < 0) return
+      const cursorPos = ta?.selectionStart ?? panelCommentDraft.length
+      const before = panelCommentDraft.slice(0, mentionStartRef.current)
+      const after = panelCommentDraft.slice(cursorPos)
+      const inserted = `@${firstName} `
+      const next = before + inserted + after
+      setPanelCommentDraft(next)
+      mentionMapRef.current.set(firstName, picked.id)
+      setMentionPickerOpen(false)
+      mentionStartRef.current = -1
+      requestAnimationFrame(() => {
+        if (!ta) return
+        ta.focus()
+        const pos = before.length + inserted.length
+        ta.setSelectionRange(pos, pos)
+      })
+    },
+    [panelCommentDraft],
+  )
+
+  const filteredMentionProfiles = useMemo(() => {
+    const q = mentionSearch.toLowerCase()
+    return workspaceDesigners.filter(
+      (d) =>
+        (d.first_name ?? '').toLowerCase().includes(q) ||
+        (d.last_name ?? '').toLowerCase().includes(q) ||
+        (d.name ?? '').toLowerCase().includes(q) ||
+        (d.email ?? '').toLowerCase().includes(q),
+    )
+  }, [workspaceDesigners, mentionSearch])
+
   const postPanelComment = useCallback(async () => {
     if (!profile?.id || !panelTicket?.id) return
     const body = panelCommentDraft.trim()
     if (!body) return
+
+    // Extract mention IDs from the body text
+    const mentionTokens = [...body.matchAll(/@(\w+)/g)].map((m) => m[1])
+    const mentionIds = [...new Set(
+      mentionTokens
+        .map((name) => mentionMapRef.current.get(name))
+        .filter((id): id is string => !!id),
+    )]
+
     setCommentPosting(true)
     try {
       const res = await fetch(`/api/tickets/${panelTicket.id}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, mentions: mentionIds }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -490,6 +564,7 @@ export default function WorksPage() {
               }
         setPanelComments((c) => [...c, withProfile])
         setPanelCommentDraft('')
+        mentionMapRef.current.clear()
       }
     } finally {
       setCommentPosting(false)
@@ -742,6 +817,28 @@ export default function WorksPage() {
         const next = `lead:${leadUserId};support:${support.join(',')}`
         if (prev !== next) await panelLogChange('assignees', prev || null, next)
         toast.success('Assignees updated')
+
+        // Create 'assigned' notifications for newly-added assignees (don't notify self)
+        const prevAssigneeIds = new Set(panelTicket.assignees?.map((a) => a.user_id) ?? [])
+        const newAssigneeIds = [leadUserId, ...support].filter(
+          (uid) => !prevAssigneeIds.has(uid) && uid !== profile.id,
+        )
+        if (newAssigneeIds.length > 0 && panelTicket.id) {
+          const ticketLabel = panelTicket.ticket_id
+          const actorName =
+            [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
+            profile.name ||
+            'Someone'
+          const notifRows = newAssigneeIds.map((uid) => ({
+            user_id: uid,
+            type: 'assigned' as const,
+            actor_id: profile.id,
+            ticket_id: panelTicket.id,
+            message: `You were assigned to ${ticketLabel}: ${panelTicket.title}`,
+          }))
+          await supabase.from('notifications').insert(notifRows)
+        }
+
         void load()
       } finally {
         setAssigneeSaving(false)
@@ -1834,6 +1931,65 @@ export default function WorksPage() {
 
                   {profile?.id ? (
                     <div className="w-full min-w-0 shrink-0 border-t border-border/60 bg-background px-6 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+                      {/* @mention picker anchored above the comment box */}
+                      <Popover open={mentionPickerOpen} onOpenChange={setMentionPickerOpen}>
+                        <PopoverPrimitive.Anchor className="w-full" />
+                        <PopoverContent
+                          side="top"
+                          align="start"
+                          sideOffset={6}
+                          className="w-72 p-0"
+                          onOpenAutoFocus={(e) => e.preventDefault()}
+                          onEscapeKeyDown={() => setMentionPickerOpen(false)}
+                          onInteractOutside={() => setMentionPickerOpen(false)}
+                        >
+                          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                            <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                            <input
+                              type="text"
+                              value={mentionSearch}
+                              onChange={(e) => setMentionSearch(e.target.value)}
+                              placeholder="Search people…"
+                              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                              autoComplete="off"
+                            />
+                          </div>
+                          <ul className="max-h-48 overflow-y-auto py-1">
+                            {filteredMentionProfiles.length === 0 ? (
+                              <li className="px-3 py-2 text-sm text-muted-foreground">No results.</li>
+                            ) : (
+                              filteredMentionProfiles.map((d, idx) => (
+                                <li key={d.id}>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      'flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left hover:bg-muted/80',
+                                      idx === mentionSelectedIdx && 'bg-muted/80',
+                                    )}
+                                    onMouseEnter={() => setMentionSelectedIdx(idx)}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault()
+                                      selectMention(d)
+                                    }}
+                                  >
+                                    <ProfileImage
+                                      pathname={d.avatar_url ?? null}
+                                      alt=""
+                                      size="xs"
+                                      fallback={`${d.first_name?.[0] ?? ''}${d.last_name?.[0] ?? ''}`}
+                                      profile={d ?? null}
+                                      viewerTimeZone={profile?.timezone ?? null}
+                                      className="shrink-0"
+                                    />
+                                    <span className="min-w-0 flex-1 truncate text-sm">{formatProfileLabel(d)}</span>
+                                  </button>
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        </PopoverContent>
+                      </Popover>
+
                       <form
                         className="w-full min-w-0"
                         onSubmit={(e) => {
@@ -1846,29 +2002,42 @@ export default function WorksPage() {
                             ref={panelCommentTaRef}
                             variant="embedded"
                             value={panelCommentDraft}
-                            onChange={(e) => setPanelCommentDraft(e.target.value)}
+                            onChange={handleCommentDraftChange}
                             onPaste={(e) => void handleCommentImagePaste(e)}
                             onKeyDown={(e) => {
-                              if (e.key !== 'Enter' || commentPosting) return
-                              if (e.metaKey || e.ctrlKey) {
-                                e.preventDefault()
-                                const ta = e.currentTarget
-                                const start = ta.selectionStart ?? 0
-                                const end = ta.selectionEnd ?? 0
-                                const v = panelCommentDraft
-                                const next = `${v.slice(0, start)}\n${v.slice(end)}`
-                                setPanelCommentDraft(next)
-                                requestAnimationFrame(() => {
-                                  ta.selectionStart = ta.selectionEnd = start + 1
-                                })
+                              if (e.key === 'Escape') {
+                                setMentionPickerOpen(false)
                                 return
                               }
-                              if (e.shiftKey) return
-                              if (!panelCommentDraft.trim()) return
-                              e.preventDefault()
-                              void postPanelComment()
+                              if (mentionPickerOpen && filteredMentionProfiles.length > 0) {
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault()
+                                  setMentionSelectedIdx((i) => Math.min(i + 1, filteredMentionProfiles.length - 1))
+                                  return
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault()
+                                  setMentionSelectedIdx((i) => Math.max(i - 1, 0))
+                                  return
+                                }
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  const picked = filteredMentionProfiles[mentionSelectedIdx]
+                                  if (picked) selectMention(picked)
+                                  return
+                                }
+                              }
+                              if (e.key !== 'Enter' || commentPosting) return
+                              if (e.metaKey || e.ctrlKey) {
+                                // Cmd/Ctrl+Enter submits
+                                if (!panelCommentDraft.trim()) return
+                                e.preventDefault()
+                                void postPanelComment()
+                                return
+                              }
+                              // Plain Enter (and Shift+Enter) inserts a newline — never submits
                             }}
-                            placeholder="Write a comment…"
+                            placeholder="Write a comment… (@ to mention, ⌘↵ to send)"
                             rows={1}
                             disabled={commentPosting}
                             className="max-h-[200px] min-h-0 min-w-0 flex-1 resize-none px-2 py-1.5 text-sm leading-5 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 overflow-y-auto"

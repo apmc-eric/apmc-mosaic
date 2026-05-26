@@ -28,15 +28,82 @@ export async function POST(
       return NextResponse.json({ error: 'Comment body is required' }, { status: 400 })
     }
 
-    const { data, error } = await supabase
+    // Validated mention UUIDs provided by the client
+    const rawMentions = Array.isArray(body?.mentions) ? (body.mentions as unknown[]) : []
+    const mentions = rawMentions.filter(
+      (m): m is string => typeof m === 'string' && /^[0-9a-f-]{36}$/i.test(m),
+    )
+
+    // Build the insert payload. Include `mentions` only if the column exists (migration 021).
+    // Notifications are driven by the validated `mentions` array from the request body,
+    // not the DB column, so they work regardless of migration status.
+    const insertPayload: Record<string, unknown> = {
+      ticket_id: ticketId,
+      author_id: user.id,
+      body: text,
+    }
+    if (mentions.length > 0) insertPayload.mentions = mentions
+
+    let data: Record<string, unknown> | null = null
+    let insertError: { message: string; code?: string } | null = null
+
+    const attempt1 = await supabase
       .from('ticket_comments')
-      .insert({ ticket_id: ticketId, author_id: user.id, body: text })
+      .insert(insertPayload)
       .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
       .single()
 
-    if (error) {
-      console.error('[api/tickets/[id]/comments] insert error:', error.message)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (attempt1.error?.code === '42703') {
+      // mentions column doesn't exist yet — retry without it
+      const attempt2 = await supabase
+        .from('ticket_comments')
+        .insert({ ticket_id: ticketId, author_id: user.id, body: text })
+        .select('*, profile:profiles(id, first_name, last_name, name, avatar_url, role, email, timezone)')
+        .single()
+      data = attempt2.data as Record<string, unknown> | null
+      insertError = attempt2.error
+    } else {
+      data = attempt1.data as Record<string, unknown> | null
+      insertError = attempt1.error
+    }
+
+    if (insertError) {
+      console.error('[api/tickets/[id]/comments] insert error:', insertError.message)
+      return NextResponse.json({ error: insertError.message }, { status: 500 })
+    }
+
+    // Create comment_mention notifications for all mentioned users (including self —
+    // useful for testing and for notification UX when you @-mention in a shared ticket).
+    if (mentions.length > 0 && data) {
+      const commentId = (data as { id: string }).id
+      const actorProfile = (data as { profile?: { first_name?: string | null; last_name?: string | null; name?: string | null } }).profile
+      const actorName =
+        [actorProfile?.first_name, actorProfile?.last_name].filter(Boolean).join(' ') ||
+        actorProfile?.name ||
+        'Someone'
+
+      const { data: ticketRow } = await supabase
+        .from('tickets')
+        .select('ticket_id, title')
+        .eq('id', ticketId)
+        .single()
+
+      const ticketLabel = ticketRow ? ticketRow.ticket_id : 'a ticket'
+
+      const notifRows = mentions.map((uid) => ({
+        user_id: uid,
+        type: 'comment_mention' as const,
+        actor_id: user.id,
+        ticket_id: ticketId,
+        comment_id: commentId,
+        message: `${actorName} tagged you in a comment on ${ticketLabel}`,
+      }))
+
+      const { error: notifError } = await supabase.from('notifications').insert(notifRows)
+      if (notifError) {
+        // Log but don't fail the request — comment was saved successfully
+        console.error('[api/tickets/[id]/comments] notification insert error:', notifError.message)
+      }
     }
 
     return NextResponse.json({ comment: data })

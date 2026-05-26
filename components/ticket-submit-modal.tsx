@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/auth-context'
 import {
@@ -31,8 +31,12 @@ import {
 } from '@/lib/sanitize-ticket-description-html'
 import { contextLinkTitleFromUrl } from '@/lib/link-favicon'
 import { toast } from 'sonner'
-import { ChevronDown, Folder, Search, Tag, Users, X } from 'lucide-react'
+import { ChevronDown, Folder, Paperclip, Search, Tag, Users, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { uploadTicketFile } from '@/lib/upload-ticket-file'
+import { encodeFileAttachment, decodeFileAttachment, isFileAttachmentEncoded } from '@/lib/file-attachment'
+import type { FileAttachment } from '@/lib/file-attachment'
+import { FileAttachmentChip } from '@/components/file-attachment-chip'
 
 const supabase = createClient()
 
@@ -87,6 +91,9 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
   const [designerPopoverOpen, setDesignerPopoverOpen] = useState(false)
   const [designerSearch, setDesignerSearch] = useState('')
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
+  const [fileAttachments, setFileAttachments] = useState<FileAttachment[]>([])
+  const [fileUploading, setFileUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const categoryOptions = workspaceSettings?.team_categories ?? []
   const teamCategoryCsv = selectedCategories.length > 0 ? selectedCategories.join(',') : null
@@ -171,6 +178,8 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     setDesignerPopoverOpen(false)
     setDesignerSearch('')
     setExitConfirmOpen(false)
+    setFileAttachments([])
+    setFileUploading(false)
     const initialIds = profile?.id ? [profile.id] : []
     setAssigneeIds(initialIds)
     setBaselineAssigneeKey(assigneeKey(initialIds))
@@ -184,6 +193,33 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
 
   const toggleAssignee = (id: string) => {
     setAssigneeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
+    setFileUploading(true)
+    try {
+      const results = await Promise.all(files.map((f) => uploadTicketFile(f)))
+      for (const r of results) {
+        if (!r.ok) {
+          toast.error(r.error ?? 'Upload failed. Please try again.')
+        } else {
+          setFileAttachments((prev) => [
+            ...prev,
+            { type: 'file', url: r.url, filename: r.filename, mimeType: r.mimeType, sizeBytes: r.sizeBytes },
+          ])
+        }
+      }
+    } finally {
+      setFileUploading(false)
+      // Reset so the same file can be re-selected after removal
+      if (e.target) e.target.value = ''
+    }
+  }
+
+  const removeFileAttachment = (idx: number) => {
+    setFileAttachments((prev) => prev.filter((_, i) => i !== idx))
   }
 
   const goStep2 = () => {
@@ -202,6 +238,8 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
     const support = assigneeIds.slice(1).filter((id) => id !== leadId)
     const cleanDesc = sanitizeDescriptionHtml(descriptionHtml).trim()
     const fromLinks = extractUrlsFromDescriptionHtml(cleanDesc)
+    const encodedFiles = fileAttachments.map(encodeFileAttachment)
+    const allUrls = [...fromLinks, ...encodedFiles]
 
     setSubmitting(true)
     try {
@@ -212,7 +250,7 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
         body: JSON.stringify({
           p_title: title.trim(),
           p_description: cleanDesc || null,
-          p_urls: fromLinks.length > 0 ? fromLinks : null,
+          p_urls: allUrls.length > 0 ? allUrls : null,
           p_team_category: teamCategoryCsv,
           p_project_id: projectId,
           p_phase: CREATE_PHASE,
@@ -328,13 +366,60 @@ export function TicketSubmitModal({ open, onOpenChange, onCreated }: TicketSubmi
                         />
                       </div>
 
-                      {previewUrls.length > 0 && (
+                      {(previewUrls.length > 0 || fileAttachments.length > 0 || fileUploading) && (
                         <HorizontalScrollFade>
                           {previewUrls.map((u) => (
                             <ContextLink key={u} href={u} title={contextLinkTitleFromUrl(u)} />
                           ))}
+                          {fileAttachments.map((fa, idx) => (
+                            <div key={`${fa.url}-${idx}`} className="relative shrink-0">
+                              <FileAttachmentChip
+                                url={fa.url}
+                                filename={fa.filename}
+                                mimeType={fa.mimeType}
+                                sizeBytes={fa.sizeBytes}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeFileAttachment(idx)}
+                                className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-neutral-500 text-white hover:bg-neutral-700"
+                                aria-label={`Remove ${fa.filename}`}
+                              >
+                                <X className="size-2.5" />
+                              </button>
+                            </div>
+                          ))}
+                          {fileUploading && (
+                            <div className="flex w-[180px] shrink-0 items-center justify-center rounded-md bg-neutral-100 p-1.5 text-xs text-neutral-400 dark:bg-zinc-900/80">
+                              Uploading…
+                            </div>
+                          )}
                         </HorizontalScrollFade>
                       )}
+
+                      {/* File upload trigger */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          className="sr-only"
+                          id="ticket-file-upload"
+                          onChange={(e) => void handleFileSelect(e)}
+                          disabled={fileUploading}
+                          aria-label="Attach files"
+                        />
+                        <label
+                          htmlFor="ticket-file-upload"
+                          className={cn(
+                            'inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-zinc-800',
+                            fileUploading && 'pointer-events-none opacity-50',
+                          )}
+                        >
+                          <Paperclip className="size-3.5" aria-hidden />
+                          Attach file
+                        </label>
+                      </div>
                     </div>
                   </div>
                 )}
