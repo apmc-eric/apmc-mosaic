@@ -14,6 +14,7 @@ import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { toast } from 'sonner'
 
 const DEBOUNCE_MS = 800
 
@@ -226,24 +227,37 @@ export function TicketDescriptionEditor({
       const file = imageItem.getAsFile()
       if (file) {
         e.preventDefault()
+
+        // Insert a loading placeholder immediately so the user sees feedback
+        const placeholder = document.createElement('span')
+        placeholder.setAttribute('data-upload-placeholder', 'true')
+        placeholder.contentEditable = 'false'
+        placeholder.style.cssText =
+          'display:inline-block;width:120px;height:72px;background:#f3f4f6;border-radius:6px;vertical-align:middle;opacity:0.6;'
+        const sel0 = window.getSelection()
+        if (sel0 && sel0.rangeCount > 0 && root.contains(sel0.anchorNode)) {
+          const r0 = sel0.getRangeAt(0)
+          r0.deleteContents()
+          r0.insertNode(placeholder)
+          r0.setStartAfter(placeholder)
+          r0.collapse(true)
+          sel0.removeAllRanges()
+          sel0.addRange(r0)
+        } else {
+          root.appendChild(placeholder)
+        }
+
         uploadTicketImage(file).then((result) => {
-          if (!result.ok) return
+          if (!result.ok) {
+            placeholder.remove()
+            toast.error(result.error ?? 'Image upload failed. Try again.')
+            return
+          }
           const img = document.createElement('img')
           img.src = result.url
           img.style.maxWidth = '100%'
           img.style.borderRadius = '6px'
-          const sel = window.getSelection()
-          if (sel && sel.rangeCount > 0 && root.contains(sel.anchorNode)) {
-            const range = sel.getRangeAt(0)
-            range.deleteContents()
-            range.insertNode(img)
-            range.setStartAfter(img)
-            range.collapse(true)
-            sel.removeAllRanges()
-            sel.addRange(range)
-          } else {
-            root.appendChild(img)
-          }
+          placeholder.replaceWith(img)
           scheduleSave()
         })
         return

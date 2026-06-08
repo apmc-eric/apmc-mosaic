@@ -16,6 +16,7 @@ import {
 import { LogOut, Pencil, Settings, User } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { NotificationBell } from '@/components/notification-bell'
 
 const DESIGNER_NAV = [
   { href: '/works', label: 'Work' },
@@ -152,7 +153,10 @@ export function GlobalNav({ variant, profile, isAdmin, signOut, onEditProfile }:
                   />
                 ))}
               </nav>
-              {profileMenu}
+              <div className="flex items-center gap-2">
+                <NotificationBell />
+                {profileMenu}
+              </div>
             </>
           ) : (
             <>
