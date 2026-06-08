@@ -25,7 +25,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   }
 
   const title = data.title ?? 'Ticket'
-  const subtitle = data.description ?? ''
+  const rawDescription = data.description ?? ''
+  const subtitle = rawDescription.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
   const phase = data.phase ?? ''
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://mosaic.apmc.design'
 
