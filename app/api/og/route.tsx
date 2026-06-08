@@ -3,19 +3,22 @@ import type { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
-// Phase → hex color, matching workflow-phase-tag.tsx dot colors
 const PHASE_COLORS: Record<string, string> = {
-  concept:   '#fb923c', // orange-400
-  design:    '#2563eb', // blue-600
-  build:     '#16a34a', // green-600
-  completed: '#6b7280', // gray-500
-  paused:    '#9ca3af', // gray-400
+  concept:   '#fb923c',
+  design:    '#2563eb',
+  build:     '#16a34a',
+  completed: '#6b7280',
+  paused:    '#9ca3af',
 }
 
 function getPhaseColor(phase: string | null): string | null {
   if (!phase) return null
   return PHASE_COLORS[phase.trim().toLowerCase()] ?? null
 }
+
+// Subtitle line height and max lines — used to clamp via fixed height
+const SUBTITLE_LINE_HEIGHT = 40
+const SUBTITLE_MAX_LINES = 2
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
@@ -25,6 +28,12 @@ export async function GET(req: NextRequest) {
   const phase    = searchParams.get('phase')    ?? null
 
   const phaseColor = getPhaseColor(phase)
+
+  // Load Inter SemiBold and Medium from Google Fonts
+  const [interSemiBold, interMedium] = await Promise.all([
+    fetch('https://fonts.gstatic.com/s/inter/v18/UcCm3FwrK3iLTcviYwYZ8UA3J58.woff2').then(r => r.arrayBuffer()),
+    fetch('https://fonts.gstatic.com/s/inter/v18/UcCm3FwrK3iLTcvmYwYZ8UA3J58.woff2').then(r => r.arrayBuffer()),
+  ])
 
   return new ImageResponse(
     (
@@ -36,6 +45,7 @@ export async function GET(req: NextRequest) {
           width: '100%',
           height: '100%',
           backgroundColor: '#f7f8f9',
+          fontFamily: 'Inter, sans-serif',
         }}
       >
         {/* Main content */}
@@ -59,29 +69,15 @@ export async function GET(req: NextRequest) {
               width: '100%',
             }}
           >
-            {/* AppLogo: mark + wordmark, inlined SVG */}
-            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '14px' }}>
-              {/* LogoMark */}
-              <svg
-                viewBox="0 0 23 18"
-                width="23"
-                height="18"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
+            {/* AppLogo: mark + wordmark */}
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '20px' }}>
+              <svg viewBox="0 0 23 18" width="40" height="31" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M23 4.49604H9.20012V8.9921H23V4.49604Z" fill="#09090b" />
                 <path d="M23 13.5039H9.20012V18H23V13.5039Z" fill="#09090b" />
                 <path d="M0 4.49606L9.20012 4.49604L10.9554 0H0V4.49606Z" fill="#09090b" />
                 <path d="M9.19992 9.00788H0V13.5039L9.20012 13.5039L9.19992 9.00788Z" fill="#09090b" />
               </svg>
-              {/* LogoWordmark */}
-              <svg
-                viewBox="0 0 105.584 17.088"
-                width="106"
-                height="18"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
+              <svg viewBox="0 0 105.584 17.088" width="184" height="30" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M84.7644 17.088C83.0844 17.088 81.6364 16.736 80.4204 16.032C79.2044 15.328 78.2684 14.336 77.6124 13.056C76.9724 11.776 76.6524 10.272 76.6524 8.544C76.6524 6.816 76.9884 5.312 77.6604 4.032C78.3324 2.752 79.2924 1.76 80.5404 1.056C81.7884 0.352 83.2764 0 85.0044 0C86.3804 0 87.5964 0.272 88.6524 0.816C89.7244 1.36 90.5804 2.12 91.2204 3.096C91.8604 4.056 92.2284 5.16 92.3244 6.408H87.9084C87.7484 5.608 87.3964 4.952 86.8524 4.44C86.3244 3.912 85.6284 3.648 84.7644 3.648C83.9964 3.648 83.3404 3.856 82.7964 4.272C82.2684 4.688 81.8604 5.264 81.5724 6C81.3004 6.736 81.1644 7.584 81.1644 8.544C81.1644 9.504 81.3004 10.352 81.5724 11.088C81.8604 11.824 82.2684 12.4 82.7964 12.816C83.3404 13.232 83.9964 13.44 84.7644 13.44C85.6284 13.44 86.3244 13.184 86.8524 12.672C87.3964 12.144 87.7484 11.48 87.9084 10.68H92.3244C92.2284 11.928 91.8444 13.032 91.1724 13.992C90.5164 14.952 89.6364 15.712 88.5324 16.272C87.4444 16.816 86.1884 17.088 84.7644 17.088Z" fill="#09090b" />
                 <path d="M70.6538 0.143999H75.0698V16.944H70.6538V0.143999Z" fill="#09090b" />
                 <path d="M52.4203 16.944L58.4203 0.143999H63.7483L69.7003 16.944H64.9483L63.8923 13.752H58.0363L57.0043 16.944H52.4203ZM59.1643 10.272H62.7403L60.9403 4.824L59.1643 10.272Z" fill="#09090b" />
@@ -92,7 +88,6 @@ export async function GET(req: NextRequest) {
               </svg>
             </div>
 
-            {/* Type label */}
             {type && (
               <div
                 style={{
@@ -112,14 +107,14 @@ export async function GET(req: NextRequest) {
 
           {/* Bottom: title + subtitle */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', width: '100%', minWidth: 0 }}>
-            {/* Title — 1 line max with ellipsis */}
+            {/* Title — 1 line max */}
             <div
               style={{
                 fontFamily: 'Inter, sans-serif',
-                fontSize: '128px',
-                fontWeight: 700,
+                fontSize: '96px',
+                fontWeight: 600,
                 color: '#09090b',
-                letterSpacing: '-6.4px',
+                letterSpacing: '-4.8px',
                 lineHeight: 1,
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
@@ -130,7 +125,7 @@ export async function GET(req: NextRequest) {
               {title}
             </div>
 
-            {/* Subtitle — 2 lines max with ellipsis */}
+            {/* Subtitle — 2 lines max via fixed height clamp */}
             {subtitle && (
               <div
                 style={{
@@ -138,11 +133,9 @@ export async function GET(req: NextRequest) {
                   fontSize: '36px',
                   fontWeight: 500,
                   color: '#64748b',
-                  lineHeight: '40px',
-                  display: '-webkit-box',
-                  WebkitBoxOrient: 'vertical',
-                  WebkitLineClamp: 2,
+                  lineHeight: `${SUBTITLE_LINE_HEIGHT}px`,
                   overflow: 'hidden',
+                  height: `${SUBTITLE_LINE_HEIGHT * SUBTITLE_MAX_LINES}px`,
                   width: '100%',
                 }}
               >
@@ -152,7 +145,7 @@ export async function GET(req: NextRequest) {
           </div>
         </div>
 
-        {/* Phase color bar — bottom, full width, 24px tall, hidden when no phase */}
+        {/* Phase color bar — bottom, full width, 24px tall */}
         {phaseColor && (
           <div
             style={{
@@ -168,6 +161,10 @@ export async function GET(req: NextRequest) {
     {
       width: 1200,
       height: 630,
+      fonts: [
+        { name: 'Inter', data: interSemiBold, weight: 600, style: 'normal' },
+        { name: 'Inter', data: interMedium,   weight: 500, style: 'normal' },
+      ],
     },
   )
 }
