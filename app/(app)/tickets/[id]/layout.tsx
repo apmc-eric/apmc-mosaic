@@ -16,7 +16,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .single()
 
   const title = data?.title ?? 'Ticket'
-  const subtitle = data?.description ?? ''
+  const subtitle = (data?.description ?? '')
+    .replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().slice(0, 200)
   const phase = data?.phase ?? ''
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
 

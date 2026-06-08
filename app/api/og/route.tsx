@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
 
   // Load Inter SemiBold and Medium from Google Fonts
   const [interSemiBold, interMedium] = await Promise.all([
-    fetch('https://fonts.gstatic.com/s/inter/v18/UcCm3FwrK3iLTcviYwYZ8UA3J58.woff2').then(r => r.arrayBuffer()),
-    fetch('https://fonts.gstatic.com/s/inter/v18/UcCm3FwrK3iLTcvmYwYZ8UA3J58.woff2').then(r => r.arrayBuffer()),
+    fetch('https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuI6fMZg.ttf').then(r => r.arrayBuffer()),
+    fetch('https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYMZg.ttf').then(r => r.arrayBuffer()),
   ])
 
   return new ImageResponse(
