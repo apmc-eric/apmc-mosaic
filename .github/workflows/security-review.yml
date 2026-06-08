@@ -255,9 +255,11 @@ jobs:
       - name: Post failure comment
         if: steps.scan.outputs.found == 'true'
         uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
         with:
           script: |
-            const findings = `${{ steps.scan.outputs.text }}`;
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -381,9 +383,11 @@ jobs:
       - name: Post warning comment
         if: steps.files.outputs.has_routes == 'true' && steps.scan.outputs.found == 'true'
         uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
         with:
           script: |
-            const findings = `${{ steps.scan.outputs.text }}`;
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -487,9 +491,11 @@ jobs:
       - name: Post warning comment
         if: steps.check.outputs.has_endpoints == 'true' && steps.scan.outputs.found == 'true'
         uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
         with:
           script: |
-            const findings = `${{ steps.scan.outputs.text }}`;
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -595,9 +601,11 @@ jobs:
       - name: Post warning comment
         if: steps.files.outputs.has_files == 'true' && steps.scan.outputs.found == 'true'
         uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
         with:
           script: |
-            const findings = `${{ steps.scan.outputs.text }}`;
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -843,10 +851,13 @@ jobs:
           steps.size.outputs.too_large == 'false' &&
           steps.ai.outputs.text != ''
         uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.ai.outputs.text }}
+          LINE_COUNT: ${{ steps.prep.outputs.line_count }}
         with:
           script: |
-            const findings = `${{ steps.ai.outputs.text }}`;
-            const lineCount = '${{ steps.prep.outputs.line_count }}';
+            const findings = process.env.FINDINGS || '- No findings from AI review.';
+            const lineCount = process.env.LINE_COUNT || '0';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
