@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { SITE_URL } from '@/lib/og-helpers'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -20,19 +21,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       ? `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim() || data.name || 'Profile'
       : 'Profile'
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-  const ogUrl = `${base}/api/og?title=${encodeURIComponent(displayName)}&type=Profile`
+  const ogUrl = new URL(`${SITE_URL}/api/og`)
+  ogUrl.searchParams.set('title', displayName)
+  ogUrl.searchParams.set('type', 'Profile')
 
   return {
     title: `${displayName} — Mosaic`,
     openGraph: {
       title: displayName,
-      images: [{ url: ogUrl, width: 1200, height: 630 }],
+      images: [{ url: ogUrl.toString(), width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: displayName,
-      images: [ogUrl],
+      images: [ogUrl.toString()],
     },
   }
 }

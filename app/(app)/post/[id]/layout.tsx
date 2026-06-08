@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { SITE_URL, plainText } from '@/lib/og-helpers'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -16,10 +17,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .single()
 
   const title = data?.title ?? 'Inspiration'
-  const subtitle = (data?.description ?? '')
-    .replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().slice(0, 200)
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-  const ogUrl = new URL(`${base}/api/og`)
+  const subtitle = plainText(data?.description ?? '')
+
+  const ogUrl = new URL(`${SITE_URL}/api/og`)
   ogUrl.searchParams.set('title', title)
   if (subtitle) ogUrl.searchParams.set('subtitle', subtitle)
   ogUrl.searchParams.set('type', 'Post')
