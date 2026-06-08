@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { SITE_URL, plainText } from '@/lib/og-helpers'
 import WorksClient from './WorksClient'
 
 interface Props {
@@ -25,12 +26,10 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   }
 
   const title = data.title ?? 'Ticket'
-  const rawDescription = data.description ?? ''
-  const subtitle = rawDescription.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().slice(0, 200)
+  const subtitle = plainText(data.description ?? '')
   const phase = data.phase ?? ''
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://mosaic.apmc.design'
 
-  const ogUrl = new URL(`${base}/api/og`)
+  const ogUrl = new URL(`${SITE_URL}/api/og`)
   ogUrl.searchParams.set('title', title)
   if (subtitle) ogUrl.searchParams.set('subtitle', subtitle)
   ogUrl.searchParams.set('type', 'Ticket')
