@@ -16,9 +16,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .single()
 
   const title = data?.title ?? 'Inspiration'
-  const subtitle = data?.description ?? ''
+  const subtitle = (data?.description ?? '')
+    .replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().slice(0, 200)
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'
-  const ogUrl = `${base}/api/og?title=${encodeURIComponent(title)}&subtitle=${encodeURIComponent(subtitle)}&type=Post`
+  const ogUrl = new URL(`${base}/api/og`)
+  ogUrl.searchParams.set('title', title)
+  if (subtitle) ogUrl.searchParams.set('subtitle', subtitle)
+  ogUrl.searchParams.set('type', 'Post')
 
   return {
     title: `${title} — Mosaic`,
@@ -26,13 +30,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: {
       title,
       description: subtitle || undefined,
-      images: [{ url: ogUrl, width: 1200, height: 630 }],
+      images: [{ url: ogUrl.toString(), width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description: subtitle || undefined,
-      images: [ogUrl],
+      images: [ogUrl.toString()],
     },
   }
 }
