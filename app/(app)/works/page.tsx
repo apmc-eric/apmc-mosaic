@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import WorksClient from './WorksClient'
 
 interface Props {
@@ -13,7 +13,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
     return { title: 'Works — Mosaic' }
   }
 
-  const supabase = await createClient()
+  const supabase = createAdminClient()
   const { data } = await supabase
     .from('tickets')
     .select('title, description, phase, ticket_id')

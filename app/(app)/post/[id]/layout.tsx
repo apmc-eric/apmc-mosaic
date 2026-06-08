@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -7,7 +7,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data } = await supabase
     .from('posts')
