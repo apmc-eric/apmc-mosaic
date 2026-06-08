@@ -1,0 +1,886 @@
+name: Security Review
+
+# Runs on every pull request. Structured as three gated stages:
+#   Stage 1 — parallel static checks (no API). Hard failures block merge.
+#   Stage 2 — conditional static checks (only if Stage 1 passes). Warnings only.
+#   Stage 3 — AI review (only if Stage 1+2 pass, diff is sensitive and ≤ 300 lines).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STAGE 1 — Fast static checks (parallel, no API calls)
+# Any failure immediately blocks Stage 2 and Stage 3.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+jobs:
+
+  # ── S1: Secrets Scan ────────────────────────────────────────────────────────
+  secrets-scan:
+    name: "S1 · Secrets Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate PR diff
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          git diff "origin/${{ github.base_ref }}...HEAD" > /tmp/pr.diff
+          echo "Raw diff: $(wc -l < /tmp/pr.diff) lines"
+
+      - name: Strip security-ignore lines
+        run: |
+          # Remove added lines carrying a security-ignore annotation before scanning
+          grep -v 'security-ignore:' /tmp/pr.diff > /tmp/scan.diff || cp /tmp/pr.diff /tmp/scan.diff
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VER=8.18.4
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+
+      - name: Scan diff for secrets
+        id: scan
+        run: |
+          mkdir -p /tmp/scandir
+          cp /tmp/scan.diff /tmp/scandir/pr.diff
+          if /tmp/gitleaks detect \
+              --source=/tmp/scandir \
+              --no-git \
+              --report-format=json \
+              --report-path=/tmp/gitleaks-report.json 2>/dev/null; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Format and post failure comment
+        if: steps.scan.outputs.found == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let findings = '- See workflow logs for details.';
+            try {
+              const raw = JSON.parse(fs.readFileSync('/tmp/gitleaks-report.json', 'utf8'));
+              findings = raw.slice(0, 20).map(f =>
+                `- \`${f.File || '?'}\` line ${f.StartLine || '?'}: **${f.Description || 'potential secret'}** (\`${f.RuleID || ''}\`)`
+              ).join('\n');
+            } catch (_) {}
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## 🚨 Security Gate FAILED — Secrets Detected',
+                '',
+                '**Stage 1 · Secrets Scan** found potential secrets in this diff. **Merge is blocked.**',
+                '',
+                findings,
+                '',
+                '---',
+                '> To suppress a false positive, add `# security-ignore: <reason>` on the offending line and push again.',
+              ].join('\n'),
+            });
+
+      - name: Block merge on secrets
+        if: steps.scan.outputs.found == 'true'
+        run: exit 1
+
+
+  # ── S1: Dependency Audit ────────────────────────────────────────────────────
+  dep-audit:
+    name: "S1 · Dependency Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changed package files
+        id: changed
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          if echo "$CHANGED" | grep -qE '(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|requirements\.txt|Pipfile\.lock|go\.sum)'; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "S1 · Dependency Audit skipped — no dependency files changed in this diff."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.has_changes == 'true'
+        with:
+          node-version: '20'
+
+      - name: Run audit
+        id: audit
+        if: steps.changed.outputs.has_changes == 'true'
+        run: |
+          if [ -f "pnpm-lock.yaml" ]; then
+            npm install -g pnpm@latest --silent 2>/dev/null
+            AUDIT_OUT=$(pnpm audit --audit-level=high --json 2>/dev/null || true)
+          elif [ -f "yarn.lock" ]; then
+            AUDIT_OUT=$(yarn audit --level high --json 2>/dev/null || true)
+          else
+            AUDIT_OUT=$(npm audit --audit-level=high --json 2>/dev/null || true)
+          fi
+
+          VULN_COUNT=$(echo "$AUDIT_OUT" | python3 -c "
+          import json, sys
+          try:
+            d = json.load(sys.stdin)
+            v = d.get('metadata', {}).get('vulnerabilities', {})
+            print(v.get('high', 0) + v.get('critical', 0))
+          except:
+            print(0)
+          " 2>/dev/null || echo "0")
+
+          echo "vuln_count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
+          echo "$AUDIT_OUT" > /tmp/audit-output.json
+          echo "Found $VULN_COUNT high/critical CVEs"
+
+      - name: Post failure comment
+        if: steps.changed.outputs.has_changes == 'true' && steps.audit.outputs.vuln_count != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const count = '${{ steps.audit.outputs.vuln_count }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## 🚨 Security Gate FAILED — High/Critical CVEs Found',
+                '',
+                `**Stage 1 · Dependency Audit** found **${count}** high or critical CVE(s). **Merge is blocked.**`,
+                '',
+                'Run `pnpm audit` / `npm audit` locally for full details, or check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).',
+                '',
+                '---',
+                '> Update the affected packages to resolve. For accepted-risk exceptions, open a discussion with the security team.',
+              ].join('\n'),
+            });
+
+      - name: Block merge on CVEs
+        if: steps.changed.outputs.has_changes == 'true' && steps.audit.outputs.vuln_count != '0'
+        run: exit 1
+
+
+  # ── S1: Query Safety ────────────────────────────────────────────────────────
+  query-safety:
+    name: "S1 · Query Safety"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate PR diff
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          git diff "origin/${{ github.base_ref }}...HEAD" > /tmp/pr.diff
+
+      - name: Scan for unsafe query patterns
+        id: scan
+        run: |
+          python3 - << 'PYEOF'
+          import re, os, sys
+
+          with open('/tmp/pr.diff') as f:
+            lines = f.readlines()
+
+          # Walk lines, track current file, skip non-code files and security-ignore annotations
+          added = []
+          current_file = ''
+          SKIP_EXTENSIONS = ('.md', '.txt', '.rst', '.json', '.yaml', '.yml', '.toml', '.lock')
+          for i, line in enumerate(lines):
+            if line.startswith('diff --git'):
+              # Extract filename from "diff --git a/foo b/foo"
+              parts = line.split(' b/', 1)
+              current_file = parts[1].strip() if len(parts) > 1 else ''
+            if current_file.endswith(SKIP_EXTENSIONS):
+              continue
+            if line.startswith('+') and not line.startswith('+++') and 'security-ignore:' not in line:
+              added.append((i + 1, line[1:]))
+
+          PATTERNS = [
+            # Template literals containing SQL keywords
+            (r'(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM|JOIN).*`[^`]*\$\{',
+             'SQL keyword with template literal interpolation'),
+            (r'`[^`]*(SELECT|INSERT|UPDATE|DELETE|WHERE)\b[^`]*\$\{',
+             'SQL keyword with template literal interpolation'),
+            # String concatenation building a query variable
+            (r'\b(query|sql)\s*[+]=?\s*["\'][^"\']*\+',
+             'String concatenation in query variable'),
+            (r'\b(query|sql)\s*=\s*["\'][^"\']*["\']\s*\+',
+             'String concatenation in query variable'),
+            # Python f-strings with SQL
+            (r'f["\'].*?\b(SELECT|INSERT|UPDATE|DELETE|WHERE)\b.*?\{',
+             'Python f-string with SQL keyword'),
+            # Raw Supabase/DB calls with template literals
+            (r'\.(from|rpc)\([^)]*\).*\$\{',
+             'Potential unsafe DB call with template literal'),
+          ]
+
+          findings = []
+          for line_num, content in added:
+            for pattern, description in PATTERNS:
+              if re.search(pattern, content, re.IGNORECASE):
+                short = content.strip()[:120]
+                findings.append(
+                  f'- Line ~{line_num}: **{description}**\n  ```\n  {short}\n  ```'
+                )
+                break  # one finding per line
+
+          gho = os.environ.get('GITHUB_OUTPUT', '')
+          if findings:
+            output = '\n'.join(findings[:10])
+            with open(gho, 'a') as f:
+              f.write('found=true\n')
+              f.write('text<<QSEOF\n')
+              f.write(output + '\n')
+              f.write('QSEOF\n')
+            sys.exit(0)  # exit handled by next step
+          else:
+            with open(gho, 'a') as f:
+              f.write('found=false\n')
+          PYEOF
+
+      - name: Post failure comment
+        if: steps.scan.outputs.found == 'true'
+        uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
+        with:
+          script: |
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## 🚨 Security Gate FAILED — Unsafe Query Patterns',
+                '',
+                '**Stage 1 · Query Safety** detected raw string interpolation in database calls. **Merge is blocked.**',
+                '',
+                findings,
+                '',
+                '---',
+                '> Use parameterized queries, ORM methods, or Supabase typed helpers instead of string interpolation.',
+                '> To suppress a false positive, add `# security-ignore: <reason>` on the flagged line.',
+              ].join('\n'),
+            });
+
+      - name: Block merge on unsafe queries
+        if: steps.scan.outputs.found == 'true'
+        run: exit 1
+
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 2 — Conditional static checks
+  # Runs only when all Stage 1 jobs succeed. Findings are warnings — no merge block.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── S2: Auth Guard ──────────────────────────────────────────────────────────
+  auth-guard:
+    name: "S2 · Auth Guard"
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, dep-audit, query-safety]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed route/API files
+        id: files
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          ROUTE_FILES=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+            | grep -E '(routes?/|/api/|pages/api/|controllers?/|handlers?/|middleware/)' \
+            | grep -vE '(\.test\.|\.spec\.|__tests__|/test/)' \
+            || true)
+
+          if [ -z "$ROUTE_FILES" ]; then
+            echo "has_routes=false" >> "$GITHUB_OUTPUT"
+            echo "S2 · Auth Guard skipped — no route or API files changed in this diff."
+          else
+            echo "has_routes=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$ROUTE_FILES" > /tmp/route-files.txt
+          fi
+
+      - name: Scan for missing auth
+        id: scan
+        if: steps.files.outputs.has_routes == 'true'
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          # Generate a diff scoped to only the changed route files
+          xargs git diff "origin/${{ github.base_ref }}...HEAD" -- \
+            < /tmp/route-files.txt > /tmp/route-diff.diff 2>/dev/null || true
+
+          python3 - << 'PYEOF'
+          import re, os
+
+          with open('/tmp/route-diff.diff') as f:
+            lines = f.readlines()
+
+          added = [
+            (i + 1, line[1:])
+            for i, line in enumerate(lines)
+            if line.startswith('+') and not line.startswith('+++')
+            and 'security-ignore:' not in line
+          ]
+
+          ENDPOINT_PATTERNS = [
+            r'(router|app)\.(get|post|put|patch|delete|all)\s*\(',
+            r'export\s+(async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b',
+            r'export\s+default\s+(async\s+)?function',
+          ]
+          AUTH_PATTERNS = [
+            r'\b(auth|authenticate|requireAuth|verifyToken|getUser|session)\b',
+            r'\b(protect|guard|isAuthenticated|checkPermission|middleware)\b',
+            r'(createClient|supabase).*auth',
+            r'authenticateApiKey',
+            r'RoleGate',
+          ]
+
+          all_added_text = '\n'.join(l for _, l in added)
+          findings = []
+
+          for num, line in added:
+            for ep in ENDPOINT_PATTERNS:
+              if re.search(ep, line, re.IGNORECASE):
+                # Check ±20 lines of surrounding context
+                start = max(0, num - 20)
+                end = min(len(lines), num + 20)
+                ctx = '\n'.join(lines[start:end])
+                has_auth = any(re.search(p, ctx, re.IGNORECASE) for p in AUTH_PATTERNS)
+                if not has_auth:
+                  short = line.strip()[:100]
+                  findings.append(
+                    f'- Line ~{num}: New endpoint may be missing an authentication check\n  ```\n  {short}\n  ```'
+                  )
+                break
+
+          gho = os.environ.get('GITHUB_OUTPUT', '')
+          if findings:
+            output = '\n'.join(findings[:8])
+            with open(gho, 'a') as f:
+              f.write('found=true\n')
+              f.write('text<<AGEOF\n')
+              f.write(output + '\n')
+              f.write('AGEOF\n')
+          else:
+            with open(gho, 'a') as f:
+              f.write('found=false\n')
+          PYEOF
+
+      - name: Post warning comment
+        if: steps.files.outputs.has_routes == 'true' && steps.scan.outputs.found == 'true'
+        uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
+        with:
+          script: |
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Security Warning — Auth Guard',
+                '',
+                '**Stage 2 · Auth Guard** found new endpoints that may be missing authentication. Merge is **not** blocked.',
+                '',
+                findings,
+                '',
+                '---',
+                '> Ensure each endpoint calls an auth middleware or checks the user session.',
+                '> To suppress a false positive, add `# security-ignore: <reason>` near the flagged line.',
+              ].join('\n'),
+            });
+
+
+  # ── S2: CORS / Rate Limit ───────────────────────────────────────────────────
+  cors-ratelimit:
+    name: "S2 · CORS / Rate Limit"
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, dep-audit, query-safety]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate diff and detect new endpoints
+        id: check
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          git diff "origin/${{ github.base_ref }}...HEAD" > /tmp/pr.diff
+
+          if grep -qE '^\+.*(router|app)\.(get|post|put|patch|delete)\s*\(|export\s+(async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b' \
+              /tmp/pr.diff 2>/dev/null; then
+            echo "has_endpoints=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_endpoints=false" >> "$GITHUB_OUTPUT"
+            echo "S2 · CORS/Rate Limit skipped — no new endpoint definitions detected in this diff."
+          fi
+
+      - name: Scan CORS and rate limit patterns
+        id: scan
+        if: steps.check.outputs.has_endpoints == 'true'
+        run: |
+          python3 - << 'PYEOF'
+          import re, os
+
+          with open('/tmp/pr.diff') as f:
+            lines = f.readlines()
+
+          added = [
+            (i + 1, line[1:])
+            for i, line in enumerate(lines)
+            if line.startswith('+') and not line.startswith('+++')
+            and 'security-ignore:' not in line
+          ]
+          added_text = ''.join(l for _, l in added)
+
+          CORS_PATTERNS = [
+            (r'\bcors\(\s*\)',
+             'CORS enabled with no origin restriction (`cors()` with no config)'),
+            (r'["\']Access-Control-Allow-Origin["\']\s*[,:]\s*["\'\*]',
+             'Wildcard `Access-Control-Allow-Origin: *` header'),
+            (r'\ballowedOrigins?\s*[:=]\s*["\'\*]',
+             'Wildcard CORS origin'),
+          ]
+
+          findings = []
+          for num, line in added:
+            for pattern, description in CORS_PATTERNS:
+              if re.search(pattern, line, re.IGNORECASE):
+                short = line.strip()[:100]
+                findings.append(f'- Line ~{num}: **{description}**\n  ```\n  {short}\n  ```')
+                break
+
+          # Warn if new API files land without any rate-limit import in the diff
+          new_api_diffs = [l for l in lines if l.startswith('diff --git') and '/api/' in l]
+          if new_api_diffs and not re.search(
+              r'(rateLimit|rateLimiter|throttle|rate.limit|express-rate-limit)',
+              added_text, re.IGNORECASE):
+            findings.append(
+              '- New API route(s) added without a rate-limiting import detected in this diff. '
+              'Consider adding `express-rate-limit` or an equivalent middleware.'
+            )
+
+          gho = os.environ.get('GITHUB_OUTPUT', '')
+          if findings:
+            output = '\n'.join(findings[:8])
+            with open(gho, 'a') as f:
+              f.write('found=true\n')
+              f.write('text<<CRLEOF\n')
+              f.write(output + '\n')
+              f.write('CRLEOF\n')
+          else:
+            with open(gho, 'a') as f:
+              f.write('found=false\n')
+          PYEOF
+
+      - name: Post warning comment
+        if: steps.check.outputs.has_endpoints == 'true' && steps.scan.outputs.found == 'true'
+        uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
+        with:
+          script: |
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Security Warning — CORS / Rate Limiting',
+                '',
+                '**Stage 2 · CORS/Rate Limit** found potential issues with new endpoint definitions. Merge is **not** blocked.',
+                '',
+                findings,
+                '',
+                '---',
+                '> Review CORS origin configuration and ensure rate limiting is applied to public-facing endpoints.',
+                '> To suppress, add `# security-ignore: <reason>` on the flagged line.',
+              ].join('\n'),
+            });
+
+
+  # ── S2: Error Handling ──────────────────────────────────────────────────────
+  error-handling:
+    name: "S2 · Error Handling"
+    runs-on: ubuntu-latest
+    needs: [secrets-scan, dep-audit, query-safety]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find changed files with error-handling code
+        id: files
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          ERROR_FILES=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+            | grep -vE '(\.test\.|\.spec\.|__tests__|/test/)' \
+            | while read -r f; do
+                [ -f "$f" ] && grep -lE '(catch|\.json\(|res\.send|NextResponse)' "$f" 2>/dev/null && echo "$f"
+              done \
+            || true)
+
+          if [ -z "$ERROR_FILES" ]; then
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+            echo "S2 · Error Handling skipped — no error-handler files in this diff."
+          else
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$ERROR_FILES" > /tmp/error-files.txt
+          fi
+
+      - name: Scan for error information leaks
+        id: scan
+        if: steps.files.outputs.has_files == 'true'
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          xargs git diff "origin/${{ github.base_ref }}...HEAD" -- \
+            < /tmp/error-files.txt > /tmp/error-diff.diff 2>/dev/null || true
+
+          python3 - << 'PYEOF'
+          import re, os
+
+          with open('/tmp/error-diff.diff') as f:
+            lines = f.readlines()
+
+          added = [
+            (i + 1, line[1:])
+            for i, line in enumerate(lines)
+            if line.startswith('+') and not line.startswith('+++')
+            and 'security-ignore:' not in line
+          ]
+
+          LEAK_PATTERNS = [
+            (r'(res|NextResponse)\.(json|send)\s*\([^)]*\b(err|error|e)\.(message|stack)\b',
+             'Error message or stack trace exposed in HTTP response'),
+            (r'(res|NextResponse)\.(json|send)\s*\(\s*(err|error|e)\b',
+             'Raw error object sent in HTTP response'),
+            (r'(message|detail|error)\s*:\s*(err|error|e)\.stack\b',
+             'Stack trace assigned to response field'),
+            (r'console\.(log|error|warn)\s*\([^)]*\b(password|token|secret|key|apikey)\b',
+             'Potentially logging a sensitive field name'),
+          ]
+
+          findings = []
+          for num, line in added:
+            for pattern, description in LEAK_PATTERNS:
+              if re.search(pattern, line, re.IGNORECASE):
+                short = line.strip()[:100]
+                findings.append(
+                  f'- Line ~{num}: **{description}**\n  ```\n  {short}\n  ```'
+                )
+                break
+
+          gho = os.environ.get('GITHUB_OUTPUT', '')
+          if findings:
+            output = '\n'.join(findings[:8])
+            with open(gho, 'a') as f:
+              f.write('found=true\n')
+              f.write('text<<EHEOF\n')
+              f.write(output + '\n')
+              f.write('EHEOF\n')
+          else:
+            with open(gho, 'a') as f:
+              f.write('found=false\n')
+          PYEOF
+
+      - name: Post warning comment
+        if: steps.files.outputs.has_files == 'true' && steps.scan.outputs.found == 'true'
+        uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.scan.outputs.text }}
+        with:
+          script: |
+            const findings = process.env.FINDINGS || '- See workflow logs for details.';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ⚠️ Security Warning — Error Handling',
+                '',
+                '**Stage 2 · Error Handling** found potential information leaks in error responses. Merge is **not** blocked.',
+                '',
+                findings,
+                '',
+                '---',
+                '> Return generic error messages to clients; log full details server-side only.',
+                '> To suppress, add `# security-ignore: <reason>` on the flagged line.',
+              ].join('\n'),
+            });
+
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STAGE 3 — AI Review
+  # Only triggers when ALL of the following are true:
+  #   - Stages 1 and 2 passed
+  #   - Diff touches security-sensitive paths (auth, api, db, middleware, env)
+  #   - Filtered diff is ≤ 300 added lines
+  #   - PR does not have the [skip-security-ai] label
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  ai-review:
+    name: "S3 · AI Security Review"
+    runs-on: ubuntu-latest
+    needs: [auth-guard, cors-ratelimit, error-handling]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Gate 1: skip label ────────────────────────────────────────────────
+      - name: Check for skip label
+        id: label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map(l => l.name);
+            const skip = labels.includes('skip-security-ai');
+            core.setOutput('skip', String(skip));
+
+      - name: Post skip note (label)
+        if: steps.label.outputs.skip == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '> **Stage 3 · AI Review skipped** — PR has the `skip-security-ai` label.',
+            });
+
+      # ── Gate 2: security-sensitive paths ─────────────────────────────────
+      - name: Check for sensitive path changes
+        id: sensitive
+        if: steps.label.outputs.skip == 'false'
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+
+          if echo "$CHANGED" | grep -qiE \
+              '(auth|middleware|/api/|routes?/|database|/db/|migration|schema|\.env|config\.)'; then
+            echo "is_sensitive=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_sensitive=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post skip note (non-sensitive paths)
+        if: steps.label.outputs.skip == 'false' && steps.sensitive.outputs.is_sensitive == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '> **Stage 3 · AI Review skipped** — no changes to security-sensitive paths (auth, API routes, DB, middleware, env config).',
+            });
+
+      # ── Prepare filtered diff ─────────────────────────────────────────────
+      - name: Prepare filtered diff
+        id: prep
+        if: steps.label.outputs.skip == 'false' && steps.sensitive.outputs.is_sensitive == 'true'
+        run: |
+          git diff "origin/${{ github.base_ref }}...HEAD" > /tmp/pr.diff
+
+          python3 - << 'PYEOF'
+          import re, os
+
+          with open('/tmp/pr.diff') as f:
+            lines = f.readlines()
+
+          filtered = []
+          in_test_file = False
+
+          for line in lines:
+            if line.startswith('diff --git'):
+              in_test_file = bool(re.search(
+                r'(\.test\.|\.spec\.|__tests__|/tests?/)', line
+              ))
+
+            if in_test_file:
+              continue
+
+            # Drop blank added/removed lines and comment-only additions
+            if line.startswith(('+', '-')) and not line.startswith(('+++', '---')):
+              content = line[1:].strip()
+              if not content:
+                continue
+              if content.startswith(('// ', '# ', '* ', '/*', ' *')):
+                continue
+
+            filtered.append(line)
+
+          filtered_diff = ''.join(filtered)
+          added_lines = sum(
+            1 for l in filtered
+            if l.startswith('+') and not l.startswith('+++')
+          )
+
+          with open('/tmp/filtered.diff', 'w') as f:
+            f.write(filtered_diff)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+            f.write(f'line_count={added_lines}\n')
+
+          print(f'Filtered diff: {added_lines} added lines (test files, comments, blanks stripped)')
+          PYEOF
+
+      # ── Gate 3: diff size ─────────────────────────────────────────────────
+      - name: Check diff size
+        id: size
+        if: steps.label.outputs.skip == 'false' && steps.sensitive.outputs.is_sensitive == 'true'
+        run: |
+          LINE_COUNT="${{ steps.prep.outputs.line_count }}"
+          if [ "${LINE_COUNT:-0}" -gt 300 ]; then
+            echo "too_large=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "too_large=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post "PR too large" comment
+        if: |
+          steps.label.outputs.skip == 'false' &&
+          steps.sensitive.outputs.is_sensitive == 'true' &&
+          steps.size.outputs.too_large == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const count = '${{ steps.prep.outputs.line_count }}';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '> **Stage 3 · AI Review skipped** — this diff has **' + count + ' added lines** after filtering (limit: 300).',
+                '>',
+                '> AI security review is most effective on focused changes. Please consider splitting this PR by concern',
+                '> (e.g. auth changes separate from schema changes, new endpoints separate from refactors).',
+                '>',
+                '> Stages 1 and 2 static checks still ran and passed.',
+              ].join('\n'),
+            });
+
+      # ── AI call ───────────────────────────────────────────────────────────
+      - name: Run AI security review
+        id: ai
+        if: |
+          steps.label.outputs.skip == 'false' &&
+          steps.sensitive.outputs.is_sensitive == 'true' &&
+          steps.size.outputs.too_large == 'false'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python3 - << 'PYEOF'
+          import json, os, sys, urllib.request, urllib.error
+
+          diff = open('/tmp/filtered.diff').read()
+
+          # Hard cap at ~8 000 chars ≈ 2 000 input tokens to minimise cost
+          if len(diff) > 8000:
+            diff = diff[:8000] + '\n\n[diff truncated to stay within token budget]'
+
+          SYSTEM = (
+            "You are a security engineer reviewing a code diff. "
+            "Identify only: business logic flaws, authorization bypasses, and privilege escalation risks. "
+            "Do not repeat what static analysis would catch (SQLi, XSS, hardcoded secrets). "
+            "Be concise — bullet points only, max 10 findings, flag severity as HIGH/MED/LOW."
+          )
+
+          payload = {
+            "model": "claude-haiku-4-5",
+            "max_tokens": 500,
+            "system": SYSTEM,
+            "messages": [
+              {"role": "user", "content": f"Review this diff for security issues:\n\n{diff}"}
+            ],
+          }
+
+          req = urllib.request.Request(
+            'https://api.anthropic.com/v1/messages',
+            data=json.dumps(payload).encode('utf-8'),
+            headers={
+              'x-api-key': os.environ['ANTHROPIC_API_KEY'],
+              'anthropic-version': '2023-06-01',
+              'content-type': 'application/json',
+            },
+            method='POST',
+          )
+
+          try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+              result = json.loads(resp.read())
+            text = result['content'][0]['text']
+          except urllib.error.HTTPError as e:
+            err_body = e.read().decode()
+            print(f'Anthropic API error {e.code}: {err_body}', file=sys.stderr)
+            text = f'_AI review unavailable (API error {e.code}) — please review this diff manually._'
+          except Exception as e:
+            print(f'Unexpected error: {e}', file=sys.stderr)
+            text = '_AI review unavailable — please review this diff manually._'
+
+          gho = os.environ.get('GITHUB_OUTPUT', '')
+          with open(gho, 'a') as f:
+            f.write('text<<AIEOF\n')
+            f.write(text + '\n')
+            f.write('AIEOF\n')
+
+          print('=== AI findings ===')
+          print(text)
+          PYEOF
+
+      - name: Post AI findings (collapsible)
+        if: |
+          steps.label.outputs.skip == 'false' &&
+          steps.sensitive.outputs.is_sensitive == 'true' &&
+          steps.size.outputs.too_large == 'false' &&
+          steps.ai.outputs.text != ''
+        uses: actions/github-script@v7
+        env:
+          FINDINGS: ${{ steps.ai.outputs.text }}
+          LINE_COUNT: ${{ steps.prep.outputs.line_count }}
+        with:
+          script: |
+            const findings = process.env.FINDINGS || '- No findings from AI review.';
+            const lineCount = process.env.LINE_COUNT || '0';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '<details>',
+                '<summary><strong>🤖 Stage 3 · AI Security Review</strong> (click to expand)</summary>',
+                '',
+                `> Reviewed **${lineCount}** added lines — test files, comments, and blank lines excluded.`,
+                '> Model: `claude-haiku-4-5` &nbsp;·&nbsp; max_tokens: `500` &nbsp;·&nbsp; Scope: business logic, auth bypasses, privilege escalation only.',
+                '',
+                findings,
+                '',
+                '---',
+                '> This is an automated analysis. Treat findings as hints, not verdicts.',
+                '> Add the `skip-security-ai` label to skip Stage 3 on known-safe PRs.',
+                '',
+                '</details>',
+              ].join('\n'),
+            });

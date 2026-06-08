@@ -119,6 +119,19 @@ Steps:
 
 ---
 
+## Git workflow — push and PR
+
+Whenever the user asks to push changes:
+
+1. Commit the changes to the current branch.
+2. Push the branch to `origin`.
+3. **Always create a pull request** targeting `main` using `gh pr create`.
+4. **Post the PR URL** in the reply so the user can review, approve, or merge.
+
+Never push directly to `main`. Never skip the PR step.
+
+---
+
 ## Requesting UI work efficiently
 
 To get the fastest, most accurate implementation:
