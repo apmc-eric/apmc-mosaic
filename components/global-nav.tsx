@@ -22,6 +22,7 @@ const DESIGNER_NAV = [
   { href: '/works', label: 'Work' },
   { href: '/inspire', label: 'Library' },
   { href: '/team', label: 'Directory' },
+  { href: '/docs', label: 'Documentation' },
 ] as const
 
 function isNavActive(pathname: string, href: string) {
