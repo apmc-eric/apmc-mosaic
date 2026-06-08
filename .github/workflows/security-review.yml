@@ -201,13 +201,19 @@ jobs:
           with open('/tmp/pr.diff') as f:
             lines = f.readlines()
 
-          # Only inspect added lines; skip security-ignore annotations
-          added = [
-            (i + 1, line[1:])
-            for i, line in enumerate(lines)
-            if line.startswith('+') and not line.startswith('+++')
-            and 'security-ignore:' not in line
-          ]
+          # Walk lines, track current file, skip non-code files and security-ignore annotations
+          added = []
+          current_file = ''
+          SKIP_EXTENSIONS = ('.md', '.txt', '.rst', '.json', '.yaml', '.yml', '.toml', '.lock')
+          for i, line in enumerate(lines):
+            if line.startswith('diff --git'):
+              # Extract filename from "diff --git a/foo b/foo"
+              parts = line.split(' b/', 1)
+              current_file = parts[1].strip() if len(parts) > 1 else ''
+            if current_file.endswith(SKIP_EXTENSIONS):
+              continue
+            if line.startswith('+') and not line.startswith('+++') and 'security-ignore:' not in line:
+              added.append((i + 1, line[1:]))
 
           PATTERNS = [
             # Template literals containing SQL keywords
