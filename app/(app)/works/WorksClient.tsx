@@ -491,7 +491,7 @@ export default function WorksClient() {
       const cursorPos = ta?.selectionStart ?? panelCommentDraft.length
       const before = panelCommentDraft.slice(0, mentionStartRef.current)
       const after = panelCommentDraft.slice(cursorPos)
-      const inserted = `@${firstName} `
+      const inserted = `@${firstName} ` // security-ignore: false positive — @mention string, not SQL
       const next = before + inserted + after
       setPanelCommentDraft(next)
       mentionMapRef.current.set(firstName, picked.id)
