@@ -4,7 +4,7 @@
     {
       "name": "mosaic",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
+      "runtimeArgs": ["--dir", "/Users/ericsin/Documents/Cursor/mosaic_inspo", "dev"],
       "port": 3000,
       "autoPort": false
     }
